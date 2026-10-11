@@ -13,8 +13,6 @@ How to read it:
 
 | Missing | Effect | Evidence | Status |
 |---|---|---|---|
-| `FlattenMapRect(x, z, sx, sz, y)` writes the heightfield in retail; the engine's is a no-op | Terrain under structures with a FlattenSkirt (219 retail blueprints) isn't levelled; buildings stand on the slope | faf-re `cfunc_FlattenMapRect` (`sim/Sim.cpp`); retail `/lua/defaultunits.lua` OnCreate; engine `sim_bindings.cpp` stub_noop | Open |
-| Scrollers (`AddThreadScroller`, `AddPingPongScroller`, `AddManualScroller`, `RemoveScroller`) are no-ops; the renderer ignores the mesh LOD's `Scrolling` | Tank tracks don't move (37 blueprints with `Treads.ScrollTreads`); UEA0102's ping-pong scroll doesn't run | faf-re `AddThreadScroller` (`entity/Entity.cpp`); retail `/lua/sim/Unit.lua` CreateTreads, `/lua/defaultunits.lua`; engine `entity.cpp` stub_noop | Open |
 | `IssueFormAttack(units, target, formation, heading)` attacks in formation in retail; the engine's is a plain `IssueAttack` | A skirmish AI attack platoon's final push on a nearby target goes in without a formation | faf-re `cfunc_IssueFormAttack` (`sim/CCommandLuaFunctionRegistrations.cpp`); retail `/lua/platoon.lua` AttackForceAI; engine `sim_bindings.cpp` IssueFormAttack | Open |
 | FAF: sim `Unit:GetCommandQueue()` gives Moho's command numbers, `x,y,z`, `targetId` and `blueprintId`; the engine gives its own numbers and positions only for Move and Attack | FAF: "copy orders" and "distribute orders" mis-map every order whose number differs (a build reads as Repair, an upgrade as attack-move) and error on capture and later orders | FA-Binary-Patches `section/SimGetCommandQueue.cpp`; FAF `/lua/sim/commands/shared.lua:237`, `copy-queue.lua:72`, `distribute-queue.lua:77-84`; engine `bindings/sim/unit.cpp` GetCommandQueue, `sim/unit_command.hpp` | Open |
 | FAF: `SetCommandSource(army, source, bool)` is a no-op | FAF: with the Union army option, orders to an ally's units are dropped; with Common army, the merged players can't command the team army | FA-Binary-Patches `section/SimSetCommandSource.cpp`; FAF `/lua/simInit.lua:461-526`; engine `sim_bindings.cpp` stub_noop, `sim/sim_state.cpp` source armies | Open |
@@ -24,7 +22,6 @@ How to read it:
 
 | Missing | Effect | Evidence | Status |
 |---|---|---|---|
-| `_c_CreateDecal` (`UserDecal`) is bound in retail; the engine doesn't bind it | With an area weapon or a nuke in attack mode, `OnUpdateCursor` errors on every cursor update and no target-area decal follows the cursor | faf-re `_c_CreateDecal` (`script/ScriptedDecal.cpp`); retail `/lua/ui/controls/worldview.lua` (AreaTargetDecal), `/lua/user/UserDecal.lua`; engine `binding_baseline_retail.txt` | Open |
 | The minimap draws cartographic by default in retail (`SetCartographic(true)`): Moho's `Cartographic` paints the terrain's elevation as a hypsometric colour ramp with topographic contour bands, then the range rings, fog of war and playable boundary, the meshes in their materials' `cartographicTechnique`, and the map's cartographic decals; the engine stores the flag and draws the minimap as any other view | *Seen:* the minimap isn't cartographic, and the Cartographic toggle does nothing | faf-re `Cartographic` (`render/Cartographic.cpp`), `SetCartographic` (`ui/UiRuntimeTypes.cpp`); retail `/lua/ui/game/minimap.lua`, `/lua/ui/game/gamemain.lua`, `/lua/ui/game/multifunction.lua` | Open |
 | FAF: world drawing (`WorldView:SetCustomRender`, `OnRenderWorld(dt)`, `UI_DrawRect/Circle/Line`) | FAF: drawing on the map and shape overlays are invisible | FA-Binary-Patches `section/DrawFunc.cpp`, `WorldView.cpp`; FAF `/lua/ui/controls/components/WorldViewShapeComponent.lua:50,68`; engine `bindings/ui/world.cpp` | Open |
 | FAF: `CopyToClipboard(str)` | FAF: Ctrl-clicking a chat line errors | FA-Binary-Patches `section/CopyToClipBoard.cpp`; FAF `/lua/ui/game/chat/ChatLinesInterface.lua:77` | Open |
@@ -36,16 +33,12 @@ How to read it:
 
 | Missing | Effect | Evidence | Status |
 |---|---|---|---|
-| Projectile `Physics.LeadTarget` defaults to true in retail; the engine's default is false | Homing projectiles fly at where their target is, not ahead of it: 82 of retail's 102 `TrackTarget` projectiles leave the field unset | faf-re `RProjectileBlueprint` constructor (`LeadTarget(1)`), `Projectile.cpp`; engine `projectile.hpp` lead_target | Open |
-| `PrefersPrimaryWeaponTarget` makes a weapon take the primary's target when it can hit it; `StopOnPrimaryWeaponBusy` makes one drop its target while the primary has one. The engine targets each weapon alone | A unit's other weapons don't share its primary's target: 73 weapons on 36 units (ships, gunships, ASF, Fatboy, Monkeylord); Janus and Notha keep firing their second weapon | faf-re `CAcquireTargetTask`; engine `weapon.cpp` | Open |
 
 ## Categories
 
 | Missing | Effect | Evidence | Status |
 |---|---|---|---|
-| `SELECTABLE`: retail selects only `SELECTABLE` units, and a unit being built only if it is a `FACTORY`; the engine ignores the category and never selects a unit being built | Your own transport beacon (no `SELECTABLE`) can be clicked and boxed; a factory under construction can't be selected | faf-re `UserUnit::IsSelectable` (`unit/core/UserUnit.cpp`), `UserEntity`; engine `input_handler.cpp` selectable() | Open |
 | `REBUILDER`: when a structure dies, retail queues its rebuild, same blueprint and spot, on its army's `REBUILDER` units guarding it | Support commanders guarding a structure don't rebuild it | faf-re `CUnitGuardTask`, `Unit::Kill` (`unit/core/Unit.cpp`); engine: no rebuild path | Open |
-| `UNTARGETABLE`: retail's cursor passes through a unit that is `UNTARGETABLE` and neither `SELECTABLE` nor `FERRYBEACON`; the engine applies it to props only | Hovering such a unit (URA0001, URB5206, XSC9010/9011, the Othuy XSL0402) shows it, and a right click on an enemy one is an Attack instead of a Move | faf-re `CUIWorldView::UpdateSelection`; engine `input_handler.cpp` targetable_prop, handle_right_click | Open |
 
 ## Engine callbacks
 
@@ -68,7 +61,8 @@ How to read it:
 
 | Item | PR |
 |---|---|
-| `GetBoneDirection(bone)` returns three numbers, not a vector table: retail's Lua destructures `v.x, v.y, v.z = GetBoneDirection(b)`, so the Scathis's `CreateProjectileAtMuzzle` errored in `GetAngleInBetween` and the weapon never fired | pending |
+| `_c_CreateDecal` (`UserDecal`): the area-weapon and nuke target reticle follows the cursor | [#502](https://github.com/bwiemz/supcom-engine/pull/502) |
+| `GetBoneDirection(bone)` returns three numbers, not a vector table: retail's Lua destructures `v.x, v.y, v.z = GetBoneDirection(b)`, so the Scathis's `CreateProjectileAtMuzzle` errored in `GetAngleInBetween` and the weapon never fired | [#509](https://github.com/bwiemz/supcom-engine/pull/509) |
 | A right click on an enemy is an attack only if a selected unit can hit it (`UserUnit:CanAttackTarget`); on one none can, the cursor is `RULEUCC_Invalid` and no order is given (tanks on a bomber) | [#531](https://github.com/bwiemz/supcom-engine/pull/531) |
 | Projectile `RotationalVelocity`, `RotationalVelocityRange`: a projectile spins about a random axis from its creation (death debris, cluster bomblets, Kril torpedo) | [#532](https://github.com/bwiemz/supcom-engine/pull/532) |
 | `brain:GetUnitsAroundPoint(cat, pos, r)` and `GetNumUnitsAroundPoint` with no alliance take any army's units the brain knows of (its own, or one it holds a blip of); with one, only the known units of that alliance (the Ythotha's energy being) | [#533](https://github.com/bwiemz/supcom-engine/pull/533) |
@@ -79,7 +73,6 @@ How to read it:
 | `KMove`, `KMoveDamping`: an aircraft's level velocity answers KMove toward the lesser of its distance and its top speed against CalcAirMovementDampingFactor, so it brakes onto the centre of its goal's cell, and with no move to follow holds where its velocity would carry it in a second; it flies through at speed only with another move, attack, patrol or guard order queued (UpdateSpeedThroughStatus), and lands under the same controller | [#544](https://github.com/bwiemz/supcom-engine/pull/544) |
 | `KLift`, `KLiftDamping`, `LiftFactor`: an aircraft climbs under KLift over its transport load, against KLiftDamping, toward the highest ground ahead tracked at LiftFactor a second, and slows for ground rising more than LiftFactor | [#537](https://github.com/bwiemz/supcom-engine/pull/537) |
 | A paused unit's army pays what its script leaves asked: a shield's or radar's upkeep goes on, a build stops costing through `OnPaused`, and an enhancement begun while paused costs without progress; sim `unit:SetPaused` calls `OnPaused`/`OnUnpaused`, and an enhancing unit is `Upgrading` | [#577](https://github.com/bwiemz/supcom-engine/pull/577) |
-| A paused unit's army pays what its script leaves asked: a shield's or radar's upkeep goes on, a build stops costing through `OnPaused`, and an enhancement begun while paused costs without progress; sim `unit:SetPaused` calls `OnPaused`/`OnUnpaused`, and an enhancing unit is `Upgrading` | [#579](https://github.com/bwiemz/supcom-engine/pull/579) |
 | A paused unit moves, reclaims and fights; a paused builder, repairer or factory keeps its order and state but does no work, and starts nothing new until a retry after it unpauses; a frame whose only builder is a paused engineer decays (FAF's exe also stops a paused unit's prop reclaim) | [#557](https://github.com/bwiemz/supcom-engine/pull/557) |
 | An unfinished unit no builder works on decays from its second tick, by 0.1 / max(BuildCostEnergy, BuildCostMass, BuildTime) a tick, and calls `OnDecayed` at no health | [#538](https://github.com/bwiemz/supcom-engine/pull/538) |
 | A builder arm calls `OnStartBuilderTracking` and `OnStopBuilderTracking` as its heading starts and stops turning, and turns back to rest at once at a quarter of its slew; `ConstructionUnit` folds the arm after a build | [#539](https://github.com/bwiemz/supcom-engine/pull/539) |
@@ -102,6 +95,11 @@ How to read it:
 | `TeamColorMode`: the strategic icons (world view and minimap) in `GameColors.TeamColorMode`'s Self, Ally, Enemy and Neutral by the focus army's alliances; FAF's per-army colour string | [#570](https://github.com/bwiemz/supcom-engine/pull/570) |
 | `RenderOverlayEconomy`: the focus army's units drawn as meshes show their net energy and mass per second (`/lua/ui/game/econoverlayparams.lua`) | [#571](https://github.com/bwiemz/supcom-engine/pull/571) |
 | The engine's own HUD text (`--legacy-hud`'s economy bar and selection panel, the profiler overlay) stands on its font's baseline | [#575](https://github.com/bwiemz/supcom-engine/pull/575) |
+| `UNTARGETABLE` on units: the cursor passes through one that is neither `SELECTABLE` nor `FERRYBEACON` (URA0001, URB5206, XSC9010/9011, the Othuy XSL0402) | [#536](https://github.com/bwiemz/supcom-engine/pull/536) |
+| Projectile `Physics.LeadTarget` defaults to true (homing missiles and torpedoes lead a moving target) | [#529](https://github.com/bwiemz/supcom-engine/pull/529) |
+| `PrefersPrimaryWeaponTarget` (a weapon takes its primary's target when it can hit it) and `StopOnPrimaryWeaponBusy` (it drops its target while the primary has one): ships, gunships, ASF, experimentals; Janus and Notha bombs | [#549](https://github.com/bwiemz/supcom-engine/pull/549) |
+| Texture scrollers (`AddThreadScroller`, `AddPingPongScroller`, `AddManualScroller`, `RemoveScroller`) and the mesh LOD's `Scrolling`: tank treads (36 retail blueprints with `Treads.ScrollTreads`) and UEA0102's ping-pong scroll move | [#540](https://github.com/bwiemz/supcom-engine/pull/540) |
+| `FlattenMapRect(x, z, sx, sz, y)` writes the heightfield: a FlattenSkirt structure levels the ground under its skirt, the land units on it follow, and a save keeps it | [#541](https://github.com/bwiemz/supcom-engine/pull/541) |
 | `AddBuildRestriction(army, category)` keeps a category's blueprints on the army; `GetUnitCommandData` reads them (campaign and tutorial restrictions) | [#479](https://github.com/bwiemz/supcom-engine/pull/479) |
 | `SetArmyColorIndex` and the civilian army's colour | [#457](https://github.com/bwiemz/supcom-engine/pull/457) |
 | `ChangeUnitArmy` keeps commanders and units being built | [#471](https://github.com/bwiemz/supcom-engine/pull/471) |
@@ -121,6 +119,7 @@ How to read it:
 | One command graph line per shared order, `CalculateWaypointLineWidth` wide | [#455](https://github.com/bwiemz/supcom-engine/pull/455) |
 | An order moved or taken off shows at once, paused or before its tick | [#454](https://github.com/bwiemz/supcom-engine/pull/454) |
 | A unit aboard a transport can't be selected | [#458](https://github.com/bwiemz/supcom-engine/pull/458) |
+| `SELECTABLE`: only a unit with it can be selected (a transport beacon can't) | [#512](https://github.com/bwiemz/supcom-engine/pull/512) |
 | Orders and their cursor take the unit under the cursor; Capture only on what Moho offers it | [#477](https://github.com/bwiemz/supcom-engine/pull/477) |
 | Past zoom 150 the cursor and right-click pass over props | [#478](https://github.com/bwiemz/supcom-engine/pull/478) |
 | A press reaches the control the global click handler destroyed (chat recipient) | [#462](https://github.com/bwiemz/supcom-engine/pull/462) |

@@ -28,6 +28,7 @@ add_executable(osc_tests
     test_patrol.cpp
     test_guard.cpp
     test_ground_attack.cpp
+    test_primary_weapon_target.cpp
     test_command_feedback.cpp
     test_seabed_layer.cpp
     test_raised_platforms.cpp
@@ -36,6 +37,7 @@ add_executable(osc_tests
     test_target_points.cpp
     test_footprint_classes.cpp
     test_occupancy.cpp
+    test_flatten_map_rect.cpp
     test_path_clusters.cpp
     test_path_search.cpp
     test_path_navigator.cpp
@@ -84,6 +86,7 @@ add_executable(osc_tests
     test_resource_icons.cpp
     test_ui_controls.cpp
     test_texture_alpha.cpp
+    test_texture_scroller.cpp
     test_key_codes.cpp
     test_movie_player.cpp
     test_console_keymap.cpp

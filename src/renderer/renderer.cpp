@@ -986,15 +986,15 @@ void Renderer::create_pipelines() {
         bindings[0].stride = static_cast<u32>(sizeof(sim::SCMMesh::Vertex));
         bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
         // Binding 1: per-instance data (mat4 model + vec4 color + colour lookup + time +
-        // parameter = 92 bytes)
+        // parameter + scroll = 100 bytes)
         bindings[1].binding = 1;
         bindings[1].stride = sizeof(MeshInstance);
         bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-        // 15 attributes: pos(0), normal(1), uv(2), model col0-3(3-6), color(7), bone_indices(8),
+        // 16 attributes: pos(0), normal(1), uv(2), model col0-3(3-6), color(7), bone_indices(8),
         // bone_weights(9), tangent(10), binormal(11), colour lookup(12), instance time(13),
-        // parameter(14)
-        std::array<VkVertexInputAttributeDescription, 15> attrs{};
+        // parameter(14), scroll(15)
+        std::array<VkVertexInputAttributeDescription, 16> attrs{};
         attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};                              // position
         attrs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(f32) * 3};                // normal
         attrs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(f32) * 6};                   // UV
@@ -1011,6 +1011,7 @@ void Renderer::create_pipelines() {
         attrs[12] = {12, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, color_lookup)};
         attrs[13] = {13, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, shader_time)};
         attrs[14] = {14, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, parameter)};
+        attrs[15] = {15, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshInstance, scroll_u)};
 
         // Push constant: mat4 viewProj (64B) + uint boneBase (4B) + uint bonesPerInst (4B) + vec3
         // eye (12B) + uint technique (4B, M211b) + uint pass + float time (8B, M211f) + uint
@@ -1437,6 +1438,8 @@ void Renderer::build_scene(const map::Terrain* terrain, blueprints::BlueprintSto
     // The ground the camera's focus sits on: a copy, as the sim's terrain
     // is replaced on a reload.
     ground_ = terrain->heightmap();
+    ground_flattenings_ = terrain->flattenings().size();
+    ground_resets_ = terrain->flattenings_resets();
     // The range overlays' volumes span the map's heights
     {
         const map::Heightmap& h = terrain->heightmap();
@@ -1944,6 +1947,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
     }
     // The movies' new frames, likewise.
     movie_textures_.record(cmd_buf_[fi]);
+    record_terrain_sync(cmd_buf_[fi]);
 
     // ==================== SHADOW PASS ====================
     record_shadow_pass(fi, vp);
@@ -1985,6 +1989,31 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
     gpu_queries_.end(cmd_buf_[fi], fi); // the frame's, not a capture's readback
     const bool capturing = record_capture(cmd_buf_[fi], image_index);
     submit_and_present(fi, image_index, true, capturing, scene_capturing);
+}
+
+void Renderer::record_terrain_sync(VkCommandBuffer cmd) {
+    if (!terrain_ || !ground_ || !height_bounds_) {
+        return;
+    }
+    const map::Heightmap& now = terrain_->heightmap();
+    const auto sync = [&](i32 x0, i32 z0, i32 x1, i32 z1) {
+        ground_->copy_rect(now, x0, z0, x1, z1);
+        height_bounds_->update(*ground_, static_cast<u32>(std::max(x0 - 1, 0)),
+                               static_cast<u32>(std::max(z0 - 1, 0)), static_cast<u32>(x1),
+                               static_cast<u32>(z1));
+        terrain_mesh_.record_update(cmd, *ground_, x0, z0, x1, z1);
+    };
+    const std::vector<map::Flattening>& done = terrain_->flattenings();
+    if (terrain_->flattenings_resets() != ground_resets_ || done.size() < ground_flattenings_) {
+        *ground_ = now;
+        sync(0, 0, static_cast<i32>(now.grid_width()), static_cast<i32>(now.grid_height()));
+    } else {
+        for (size_t i = ground_flattenings_; i < done.size(); ++i) {
+            sync(done[i].x0, done[i].z0, done[i].x1, done[i].z1);
+        }
+    }
+    ground_flattenings_ = done.size();
+    ground_resets_ = terrain_->flattenings_resets();
 }
 
 void Renderer::record_normal_pass(u32 fi, const std::array<f32, 16>& vp) {

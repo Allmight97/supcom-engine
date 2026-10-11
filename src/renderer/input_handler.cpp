@@ -177,7 +177,8 @@ bool selectable(const sim::Entity& e) {
     }
     const auto& unit = static_cast<const sim::Unit&>(e);
     return !aboard(unit) && (!unit.is_being_built() || unit.takes_orders_unfinished()) &&
-           !unit.is_dying() && !unit.has_category("INSIGNIFICANTUNIT");
+           !unit.is_dying() && !unit.has_category("INSIGNIFICANTUNIT") &&
+           unit.has_category("SELECTABLE");
 }
 
 u32 carrier_of(const sim::Entity& e) {
@@ -1657,6 +1658,10 @@ u32 InputHandler::unit_under(sim::SimState& sim, f32 wx, f32 wz, bool own_only) 
             continue;
         }
         const auto& unit = static_cast<const sim::Unit&>(*e);
+        if (unit.has_category("UNTARGETABLE") && !unit.has_category("SELECTABLE") &&
+            !unit.has_category("FERRYBEACON")) {
+            continue;
+        }
         const sim::Vector3 pos = view_.position(*e);
         const sim::Quaternion orient = view_.orientation(*e);
         const auto [lo, hi] = mesh_box(unit);

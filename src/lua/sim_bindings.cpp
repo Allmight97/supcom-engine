@@ -535,6 +535,10 @@ static u32 create_unit_core(lua_State* L, const char* bp_id, int army, f32 x, f3
                                     &weapon->use_firing_solution},
                           std::pair{"AboveWaterFireOnly", &weapon->above_water_fire_only},
                           std::pair{"AlwaysRecheckTarget", &weapon->always_recheck_target},
+                          std::pair{"PrefersPrimaryWeaponTarget",
+                                    &weapon->prefers_primary_weapon_target},
+                          std::pair{"StopOnPrimaryWeaponBusy",
+                                    &weapon->stop_on_primary_weapon_busy},
                           std::pair{"YawOnlyOnTarget", &weapon->yaw_only_on_target},
                           std::pair{"CannotAttackGround", &weapon->cannot_attack_ground},
                           std::pair{"SlavedToBody", &weapon->slaved_to_body}}) {
@@ -2255,6 +2259,23 @@ static int l_GetTerrainHeight(lua_State* L) {
         lua_pushnumber(L, 0);
     }
     return 1;
+}
+
+static int l_FlattenMapRect(lua_State* L) {
+    if (lua_gettop(L) != 5) {
+        return luaL_error(L, "%s\n  expected %d args, but got %d",
+                          "FlattenRect(x, z, sizex, sizez, elevation)", 5, lua_gettop(L));
+    }
+    const auto x = static_cast<i32>(luaL_checknumber(L, 1));
+    const auto z = static_cast<i32>(luaL_checknumber(L, 2));
+    const auto size_x = static_cast<i32>(luaL_checknumber(L, 3));
+    const auto size_z = static_cast<i32>(luaL_checknumber(L, 4));
+    const auto elevation = static_cast<f32>(luaL_checknumber(L, 5));
+    auto* sim = get_sim(L);
+    if (sim && sim->terrain() && !sim->flatten_map_rect(x, z, size_x, size_z, elevation)) {
+        spdlog::warn("Attempted to flatten terrain outside map boundary! Operation Failed!");
+    }
+    return 0;
 }
 
 static int l_GetSurfaceHeight(lua_State* L) {
@@ -6730,7 +6751,7 @@ void register_sim_bindings(LuaState& state, sim::SimState& sim) {
         sim->set_playable_rect(x0, z0, x1, z1);
         return 0;
     });
-    state.register_function("FlattenMapRect", stub_noop);
+    state.register_function("FlattenMapRect", l_FlattenMapRect);
     state.register_function("FlushIntelInRect", l_FlushIntelInRect);
 
     // Categories

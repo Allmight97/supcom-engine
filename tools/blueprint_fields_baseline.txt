@@ -16,17 +16,14 @@ MinBounceCount
 NeedPrep
 PlaceholderMeshName
 PositionY
-PrefersPrimaryWeaponTarget
 QuickSelectPriority
 ReTargetOnMiss
 RepairRate
-Scrolling
 ShowAssistRangeOnSelect
 ShowIntelOnSelect
 Silhouette
 SpawnRandomRotation
 StayUpright
-StopOnPrimaryWeaponBusy
 StraddleWater
 WobbleFactor
 WobbleSpeed
