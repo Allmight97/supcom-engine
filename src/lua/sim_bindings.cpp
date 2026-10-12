@@ -381,6 +381,9 @@ static u32 create_unit_core(lua_State* L, const char* bp_id, int army, f32 x, f3
                 drive.rotate_on_spot = lua_toboolean(L, -1) != 0;
                 lua_pop(L, 1);
                 unit->set_drive(drive);
+                unit->set_blueprint_elevation(number("Elevation", 0));
+                unit->set_hover_physics({number("BankingSlope", 0), number("MaxAcceleration", 0),
+                                         number("WobbleFactor", 0), number("WobbleSpeed", 0)});
             }
             lua_pop(L, 2);
 
@@ -1217,7 +1220,7 @@ static u32 create_unit_core(lua_State* L, const char* bp_id, int army, f32 x, f3
                 lua_gettable(L, -2);
                 if (lua_isnumber(L, -1)) {
                     f32 elev = static_cast<f32>(lua_tonumber(L, -1));
-                    unit->set_elevation_target(elev);
+                    unit->set_blueprint_elevation_target(elev);
                     unit->set_naval_draft(std::abs(elev));
                 }
                 lua_pop(L, 1);
@@ -1253,7 +1256,7 @@ static u32 create_unit_core(lua_State* L, const char* bp_id, int army, f32 x, f3
                 lua_pushstring(L, "Elevation");
                 lua_rawget(L, -2);
                 if (lua_isnumber(L, -1)) {
-                    unit->set_elevation_target(static_cast<f32>(lua_tonumber(L, -1)));
+                    unit->set_blueprint_elevation_target(static_cast<f32>(lua_tonumber(L, -1)));
                 }
                 lua_pop(L, 1);
             }
