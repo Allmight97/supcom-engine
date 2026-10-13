@@ -1574,6 +1574,11 @@ void SimState::tick() {
         lua_setgcthreshold(L_, 0);
     }
 
+    // What moved this tick relinks in the collision cells (Moho's
+    // AdvanceCoords, near the end of the beat): the rect queries see each
+    // tick's moves from the next one on.
+    entity_registry_.advance_collision_cells();
+
     // Entities unregistered this tick may still have been on the C++ stack
     // (destroyed from their own callbacks); only now is freeing them safe,
     // their Lua handles cut first.
@@ -2028,10 +2033,20 @@ void SimState::separate_ground_units() {
         if (moho_pathing_ && footprint_fits_at(u.footprint(), p.x, p.z) == 0 &&
             footprint_fits_at(u.footprint(), u.position().x, u.position().z) != 0)
             continue;
-        // On the surface as it drives; a submarine keeps its depth.
+        // On the surface as it drives; a submarine keeps its depth. Tilted
+        // from its facing made unit length first: this pass is the engine's
+        // (Moho resolves overlaps in its motion), and a crowd can be pushed
+        // every tick, where tilting the last tilt again would build float
+        // error up without end on a slope.
         if (terrain_ && !bodies[i].sub) {
-            const Unit::GroundStance stance =
-                u.ground_stance(terrain_.get(), p.x, p.z, u.orientation());
+            Quaternion facing = u.orientation();
+            const f32 length = std::sqrt(facing.x * facing.x + facing.y * facing.y +
+                                         facing.z * facing.z + facing.w * facing.w);
+            if (length > 0.0f) {
+                facing = {facing.x / length, facing.y / length, facing.z / length,
+                          facing.w / length};
+            }
+            const Unit::GroundStance stance = u.ground_stance(terrain_.get(), p.x, p.z, facing);
             p.y = stance.y;
             u.set_orientation(stance.orientation);
         }

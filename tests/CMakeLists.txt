@@ -58,6 +58,8 @@ add_executable(osc_tests
     test_interpolation.cpp
     test_ordered_iteration.cpp
     test_collision.cpp
+    test_collision_cells.cpp
+    test_coords_tilt.cpp
     test_flight.cpp
     test_dmath.cpp
     test_cross_platform.cpp
