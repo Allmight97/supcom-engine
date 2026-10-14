@@ -66,6 +66,7 @@ add_executable(osc_tests
     test_sim_callbacks.cpp
     test_order_editing.cpp
     test_user_unit.cpp
+    test_faf_bindings.cpp
     test_transport_unload.cpp
     test_special_files.cpp
     test_binding_coverage.cpp
@@ -75,6 +76,7 @@ add_executable(osc_tests
     test_init_loader.cpp
     test_blueprint_loading.cpp
     test_map.cpp
+    test_cartographic_math.cpp
     test_transport_slots.cpp
     test_influence_map.cpp
     test_jammer_fakes.cpp
