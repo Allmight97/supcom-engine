@@ -1107,7 +1107,6 @@ static void read_air(lua_State* L, const BlueprintStore& store, const BlueprintE
             rules.circling_dir_change = lua_isnil(L, -1) || flag("CirclingDirChange");
             lua_pop(L, 1);
         }
-        rules.circling_min_airspeed = rules.min_airspeed;
         rules.circling_turn_mult = number("CirclingTurnMult", 3.0f);
         rules.circling_radius_min = number("CirclingRadiusChangeMinRatio", 0.6f);
         rules.circling_radius_max = number("CirclingRadiusChangeMaxRatio", 0.9f);
@@ -1142,12 +1141,15 @@ static void read_air(lua_State* L, const BlueprintStore& store, const BlueprintE
     if (unit.max_airspeed() <= 0 && unit.max_speed() > 0) unit.set_max_airspeed(unit.max_speed());
     if (unit.accel_rate() <= 0 && unit.max_airspeed() > 0)
         unit.set_accel_rate(unit.max_airspeed() * 0.5f);
-    if (unit.turn_rate_rad() <= 0) unit.set_turn_rate_rad(1.5f); // ~86 deg/s default
-    if (unit.air_combat_rules().min_airspeed <= 0.0f) {
-        sim::AirCombatRules rules = unit.air_combat_rules();
-        rules.min_airspeed = unit.max_airspeed();
-        unit.set_air_combat_rules(rules);
+    if (unit.turn_rate_rad() <= 0) {
+        unit.set_turn_rate_rad(1.0f);
     }
+    sim::AirCombatRules rules = unit.air_combat_rules();
+    if (rules.min_airspeed <= 0.0f) {
+        rules.min_airspeed = unit.max_airspeed();
+    }
+    rules.circling_min_airspeed = rules.min_airspeed;
+    unit.set_air_combat_rules(rules);
 }
 
 /// General.CommandCaps / ToggleCaps: the orders and toggles a unit
@@ -1211,6 +1213,33 @@ static void read_fuel(lua_State* L, const BlueprintStore& store, const Blueprint
     lua_pop(L, 2); // Physics table (or nil) + bp table
 }
 
+/// Where a finished unit stands as it is made, by its starting layer (Moho's
+/// Unit constructor: IUnit::CalcSpawnElevation): on the ground or the seabed,
+/// or at the water's surface. A sub is put at its depth (start_submerged),
+/// and an aircraft at its height (create_unit_core). An experimental aircraft
+/// starts on the ground (GetStartingLayer gives an EXPERIMENTAL footprint
+/// with AIR the Land) and takes off on its first tick.
+static void place_at_spawn(const sim::SimState& sim, sim::Unit& unit, f32 x, f32 z) {
+    const map::Terrain* terrain = sim.terrain();
+    if (!terrain) return;
+    if (unit.can_fly() && unit.has_category("EXPERIMENTAL")) {
+        unit.set_layer("Land");
+        unit.set_lifts_off(true);
+    }
+    const std::string& layer = unit.layer();
+    sim::Vector3 at = unit.position();
+    if (layer == "Land" || layer == "Seabed") {
+        at.y = terrain->get_terrain_height(x, z);
+    } else if (layer == "Water" && terrain->has_water() &&
+               terrain->water_elevation() > terrain->get_terrain_height(x, z)) {
+        // (A ship made on dry ground keeps its place: not probed.)
+        at.y = terrain->water_elevation();
+    } else {
+        return;
+    }
+    unit.set_position({x, at.y, z});
+}
+
 /// A surfacing sub made where it can dive starts submerged.
 static void start_submerged(const sim::SimState& sim, sim::Unit& unit, f32 x, f32 z) {
     if (sim.terrain() &&
@@ -1241,10 +1270,11 @@ void read_unit_blueprint(lua_State* L, const sim::SimState& sim, const Blueprint
     resolve_footprints(L, sim, store, entry, unit, x, z);
     if (unit.is_naval()) read_naval(L, store, entry, unit);
     if (unit.motion_type() == "RULEUMT_SurfacingSub") start_submerged(sim, unit, x, z);
-    if (unit.is_air_unit()) {
+    if (unit.can_fly()) {
         read_air_elevation(L, store, entry, unit);
         read_air(L, store, entry, unit);
     }
+    if (!being_built) place_at_spawn(sim, unit, x, z);
     read_command_caps(L, store, entry, unit);
     if (unit.is_air_unit()) read_fuel(L, store, entry, unit);
 }
