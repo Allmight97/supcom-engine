@@ -480,6 +480,7 @@ Projectile::BlueprintPhysics Projectile::apply_blueprint_physics(lua_State* L, S
         lua_pop(L, 1);
     };
     flag("VelocityAlign", velocity_align);
+    flag("StayUpright", stay_upright);
     number("Acceleration", acceleration);
     number("MaxSpeed", max_speed);
     flag("TrackTarget", tracking);
@@ -504,8 +505,7 @@ Projectile::BlueprintPhysics Projectile::apply_blueprint_physics(lua_State* L, S
     found.realistic_ordinance =
         field("RealisticOrdinance") != LUA_TNIL && lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
-    if (field("Lifetime") == LUA_TNUMBER) found.lifetime = static_cast<f32>(lua_tonumber(L, -1));
-    lua_pop(L, 1);
+    number("Lifetime", found.lifetime);
     // Each made a little different: base +- its range, uniformly (Moho's
     // RandomSymmetricAround). Moho draws even for a range of 0; this only
     // for one there is.
@@ -528,7 +528,7 @@ Projectile::BlueprintPhysics Projectile::apply_blueprint_physics(lua_State* L, S
         spread("TurnRateRange", turn_rate);
         spread("MaxSpeedRange", max_speed);
         spread("AccelerationRange", acceleration);
-        if (found.lifetime) spread("LifetimeRange", *found.lifetime);
+        spread("LifetimeRange", found.lifetime);
     }
     lua_settop(L, top);
     return found;

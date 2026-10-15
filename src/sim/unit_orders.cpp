@@ -452,7 +452,9 @@ OrderStep Unit::order_attack(UnitCommand& cmd, f64 dt, SimContext& ctx) {
     // Attack: move toward target if out of weapon range, else stop
     if (cmd.target_id == 0) return order_attack_ground(cmd, dt, ctx);
     auto* target = registry.find(cmd.target_id);
-    if (!target || target->destroyed()) {
+    // faf-re CUnitAttackTargetTask::TaskTick, CAiTarget::HasTarget: a dying unit is no target.
+    const bool dead = target && target->is_unit() && static_cast<const Unit*>(target)->is_dying();
+    if (!target || target->destroyed() || (dead && command_queue_.size() >= 2)) {
         if (cmd.engaged) end_attack_run(*this); // the run ends with its target
         release_navigator();                    // and the chase
         command_queue_.pop_front();
@@ -474,6 +476,23 @@ OrderStep Unit::order_attack(UnitCommand& cmd, f64 dt, SimContext& ctx) {
     f32 dz = target->position().z - position().z;
     f32 dist2 = dx * dx + dz * dz;
     f32 range2 = best_range * best_range;
+    if (dead) {
+        if (cmd.engaged) {
+            end_attack_run(*this);
+            cmd.engaged = false;
+        }
+        if (dist2 <= range2) {
+            release_navigator();
+            command_queue_.pop_front();
+            return OrderStep::Next;
+        }
+        if (!navigator_.is_moving() || navigator_.goal().x != target->position().x ||
+            navigator_.goal().z != target->position().z) {
+            set_path_goal(target->position(), ctx);
+        }
+        nav_update(dt, ctx.terrain);
+        return OrderStep::Hold;
+    }
     // A guard's or patrol's fight goes only so far (Moho's acquire task,
     // CheckTargetGuardExempt): once the unit has come within reach of its
     // target, it gives up beyond GuardReturnRadius of what it guards, or of
@@ -543,10 +562,10 @@ OrderStep Unit::order_attack(UnitCommand& cmd, f64 dt, SimContext& ctx) {
             return OrderStep::Hold;
         }
     }
-    if (dist2 > range2) {
-        // Move toward target: a FormAttack's unit toward its slot about it,
-        // the formation centred on the target wherever it goes (Moho's
-        // attack task, Update: SetCoords, GetAdjustedFormationPosition)
+    // Move toward target: a FormAttack's unit toward its slot about it,
+    // the formation centred on the target wherever it goes (Moho's
+    // attack task, Update: SetCoords, GetAdjustedFormationPosition)
+    const auto close_in = [&] {
         Vector3 goal = target->position();
         if (cmd.has_slot) {
             goal.x += cmd.slot_offset.x;
@@ -557,12 +576,20 @@ OrderStep Unit::order_attack(UnitCommand& cmd, f64 dt, SimContext& ctx) {
             set_path_goal(goal, ctx);
         }
         nav_update(dt, ctx.terrain);
+    };
+    if (dist2 > range2) {
+        close_in();
     } else {
         // In reach, the formation is dropped: from now on the unit attacks
         // as a plain attack does (TaskTick's Processing: mFormation = null).
         cmd.has_slot = false;
-        navigator_.abort_move();
-        // Parked, every 9 ticks it asks to face its target AttackAngle off
+        // CUnitAttackTargetTask::TaskTick, Complete: AbortNavigation unless Air.CanFly.
+        if (can_fly()) {
+            close_in();
+        } else {
+            navigator_.abort_move();
+        }
+        // In reach, every 9 ticks it asks to face its target AttackAngle off
         // the bow (Moho's attack task, Complete: SetFacing, return 10).
         if (attack_angle_ > 0.0f) {
             if (cmd.facing_clock <= 0) {
@@ -670,15 +697,17 @@ OrderStep Unit::order_attack_ground(UnitCommand& cmd, f64 dt, SimContext& ctx) {
         return OrderStep::Hold;
     }
     if (weapon && weapon->in_firing_range(*this, at)) {
-        navigator_.abort_move();
         cmd.engaged = true;
         cmd.has_slot = false; // the formation dropped, as on a unit
-        return OrderStep::Hold;
+        if (!can_fly()) {
+            navigator_.abort_move();
+            return OrderStep::Hold;
+        }
     }
-    // Out of range it goes toward the point; inside its weapon's minimum
-    // range it backs off GuardScanRadius from the point (the task's
-    // Starting state). With no weapon that can hit the point it goes there
-    // and stays.
+    // Out of range, or in range if it can fly, it goes toward the point;
+    // inside its weapon's minimum range it backs off GuardScanRadius from
+    // the point (the task's Starting state). With no weapon that can hit
+    // the point it goes there and stays.
     // A FormAttack's unit heads for its slot about the point.
     Vector3 goal = at;
     if (cmd.has_slot) {
@@ -2286,7 +2315,7 @@ void Unit::hold_altitude(f64 dt, const map::Terrain* terrain, f32 altitude) {
     else if (alt > altitude) alt = std::max(alt - climb, altitude);
     current_altitude_ = alt;
     current_airspeed_ = 0.0f;
-    air_velocity_ = {};
+    rest_air_body();
     Vector3 at = position();
     at.y = air_floor(terrain, at.x, at.z) + alt;
     set_position(at);
