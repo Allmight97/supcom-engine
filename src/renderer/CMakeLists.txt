@@ -7,6 +7,8 @@ add_library(osc_renderer STATIC
     sky_renderer.cpp
     cartographic_renderer.cpp
     cartographic_math.cpp
+    cartographic_technique.cpp
+    cartographic_mesh_shaders.cpp
     mesh_cache.cpp
     texture_cache.cpp
     dds_parser.cpp
@@ -51,6 +53,7 @@ add_library(osc_renderer STATIC
     range_renderer.cpp
     stencil_volume.cpp
     vision_renderer.cpp
+    boundary_renderer.cpp
     world_shapes.cpp
     build_template.cpp
     effect_blueprint_file.cpp

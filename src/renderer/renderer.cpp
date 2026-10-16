@@ -494,6 +494,9 @@ void Renderer::init_sub_renderers() {
         minimap_ranges_.init(device_, allocator_, cartographic_.frame_pass());
         minimap_vision_.init(device_, allocator_, cartographic_.frame_pass());
         main_frame_ranges_.init(device_, allocator_, cartographic_.frame_pass());
+        // The playable area's boundary, in the world and in the frames
+        boundary_renderer_.init(device_, frame_.scene_pass());
+        frame_boundary_.init(device_, cartographic_.frame_pass());
         // The world's fog of war, drawn as Moho's RenderFogOfWar draws it
         vision_renderer_.init(device_, allocator_, frame_.scene_pass());
     }
@@ -1173,6 +1176,46 @@ void Renderer::create_mesh_pipelines(VkShaderModule mv, VkShaderModule mf) {
         shield_pipelines_[i] = build_shield(static_cast<ShieldState>(i), &shield_layouts_[i]);
     vkDestroyShaderModule(device_, sv, nullptr);
     vkDestroyShaderModule(device_, sf, nullptr);
+
+    // A cartographic view's meshes (cartographic P6): mesh.fx's
+    // cartographic passes' states, the meshes' input and culling. Push:
+    // viewProj, the bones' base and count, surfaceElevation, minimum and
+    // maximum elevation, technique and pass (92 bytes). Sets: the albedo,
+    // the bones, the height ramp.
+    VkShaderModule cv =
+        compile_glsl(device_, shaders::cartographic_mesh_vert(), "cartographic_mesh.vert", true);
+    VkShaderModule cf =
+        compile_glsl(device_, shaders::cartographic_mesh_frag(), "cartographic_mesh.frag", false);
+    const auto build_cartographic = [&](CartographicMeshState state, VkPipelineLayout* layout) {
+        using S = CartographicMeshState;
+        const bool blend = state == S::UnitColour || state == S::Shield;
+        VkColorComponentFlags mask = kColorOnly;
+        if (state == S::UnitGlow) mask = VK_COLOR_COMPONENT_A_BIT;
+        else if (state == S::OpaqueAlpha) mask = kColorAndGlow;
+        return PipelineBuilder()
+            .set_shaders(cv, cf)
+            .set_vertex_input(bindings.data(), static_cast<u32>(bindings.size()), attrs.data(),
+                              static_cast<u32>(attrs.size()))
+            .set_depth_test(state != S::UnitGlow, state != S::UnitGlow && state != S::Shield)
+            .set_blend(blend)
+            .set_color_blend(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
+            .set_color_write_mask(mask)
+            .set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE)
+            .set_push_constant(sizeof(f32) * 16 + sizeof(u32) * 2 + sizeof(f32) * 3 +
+                                   sizeof(u32) * 2,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+            .set_descriptor_set_layout(texture_ds_layout_) // set=0: albedo
+            .add_descriptor_set_layout(bone_ds_layout_)    // set=1: bone SSBO
+            .add_descriptor_set_layout(texture_ds_layout_) // set=2: the height ramp
+            .build(device_, frame_.scene_pass(), layout);
+    };
+    if (cv && cf) {
+        for (u32 i = 0; i < kCartographicMeshStates; ++i)
+            cartographic_mesh_pipelines_[i] = build_cartographic(
+                static_cast<CartographicMeshState>(i), &cartographic_mesh_layouts_[i]);
+    }
+    if (cv) vkDestroyShaderModule(device_, cv, nullptr);
+    if (cf) vkDestroyShaderModule(device_, cf, nullptr);
 }
 
 void Renderer::create_decal_pipelines(VkShaderModule dv, VkShaderModule df) {
@@ -1340,17 +1383,16 @@ void Renderer::inject_feedback_blips(lua_State* L, const std::vector<WorldMeshDr
     const auto inject = [&](const FeedbackBlipSpec& spec, f32 created_tick, f32 parameter,
                             f32 lod_cutoff) {
         // MeshName at its UniformScale, else the blueprint's LOD 0 mesh at
-        // the blueprint's; the albedo and technique are the blip's either way.
-        const MeshTechnique technique = osc::renderer::mesh_technique(spec.shader_name);
+        // the blueprint's; the albedo and shader are the blip's either way.
         const GPUMesh* mesh = nullptr;
         f32 scale = spec.uniform_scale;
         if (!spec.mesh_name.empty()) {
-            mesh = mesh_cache_.get_file(spec.mesh_name, spec.texture_name, technique);
+            mesh = mesh_cache_.get_file(spec.mesh_name, spec.texture_name, spec.shader_name);
         } else if (!spec.blueprint_id.empty() && L) {
             mesh = spec.texture_name.empty()
                        ? mesh_cache_.get(spec.blueprint_id, L)
                        : mesh_cache_.get_file(mesh_cache_.mesh_file(spec.blueprint_id, L),
-                                              spec.texture_name, technique);
+                                              spec.texture_name, spec.shader_name);
             scale = mesh_cache_.blueprint_scale(spec.blueprint_id, L);
         }
         if (!mesh) {
@@ -1999,6 +2041,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
     begin_commands(fi);
     gpu_queries_.begin(cmd_buf_[fi], fi, frame_sequence_ + 1);
     mesh_draws_.fill(0); // this frame's, for tests (M211k)
+    cartographic_mesh_draws_.fill(0);
 
     // The movies' new frames (barriers + copy, before any render pass)
     movie_textures_.record(cmd_buf_[fi]);
@@ -2019,6 +2062,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
             [&](VkCommandBuffer cmd, const f32* view_proj, u32 w, u32 h) {
                 main_frame_ranges_.render(cmd, w, h, view_proj, fi);
                 minimap_vision_.render(cmd, w, h, view_proj, fi);
+                frame_boundary_.render(cmd, w, h, view_proj);
             });
     }
 
@@ -2069,6 +2113,8 @@ void Renderer::record_cartographic_main(u32 fi, const std::array<f32, 16>& vp) {
     // Stage 1 over the scene, cleared black as Moho clears the head for it:
     // the map less its contour lines, no glow
     cartographic_.record_main_edge(cmd, fi);
+    // RenderMeshes: the meshes in their cartographic techniques
+    draw_cartographic_meshes(cmd, fi, vp);
     // RenderParticles: RenderEffects(camera, renderWaterSurface 0,
     // suppressTLight 1), which draws the light particles alone (no beams,
     // no trails)
@@ -2497,6 +2543,78 @@ void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16
     }
 }
 
+void Renderer::draw_cartographic_meshes(VkCommandBuffer cmd, u32 fi,
+                                        const std::array<f32, 16>& vp) {
+    // None when strategic zoom replaces the units with icons, as draw_meshes
+    VkDescriptorSet ramp = cartographic_.hypsometric_descriptor();
+    if (strategic_icon_renderer_.is_strategic_zoom() || unit_renderer_.mesh_groups().empty() ||
+        !cartographic_mesh_pipelines_[0] || !ramp || !bone_ds_[fi])
+        return;
+    struct Push {
+        f32 view_proj[16];
+        u32 bone_base;
+        u32 bones_per_instance;
+        f32 surface;
+        f32 elev_min;
+        f32 elev_max;
+        u32 technique;
+        u32 pass;
+    } push{};
+    static_assert(sizeof(Push) == 92, "matches cartographic_mesh_vert/frag's push block");
+    std::memcpy(push.view_proj, vp.data(), sizeof(push.view_proj));
+    // RenderCartographic's surfaceElevation, minimumElevation and
+    // maximumElevation: the frame's
+    const CartographicParams& params = cartographic_.params();
+    push.surface = params.surface;
+    push.elev_min = params.elev_min;
+    push.elev_max = params.elev_max;
+    VkPipelineLayout layout = cartographic_mesh_layouts_[0];
+    VkDescriptorSet fallback = texture_cache_.fallback_descriptor();
+    if (!fallback) return;
+    // All three sets at once: set 0 was the frame's edge pass's, a layout
+    // these aren't compatible with, so binding it alone after the others
+    // would disturb them. Then each group's albedo at set 0 leaves them be.
+    const std::array<VkDescriptorSet, 3> sets = {fallback, bone_ds_[fi], ramp};
+    vkc::bind_descriptor_sets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0,
+                              static_cast<u32>(sets.size()), sets.data(), 0, nullptr);
+    VkPipeline bound = VK_NULL_HANDLE;
+    const int lane = std::clamp(fidelity(), 0, 2);
+    for (const auto& group : unit_renderer_.mesh_groups()) {
+        if (!group.mesh || group.instance_count == 0) continue;
+        // A build ghost draws as UnitPlace does, whatever its mesh's shader
+        const CartographicTechnique technique =
+            group.ghost ? cartographic_technique("UnitPlace", lane)
+                        : group.mesh->cartographic[static_cast<size_t>(lane)];
+        const CartographicMeshPasses passes = cartographic_mesh_passes(technique);
+        if (passes.count == 0) continue;
+        VkDescriptorSet albedo = group.texture_ds ? group.texture_ds : fallback;
+        vkc::bind_descriptor_sets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &albedo, 0,
+                                  nullptr);
+        VkBuffer vbufs[] = {group.mesh->vertex_buf.buffer, unit_renderer_.mesh_instance_buffer()};
+        VkDeviceSize offsets[] = {0, static_cast<VkDeviceSize>(group.instance_offset) *
+                                         sizeof(MeshInstance)};
+        vkCmdBindVertexBuffers(cmd, 0, 2, vbufs, offsets);
+        vkCmdBindIndexBuffer(cmd, group.mesh->index_buf.buffer, 0, VK_INDEX_TYPE_UINT32);
+        push.bone_base = group.bone_base_offset;
+        push.bones_per_instance = group.bones_per_instance;
+        push.technique = static_cast<u32>(technique);
+        for (u32 pass = 0; pass < passes.count; ++pass) {
+            VkPipeline pipeline =
+                cartographic_mesh_pipelines_[static_cast<u32>(passes.state[pass])];
+            if (pipeline != bound) {
+                vkc::bind_pipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                bound = pipeline;
+            }
+            push.pass = pass;
+            vkc::push_constants(cmd, layout,
+                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                sizeof(push), &push);
+            vkc::draw_indexed(cmd, group.mesh->index_count, group.instance_count, 0, 0, 0);
+            ++cartographic_mesh_draws_[static_cast<u32>(technique)];
+        }
+    }
+}
+
 void Renderer::copy_and_continue(VkCommandBuffer cmd, VkRenderPass next) {
     vkCmdEndRenderPass(cmd);
     copy_refraction(cmd);
@@ -2710,6 +2828,17 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
     events.intel_flushes.clear();
     // A playable rect the scripts synced since: what's outside it now hides
     playable_rect_.apply(view);
+    // And outside it the world is blacked out (ren_PlayableBoundary, in a
+    // game, a playable rect smaller than the map)
+    if (playable_boundary_ && terrain_ && view.cur()) {
+        const auto w = static_cast<f32>(terrain_->map_width());
+        const auto h = static_cast<f32>(terrain_->map_height());
+        boundary_renderer_.update(w, h, playable_rect_.rect());
+        frame_boundary_.update(w, h, playable_rect_.rect());
+    } else {
+        boundary_renderer_.set_off();
+        frame_boundary_.set_off();
+    }
 
     // Before the meshes: its planned sites are ghosts among them
     command_graph_renderer_.set_highlight(highlight_command_, hovered_);
@@ -3157,8 +3286,7 @@ void Renderer::record_main_pass(u32 fi, const std::array<f32, 16>& vp) {
 
     // 3. The meshes (real SCM models with GPU skinning): on a map with water,
     // those Moho draws before it (M213b)
-    draw_meshes(cmd_buf_[fi], fi, vp,
-                water_renderer_.has_water() ? MeshPass::BeforeWater : MeshPass::All);
+    draw_meshes(cmd_buf_[fi], fi, vp, MeshPass::BeforeWater);
 
     // 4. Draw cube fallback units (skip when strategic zoom active)
     if (!strategic_icon_renderer_.is_strategic_zoom() &&
@@ -3215,10 +3343,13 @@ void Renderer::record_main_pass(u32 fi, const std::array<f32, 16>& vp) {
         // draws them once the water is down (Medium and High; Low drew them).
         if (fidelity() > 0)
             record_decals(cmd_buf_[fi], fi, DecalTechnique::WaterAlbedo, decal_water_pipeline_, vp);
-        // The meshes Moho draws after the water (M213b), which writes no
-        // depth: over it, unrefracted.
-        draw_meshes(cmd_buf_[fi], fi, vp, MeshPass::AfterWater);
     }
+    // The playable area's boundary (RenderPlayableBoundary), after the water
+    // and before the meshes Moho draws after it
+    boundary_renderer_.render(cmd_buf_[fi], window_width_, window_height_, vp.data());
+    // The meshes Moho draws after the water (M213b), which writes no depth:
+    // over it, unrefracted (on a dry map, in the same place)
+    draw_meshes(cmd_buf_[fi], fi, vp, MeshPass::AfterWater);
 
     // 5b. FA's beams (M214a), then particles (M214c) and trails (M214b), as
     // Moho's CWorldParticles::RenderEffects draws them
@@ -4060,6 +4191,7 @@ void Renderer::draw_minimap_overlays(VkCommandBuffer cmd, const f32* view_proj, 
     // Cartographic::Render's order: the range rings, then the fog
     minimap_ranges_.render(cmd, width, height, view_proj, fi);
     minimap_vision_.render(cmd, width, height, view_proj, fi);
+    frame_boundary_.render(cmd, width, height, view_proj);
 }
 
 std::optional<Renderer::CartographicImages>
@@ -4311,6 +4443,8 @@ void Renderer::shutdown() {
     minimap_ranges_.destroy(device_, allocator_);
     minimap_vision_.destroy(device_, allocator_);
     main_frame_ranges_.destroy(device_, allocator_);
+    boundary_renderer_.destroy(device_);
+    frame_boundary_.destroy(device_);
     resource_icon_renderer_.destroy(device_, allocator_);
     projectile_icon_renderer_.destroy(device_, allocator_);
     gpu_queries_.destroy(device_);
@@ -4380,6 +4514,10 @@ void Renderer::shutdown() {
     for (u32 i = 0; i < kShieldStates; ++i) {
         vkDestroyPipeline(device_, shield_pipelines_[i], nullptr);
         vkDestroyPipelineLayout(device_, shield_layouts_[i], nullptr);
+    }
+    for (u32 i = 0; i < kCartographicMeshStates; ++i) {
+        vkDestroyPipeline(device_, cartographic_mesh_pipelines_[i], nullptr);
+        vkDestroyPipelineLayout(device_, cartographic_mesh_layouts_[i], nullptr);
     }
     vkDestroyPipeline(device_, decal_pipeline_, nullptr);
     vkDestroyPipelineLayout(device_, decal_layout_, nullptr);

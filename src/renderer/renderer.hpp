@@ -28,7 +28,9 @@
 #include "renderer/recon_view.hpp"
 #include "renderer/unit_renderer.hpp"
 #include "renderer/sky_renderer.hpp"
+#include "renderer/boundary_renderer.hpp"
 #include "renderer/cartographic_renderer.hpp"
+#include "renderer/cartographic_technique.hpp"
 #include "renderer/water_renderer.hpp"
 #include "renderer/particle_system.hpp"
 #include "renderer/wave_system.hpp"
@@ -232,6 +234,12 @@ public:
         const auto i = static_cast<size_t>(technique);
         return i < mesh_draws_.size() ? mesh_draws_[i] : 0;
     }
+    /// The last frame's cartographic mesh passes drawn with `technique`
+    /// (a Unit group's two count twice).
+    u32 cartographic_mesh_draws(CartographicTechnique technique) const {
+        const auto i = static_cast<size_t>(technique);
+        return i < cartographic_mesh_draws_.size() ? cartographic_mesh_draws_[i] : 0;
+    }
     /// The terrain shader's Time, TTerrainGlow's scroll (tests read it;
     /// M212f).
     f32 terrain_time() const { return terrain_time_.value(); }
@@ -358,6 +366,12 @@ public:
         selection_renderer_.set_enabled(on);
     }
     bool select_boxes() const { return overlay_renderer_.select_boxes(); }
+    /// ren_PlayableBoundary (Moho's default on): outside a playable rect
+    /// smaller than the map, the world blacked out (RenderPlayableBoundary)
+    void set_playable_boundary(bool on) { playable_boundary_ = on; }
+    bool playable_boundary() const { return playable_boundary_; }
+    /// The world's boundary, as last updated (tests read it)
+    const BoundaryRenderer& world_boundary() const { return boundary_renderer_; }
     /// The strategic icons drawn last frame (tests read them).
     const StrategicIconRenderer& strategic_icons() const { return strategic_icon_renderer_; }
     const ResourceIconRenderer& resource_icons() const { return resource_icon_renderer_; }
@@ -705,6 +719,11 @@ private:
     /// particles, then the world view's own drawing. No sky, terrain, water,
     /// meshes or other effects; the range rings and fog are in the frame.
     void record_cartographic_main(u32 fi, const std::array<f32, 16>& vp);
+    /// The meshes a cartographic main view draws (MeshRenderer::
+    /// RenderCartographic): each group by its material's cartographic
+    /// technique at this fidelity (none: not drawn), over the frame, with
+    /// no lighting, shadow or terrain.
+    void draw_cartographic_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16>& vp);
     /// The screen's 2D layers over the composited scene: the strategic
     /// icons, the overlays, the legacy HUD, FA's interface, then the profile
     /// overlay on top.
@@ -789,8 +808,14 @@ private:
     static constexpr u32 kShieldStates = 6;
     std::array<VkPipeline, kShieldStates> shield_pipelines_{};
     std::array<VkPipelineLayout, kShieldStates> shield_layouts_{};
+    /// A cartographic view's mesh pipelines, one per CartographicMeshState
+    /// (cartographic P6)
+    std::array<VkPipeline, kCartographicMeshStates> cartographic_mesh_pipelines_{};
+    std::array<VkPipelineLayout, kCartographicMeshStates> cartographic_mesh_layouts_{};
     /// This frame's mesh draw calls by technique (mesh_draws).
     std::array<u32, 32> mesh_draws_{};
+    /// And a cartographic view's, by CartographicTechnique, a pass each
+    std::array<u32, 7> cartographic_mesh_draws_{};
     VkPipeline decal_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout decal_layout_ = VK_NULL_HANDLE;
     // The glowing and glow-mask decals' (M212d): decal_layout_'s sets and push
@@ -1052,7 +1077,11 @@ private:
     /// The cartographic frames' fog (the minimap's, and a main view's: the
     /// same circles)
     VisionRenderer minimap_vision_;
-    RangeRenderer main_frame_ranges_; ///< a cartographic main view's, likewise
+    RangeRenderer main_frame_ranges_;    ///< a cartographic main view's, likewise
+    BoundaryRenderer boundary_renderer_; ///< the world's playable boundary (scene pass)
+    /// The cartographic frames' (the minimap's, a main view's)
+    BoundaryRenderer frame_boundary_;
+    bool playable_boundary_ = true; ///< ren_PlayableBoundary
     RangeBlueprints range_blueprints_;
     u32 hovered_ = 0;
     u32 highlight_command_ = 0;
