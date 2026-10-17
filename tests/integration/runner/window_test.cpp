@@ -207,6 +207,15 @@ void test_window(TestContext& ui, TestContext& sim, const std::function<void(int
                             "states, antialiasing {}",
                             preset, preset_states, last_preset, shadows, fidelity_states,
                             aa_states));
+        // Each preset's update reads the device's multisample counts, none here
+        const std::string presets_run = ui_string(
+            ui, "(function() local p = " + presets +
+                    " for _, s in p.custom.states do p.update(nil, s.key) end"
+                    " local aa = GetAntiAliasingOptions()"
+                    " return type(aa) .. ' ' .. table.getn(aa) end)()");
+        t.check(presets_run == "table 0",
+                fmt::format("Test 5: every preset's update runs, the anti-aliasing options {}",
+                            presets_run));
     }
 
     // Back to the capture size for whatever runs after

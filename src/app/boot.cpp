@@ -484,7 +484,6 @@ std::optional<int> App::init_ui_state(const std::string* game_mods) {
         set_nil_fn("GetActiveBuildTemplate");
         set_nil_fn("GetHighlightCommand");
         set_stub("RestartSession");
-        set_nil_fn("GetAntiAliasingOptions");
         set_nil_fn("GetResolution");
         set_stub("SetResolution");
         // __installedlanguages — table of available language codes

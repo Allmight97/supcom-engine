@@ -1560,6 +1560,13 @@ static int l_GetNumRootFrames(lua_State* L) {
     return 1;
 }
 
+/// GetAntiAliasingOptions() -> the head's multisample counts, as Moho lists
+/// them: none, since the renderer draws without multisampling
+static int l_GetAntiAliasingOptions(lua_State* L) {
+    lua_newtable(L);
+    return 1;
+}
+
 /// SetCursor(cursor) — store active cursor in registry
 static int l_SetCursor(lua_State* L) {
     lua_pushstring(L, "__osc_active_cursor");
@@ -4695,7 +4702,6 @@ void register_front_end_fallback_bindings(LuaState& state) {
     set_nil_fn("GetHighlightCommand");
     set_nil_fn("GetInputCapture");
     set_stub("RestartSession");
-    set_nil_fn("GetAntiAliasingOptions");
     set_nil_fn("GetResolution");
     set_stub("SetResolution");
 
@@ -4748,6 +4754,7 @@ void register_ui_bindings(LuaState& state, ui::UIControlRegistry& registry) {
     state.register_function("GetTextureDimensions", l_GetTextureDimensions);
     state.register_function("GetFrame", l_GetFrame);
     state.register_function("GetNumRootFrames", l_GetNumRootFrames);
+    state.register_function("GetAntiAliasingOptions", l_GetAntiAliasingOptions);
     state.register_function("SetCursor", l_SetCursor);
     state.register_function("GetCursor", l_GetCursor);
     state.register_function("EngineStartFrontEndUI", l_EngineStartFrontEndUI);
