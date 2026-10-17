@@ -30,9 +30,13 @@ App::Window::Window(App& app)
 
 std::optional<int> App::Window::run() {
     // The render benchmark's frames are 1920x1080 (M223b); captures keep
-    // their 1600x900.
+    // their 1600x900. Offscreen, --ui-scale keeps that interface and
+    // multiplies its pixels, as a dense display would.
     const bool bench = !opt.render_bench_report.empty();
-    if (renderer.init(bench ? 1920 : 1600, bench ? 1080 : 900, "OpenSupCom", offscreen_capture)) {
+    const f32 pixels = offscreen_capture ? opt.ui_scale : 1.0f;
+    if (renderer.init(static_cast<u32>((bench ? 1920 : 1600) * pixels),
+                      static_cast<u32>((bench ? 1080 : 900) * pixels), "OpenSupCom",
+                      offscreen_capture, opt.ui_scale)) {
         if (auto code = set_up()) return code;
         while (running()) {
             if (!frame()) break;
@@ -57,16 +61,17 @@ std::optional<int> App::Window::set_up() {
     // The UI's root frame: the size the window was asked for, until its
     // swapchain has it (the resize lands a frame or more later), then the
     // swapchain's (review: the boot laid the front end out at 1600x900)
-    root_width = renderer.width();
-    root_height = renderer.height();
+    root_width = renderer.ui_width();
+    root_height = renderer.ui_height();
     renderer.share_range_overlays(app.range_overlays);
     if (!offscreen_capture) {
         const std::vector<std::string> args(argv, argv + argc);
         const WindowMode mode = open_window(renderer, args, prefs);
         adapter_overridden = mode.overridden;
         shown_fullscreen = renderer.fullscreen();
-        root_width = mode.size.width;
-        root_height = mode.size.height;
+        const auto ui = renderer.ui_size_of_window(mode.size.width, mode.size.height);
+        root_width = ui[0];
+        root_height = ui[1];
     }
     register_window_commands(console, prefs, adapter_overridden);
     for (const auto& m : renderer.display_modes()) display_modes.push_back({m[0], m[1], m[2]});

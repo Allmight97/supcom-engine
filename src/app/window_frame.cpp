@@ -70,8 +70,8 @@ double App::Window::begin_frame() {
     osc::Profiler::instance().begin_frame();
     // A resized window: the UI's root frame follows it (M217h)
     if (renderer.take_resized()) {
-        root_width = renderer.width();
-        root_height = renderer.height();
+        root_width = renderer.ui_width();
+        root_height = renderer.ui_height();
         size_root_frame(ui_lua_state.raw(), root_width, root_height);
     }
     if (osc::core::kNativeFullscreen && !offscreen_capture && !adapter_overridden &&
@@ -345,8 +345,8 @@ void App::Window::drive_scripted_mouse() {
         if (!sim_state || !sim_state->terrain()) {
             return std::nullopt;
         }
-        const auto w = static_cast<f32>(renderer.width());
-        const auto h = static_cast<f32>(renderer.height());
+        const auto w = static_cast<f32>(renderer.ui_width());
+        const auto h = static_cast<f32>(renderer.ui_height());
         const sim::Vector3 at{
             static_cast<f32>(x),
             sim_state->terrain()->get_surface_height(static_cast<f32>(x), static_cast<f32>(z)),

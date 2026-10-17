@@ -85,8 +85,10 @@ public:
     void set_movie_textures(const MovieTextures* movies) { movies_ = movies; }
 
     /// Issue draw calls for all UI quads. Caller must bind the UI pipeline first.
+    /// viewport_w/h: the framebuffer's pixels; ui_scale: its pixels per
+    /// interface unit, the units the quads are in.
     void render(VkCommandBuffer cmd, VkPipelineLayout layout,
-                u32 viewport_w, u32 viewport_h);
+                u32 viewport_w, u32 viewport_h, f32 ui_scale);
 
     void destroy(VkDevice device, VmaAllocator allocator);
 

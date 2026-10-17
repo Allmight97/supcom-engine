@@ -45,7 +45,10 @@ public:
                 const std::array<f32, 16>& vp_matrix, i32 focus_army,
                 const std::function<f32(const std::string&)>& fade_in_zoom, TextureCache& tex_cache,
                 FontCache& font_cache, u32 viewport_w, u32 viewport_h, lua_State* L);
-    void render(VkCommandBuffer cmd, VkPipelineLayout layout, u32 viewport_w, u32 viewport_h);
+    /// viewport_w/h: the framebuffer's pixels; ui_scale: its pixels per
+    /// interface unit, the units the quads are in.
+    void render(VkCommandBuffer cmd, VkPipelineLayout layout, u32 viewport_w, u32 viewport_h,
+                f32 ui_scale);
 
     void set_frame_index(u32 fi) { fi_ = fi; }
     const std::vector<EconomyReadout>& readouts() const { return readouts_; }

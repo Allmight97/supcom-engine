@@ -108,6 +108,7 @@ struct Options {
     bool scripted_window = false;
     bool no_fog = false;
     bool legacy_hud = false;
+    f32 ui_scale = 1.0f; ///< --ui-scale: the player's zoom of the interface
     bool no_decals = false;
     bool profile_enabled = false;
     bool ai_skirmish = false;

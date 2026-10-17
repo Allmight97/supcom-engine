@@ -786,10 +786,11 @@ void StrategicIconRenderer::paint_map(const sim::FrameView& view, const MapArea&
 }
 
 void StrategicIconRenderer::render(VkCommandBuffer cmd, VkPipelineLayout layout, u32 viewport_w,
-                                   u32 viewport_h) {
+                                   u32 viewport_h, f32 ui_scale) {
     if (quad_count_ == 0) return;
 
-    f32 vp[2] = {static_cast<f32>(viewport_w), static_cast<f32>(viewport_h)};
+    f32 vp[2] = {static_cast<f32>(viewport_w) / ui_scale,
+                 static_cast<f32>(viewport_h) / ui_scale};
     vkc::push_constants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(f32) * 2, vp);
 
     VkRect2D scissor{};

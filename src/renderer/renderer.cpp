@@ -98,8 +98,9 @@ void Renderer::on_scroll(f64 y_offset) {
 }
 
 bool Renderer::init(u32 width, u32 height, const std::string& title,
-                    bool offscreen) {
+                    bool offscreen, f32 ui_zoom) {
     offscreen_ = offscreen;
+    ui_zoom_ = ui_zoom;
     if (!create_window(width, height, title, offscreen)) return false;
 
     vkb::Instance vkb_inst;
@@ -201,6 +202,11 @@ bool Renderer::create_window(u32 width, u32 height, const std::string& title, bo
     // A resize rebuilds the swapchain before the next frame (M217h): Wayland
     // and some drivers never report the old one out of date
     glfwSetFramebufferSizeCallback(window_, [](GLFWwindow* w, int, int) {
+        if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
+            r->on_framebuffer_resized();
+    });
+    // A display of another scale (Windows and X11 keep the framebuffer's size)
+    glfwSetWindowContentScaleCallback(window_, [](GLFWwindow* w, float, float) {
         if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
             r->on_framebuffer_resized();
     });
@@ -572,6 +578,7 @@ bool Renderer::create_swapchain(u32 width, u32 height) {
         resized_ = true;
     window_width_ = vkb_sc.extent.width;
     window_height_ = vkb_sc.extent.height;
+    if (update_ui_scale()) resized_ = true;
     present_mode_ = vkb_sc.present_mode;
 
     // One render-finished semaphore per image (the device is idle here: first
@@ -1632,7 +1639,7 @@ void Renderer::build_scene(const map::Terrain* terrain, blueprints::BlueprintSto
     strategic_icon_renderer_.build_atlas(texture_cache_);
 
     // The view's size before the reset: the farthest zoom takes its aspect
-    camera_.set_viewport(static_cast<f32>(window_width_), static_cast<f32>(window_height_));
+    camera_.set_viewport(static_cast<f32>(ui_width()), static_cast<f32>(ui_height()));
     camera_.init(static_cast<f32>(terrain->map_width()),
                  static_cast<f32>(terrain->map_height()));
 
@@ -1944,7 +1951,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
                       const std::unordered_set<u32>* selected_ids) {
     // The view's aspect, which the camera's farthest zoom and projection
     // take (its moves and basis run in poll_events); the world it follows
-    camera_.set_viewport(static_cast<f32>(window_width_), static_cast<f32>(window_height_));
+    camera_.set_viewport(static_cast<f32>(ui_width()), static_cast<f32>(ui_height()));
     camera_view_ = view;
     for (const auto& follow : events.camera_follows) {
         camera_.camera_follow(follow.source, follow.projectile, follow.timeout);
@@ -2124,8 +2131,8 @@ void Renderer::record_cartographic_main(u32 fi, const std::array<f32, 16>& vp) {
     // icons are the screen's layer, on at every zoom)
     command_graph_renderer_.render(cmd, window_width_, window_height_, vp.data(), fi);
     selection_renderer_.render(cmd, window_width_, window_height_, vp.data(), fi);
-    resource_icon_renderer_.render(cmd, window_width_, window_height_, resource_icon_time_, fi);
-    projectile_icon_renderer_.render(cmd, window_width_, window_height_, fi);
+    resource_icon_renderer_.render(cmd, ui_width(), ui_height(), resource_icon_time_, fi);
+    projectile_icon_renderer_.render(cmd, ui_width(), ui_height(), fi);
     world_shapes_batch_.render(cmd, window_width_, window_height_, vp.data(), fi);
 }
 
@@ -2722,8 +2729,8 @@ void Renderer::render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry) 
         ui_dispatch_.dispatch_events(L, *ui_registry);
         movie_textures_.prepare(*ui_registry, fi);
         update_system_cursor(L);
-        ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_, window_width_,
-                            window_height_, static_cast<f32>(ui_dispatch_.mouse_x()),
+        ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_, ui_width(),
+                            ui_height(), static_cast<f32>(ui_dispatch_.mouse_x()),
                             static_cast<f32>(ui_dispatch_.mouse_y()));
     }
 
@@ -2738,7 +2745,7 @@ void Renderer::render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry) 
 
     if (ui_registry && L && ui_pipeline_ && ui_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        ui_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_);
+        ui_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_, ui_scale_);
     }
 
     vkCmdEndRenderPass(cmd_buf_[fi]);
@@ -2757,7 +2764,7 @@ void Renderer::update_world_shapes(lua_State* L, u32 fi) {
         std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
     if (length > 0.0f) forward = {forward.x / length, forward.y / length, forward.z / length};
     const f32 fov = camera_.fov();
-    const f32 width = window_width_ > 0 ? static_cast<f32>(window_width_) : 1.0f;
+    const auto width = static_cast<f32>(ui_width());
     world_shapes_.begin([eye, forward, fov, width](const sim::Vector3& p) {
         return lod_metric(p, eye, forward, fov) / width;
     });
@@ -2843,7 +2850,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
     // Before the meshes: its planned sites are ghosts among them
     command_graph_renderer_.set_highlight(highlight_command_, hovered_);
     command_graph_renderer_.update(view, camera_, selected_ids, player_army_, texture_cache_, L,
-                                   unit_renderer_.shader_time() / 10.0f, window_height_,
+                                   unit_renderer_.shader_time() / 10.0f, ui_height(),
                                    command_graph_held(), fi);
 
     const std::vector<WorldMeshDraw> world_meshes =
@@ -2947,6 +2954,8 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
                 // A cartographic view (retail's minimap sets it) draws the
                 // cartographic frame, at the view's whole pixels; one view a
                 // frame, the others the terrain texture.
+                // shortcut: its pixels are interface units, magnified on a dense
+                // display; draw it at ui_scale_ once its lines are checked there
                 ui::ControlRect at = r;
                 VkDescriptorSet cartographic = VK_NULL_HANDLE;
                 if (wv.is_cartographic() && !cartographic_view_ && terrain_) {
@@ -2960,7 +2969,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
                     }
                 }
                 minimap_renderer_.paint(view, camera_, texture_cache_, at.x, at.y, at.w, at.h,
-                                        window_width_, window_height_, selected_ids, L, out,
+                                        ui_width(), ui_height(), selected_ids, L, out,
                                         resources, cartographic);
                 painted_minimap_.insert(painted_minimap_.end(),
                                         out.begin() + static_cast<std::ptrdiff_t>(first), out.end());
@@ -2969,7 +2978,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
         movie_textures_.prepare(*ui_registry, fi);
         update_system_cursor(L);
         ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_,
-                            window_width_, window_height_,
+                            ui_width(), ui_height(),
                             static_cast<f32>(ui_dispatch_.mouse_x()),
                             static_cast<f32>(ui_dispatch_.mouse_y()),
                             minimap_painter);
@@ -3002,7 +3011,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
         particle_renderer_.update(particle_system_, texture_cache_, fi);
     }
 
-    selection_renderer_.update(view, camera_, window_height_, selected_ids, hovered_, player_army_,
+    selection_renderer_.update(view, camera_, ui_height(), selected_ids, hovered_, player_army_,
                                drag_box_, texture_cache_, mesh_cache_, L, fi);
 
     update_world_shapes(L, fi);
@@ -3032,7 +3041,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
         const i32 game_result = legacy_hud_active_ && view.cur() ? view.cur()->player_result : 0;
         overlay_renderer_.set_hovered(hovered_);
         overlay_renderer_.update(view, events, camera_, vp, selected_ids, texture_cache_,
-                                 window_width_, window_height_, game_result, frame_dt_, &frustum,
+                                 ui_width(), ui_height(), game_result, frame_dt_, &frustum,
                                  ghost);
     }
 
@@ -3066,17 +3075,17 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
 
     // Update minimap (terrain bg, units' icons, camera frustum box)
     if (legacy_hud_active_) {
-        minimap_renderer_.update(view, camera_, texture_cache_, selected_ids, window_width_,
-                                 window_height_, L);
+        minimap_renderer_.update(view, camera_, texture_cache_, selected_ids, ui_width(),
+                                 ui_height(), L);
     }
 
     // Update strategic icons (zoom-dependent 2D icons replacing 3D meshes)
-    strategic_icon_renderer_.update(view, camera_, vp, selected_ids, texture_cache_, window_width_,
-                                    window_height_, L, frame_dt_);
+    strategic_icon_renderer_.update(view, camera_, vp, selected_ids, texture_cache_, ui_width(),
+                                    ui_height(), L, frame_dt_);
     economy_overlay_renderer_.update(
         view, camera_, vp, player_army_,
         [&](const std::string& id) { return strategic_icon_renderer_.fade_in_zoom(id, L); },
-        texture_cache_, font_cache_, window_width_, window_height_, L);
+        texture_cache_, font_cache_, ui_width(), ui_height(), L);
     projectile_icon_renderer_.update(strategic_icon_renderer_.projectile_icons(), fi);
 
     {
@@ -3095,8 +3104,8 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
             const PlayableRect whole{0, 0, static_cast<i32>(terrain.map_width()),
                                      static_cast<i32>(terrain.map_height())};
             icons = renderer::resource_icons(
-                view.cur()->deposits, camera_, static_cast<f32>(window_width_),
-                static_cast<f32>(window_height_), playable_rect_.rect().value_or(whole),
+                view.cur()->deposits, camera_, static_cast<f32>(ui_width()),
+                static_cast<f32>(ui_height()), playable_rect_.rect().value_or(whole),
                 [&](f32 x, f32 z) { return terrain.get_terrain_height(x, z); });
         }
         resource_icon_renderer_.update(icons, texture_cache_, fi);
@@ -3106,17 +3115,17 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
     if (legacy_hud_active_) {
         // Update economy HUD
         hud_renderer_.update(view, player_army_, font_cache_, texture_cache_,
-                              window_width_, window_height_);
+                              ui_width(), ui_height());
 
         // Update selection info panel
         selection_info_renderer_.update(view, selected_ids, font_cache_, texture_cache_,
                                         strategic_icon_renderer_.atlas_descriptor(),
-                                        window_width_, window_height_);
+                                        ui_width(), ui_height());
     }
 
     // Update profile overlay
     profile_overlay_.update(font_cache_, texture_cache_,
-                             window_width_, window_height_);
+                             ui_width(), ui_height());
 }
 
 void Renderer::begin_commands(u32 fi) {
@@ -3375,9 +3384,8 @@ void Renderer::record_main_pass(u32 fi, const std::array<f32, 16>& vp) {
         particle_renderer_.render_refracting(cmd_buf_[fi], window_width_, window_height_, vp.data(),
                                              fi);
     }
-    resource_icon_renderer_.render(cmd_buf_[fi], window_width_, window_height_, resource_icon_time_,
-                                   fi);
-    projectile_icon_renderer_.render(cmd_buf_[fi], window_width_, window_height_, fi);
+    resource_icon_renderer_.render(cmd_buf_[fi], ui_width(), ui_height(), resource_icon_time_, fi);
+    projectile_icon_renderer_.render(cmd_buf_[fi], ui_width(), ui_height(), fi);
     // FAF's world drawing, at the end of the world view's own drawing
     // (DrawFunc.cpp's hook at CUIWorldView::Render's end)
     world_shapes_batch_.render(cmd_buf_[fi], window_width_, window_height_, vp.data(), fi);
@@ -3388,52 +3396,53 @@ void Renderer::record_screen_layers(u32 fi) {
     if (ui_pipeline_ && strategic_icon_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
         strategic_icon_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                         window_width_, window_height_);
+                                         window_width_, window_height_, ui_scale_);
     }
 
     // 7. Draw game overlays (health bars, selection, command lines)
     if (ui_pipeline_ && overlay_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
         overlay_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                 window_width_, window_height_);
+                                 window_width_, window_height_, ui_scale_);
     }
     if (ui_pipeline_ && economy_overlay_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        economy_overlay_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_);
+        economy_overlay_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_,
+                                         ui_scale_);
     }
 
     // 8. Draw minimap (terrain bg + unit icons + camera box)
     if (legacy_hud_active_ && ui_pipeline_ && minimap_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
         minimap_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                  window_width_, window_height_);
+                                  window_width_, window_height_, ui_scale_);
     }
 
     // 9. Draw economy HUD (resource bars + text at top of screen)
     if (legacy_hud_active_ && ui_pipeline_ && hud_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
         hud_renderer_.render(cmd_buf_[fi], ui_layout_,
-                              window_width_, window_height_);
+                              window_width_, window_height_, ui_scale_);
     }
 
     // 10. Draw selection info panel (bottom-center unit details)
     if (legacy_hud_active_ && ui_pipeline_ && selection_info_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
         selection_info_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                         window_width_, window_height_);
+                                         window_width_, window_height_, ui_scale_);
     }
 
     // 11. Draw UI (screen-space 2D quads, last — always on top)
     if (ui_pipeline_ && ui_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
         ui_renderer_.render(cmd_buf_[fi], ui_layout_,
-                            window_width_, window_height_);
+                            window_width_, window_height_, ui_scale_);
     }
 
     // 12. Draw profile overlay (topmost, after all other UI)
     if (ui_pipeline_ && profile_overlay_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        profile_overlay_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_);
+        profile_overlay_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_, ui_scale_);
     }
 }
 
@@ -3684,7 +3693,7 @@ void Renderer::mouse_position(f64& x, f64& y) const {
     x = 0;
     y = 0;
     if (!window_) return;
-    // In framebuffer pixels (M217h): the viewport's and the UI's units
+    // In the interface's units: the camera's view's and the UI's
     glfwGetCursorPos(window_, &x, &y);
     int ww = 0;
     int wh = 0;
@@ -3692,7 +3701,7 @@ void Renderer::mouse_position(f64& x, f64& y) const {
     int fh = 0;
     glfwGetWindowSize(window_, &ww, &wh);
     glfwGetFramebufferSize(window_, &fw, &fh);
-    const auto p = core::to_framebuffer(x, y, ww, wh, fw, fh);
+    const auto p = core::to_interface(x, y, ww, wh, fw, fh, ui_scale_);
     x = p[0];
     y = p[1];
 }
@@ -3787,6 +3796,31 @@ std::vector<std::array<u32, 3>> Renderer::display_modes() const {
                        static_cast<u32>(modes[i].refreshRate)});
     }
     return out;
+}
+
+bool Renderer::update_ui_scale() {
+    // An offscreen capture's framebuffer is unscaled: its display scale is 1
+    f32 content = 1.0f;
+    if (!offscreen_) glfwGetWindowContentScale(window_, &content, nullptr);
+    const auto scale = static_cast<f32>(core::interface_scale(content, ui_zoom_));
+    if (scale == ui_scale_) return false;
+    ui_scale_ = scale;
+    font_cache_.set_density(scale);
+    ui_dispatch_.set_ui_scale(scale);
+    spdlog::info("Interface scale {} ({}x{} units)", scale, ui_width(), ui_height());
+    return true;
+}
+
+std::array<u32, 2> Renderer::ui_size_of_window(u32 width, u32 height) const {
+    int ww = 0;
+    int wh = 0;
+    int fw = 0;
+    int fh = 0;
+    glfwGetWindowSize(window_, &ww, &wh);
+    glfwGetFramebufferSize(window_, &fw, &fh);
+    const f64 pixels = ww > 0 ? static_cast<f64>(fw) / ww : 1.0;
+    return {core::interface_size(static_cast<u32>(width * pixels), ui_scale_),
+            core::interface_size(static_cast<u32>(height * pixels), ui_scale_)};
 }
 
 std::optional<Renderer::WindowGeometry> Renderer::windowed_geometry() const {
@@ -3889,10 +3923,10 @@ void Renderer::poll_events(f64 dt) {
 
     // The world view's camera, before input picks this frame: its moves,
     // then its basis (a pan has moved the target)
-    camera_.set_viewport(static_cast<f32>(window_width_), static_cast<f32>(window_height_));
+    camera_.set_viewport(static_cast<f32>(ui_width()), static_cast<f32>(ui_height()));
     // Its clocks: the system's, and the game's
     camera_.set_clocks(glfwGetTime(), camera_game_time_);
-    camera_.update(window_, dt);
+    camera_.update(window_, dt, ui_scale_);
 }
 
 void Renderer::write_bone_descriptor(u32 fi) {

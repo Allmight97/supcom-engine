@@ -24,8 +24,10 @@ public:
                 u32 viewport_w, u32 viewport_h);
 
     /// Issue draw calls. Caller must have the UI pipeline bound.
+    /// viewport_w/h: the framebuffer's pixels; ui_scale: its pixels per
+    /// interface unit, the units the quads are in.
     void render(VkCommandBuffer cmd, VkPipelineLayout layout,
-                u32 viewport_w, u32 viewport_h);
+                u32 viewport_w, u32 viewport_h, f32 ui_scale);
 
     void destroy(VkDevice device, VmaAllocator allocator);
 

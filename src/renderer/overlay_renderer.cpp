@@ -787,12 +787,12 @@ void OverlayRenderer::add_game_over_banner(i32 game_result, f32 sw, f32 sh) {
 }
 
 void OverlayRenderer::render(VkCommandBuffer cmd, VkPipelineLayout layout,
-                              u32 viewport_w, u32 viewport_h) {
+                              u32 viewport_w, u32 viewport_h, f32 ui_scale) {
     if (quad_count_ == 0 || !white_ds_) return;
 
     // Push viewport size (same format as UI pipeline)
-    f32 vp[2] = {static_cast<f32>(viewport_w),
-                 static_cast<f32>(viewport_h)};
+    f32 vp[2] = {static_cast<f32>(viewport_w) / ui_scale,
+                 static_cast<f32>(viewport_h) / ui_scale};
     vkc::push_constants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(f32) * 2, vp);
 
     // Full-screen scissor

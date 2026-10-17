@@ -125,8 +125,11 @@ public:
     /// window's surface. With OSC_HEADLESS_SURFACE=1 it targets a
     /// VK_EXT_headless_surface instead (Mesa drivers incl. lavapipe; not
     /// NVIDIA's proprietary driver), for machines without any display.
+    ///
+    /// ui_zoom: the player's zoom of the interface, on top of the display's
+    /// scale (--ui-scale).
     bool init(u32 width, u32 height, const std::string& title,
-              bool offscreen = false);
+              bool offscreen = false, f32 ui_zoom = 1.0f);
 
     /// One-time scene upload (terrain mesh, static buffers, and the meshes
     /// of `preload`, e.g. sim::world_blueprints).
@@ -438,8 +441,19 @@ public:
     bool legacy_hud_active() const { return legacy_hud_active_; }
     u32 width() const { return window_width_; }
     u32 height() const { return window_height_; }
+    /// The interface's size in its units, which FA's Lua lays out in and the
+    /// cursor, the camera's view and the screen's overlays use: the
+    /// framebuffer's over ui_scale(). The 3D world keeps the framebuffer's.
+    u32 ui_width() const { return core::interface_size(window_width_, ui_scale_); }
+    u32 ui_height() const { return core::interface_size(window_height_, ui_scale_); }
+    /// Framebuffer pixels per interface unit: the display's content scale
+    /// (1 offscreen, whose framebuffer is unscaled) times the player's zoom
+    f32 ui_scale() const { return ui_scale_; }
+    /// A size in the window's units (pixels, or points on macOS and Wayland)
+    /// in the interface's, at the window's present scale
+    std::array<u32, 2> ui_size_of_window(u32 width, u32 height) const;
 
-    /// Get current mouse position in screen pixels.
+    /// Get current mouse position in the interface's units.
     void mouse_position(f64& x, f64& y) const;
     /// Put `text` (UTF-8) on the desktop's clipboard (FAF's CopyToClipboard).
     /// False without a window, and offscreen, so that a scripted run never
@@ -611,6 +625,9 @@ private:
     /// GLFW, the window (hidden offscreen), the camera's viewport and entity
     /// lookup, and the window's callbacks.
     bool create_window(u32 width, u32 height, const std::string& title, bool offscreen);
+    /// ui_scale_ from the window's content scale, the font cache's density and
+    /// the cursor's with it; true when it changed
+    bool update_ui_scale();
     /// The Vulkan instance (validation as the build and OSC_VK_VALIDATION
     /// say; headless offscreen with OSC_HEADLESS_SURFACE) into `vkb_inst`.
     bool create_instance(bool offscreen, vkb::Instance& vkb_inst);
@@ -739,6 +756,8 @@ private:
     GLFWwindow* window_ = nullptr;
     u32 window_width_ = 0;
     u32 window_height_ = 0;
+    f32 ui_zoom_ = 1.0f;
+    f32 ui_scale_ = 1.0f;
 
     // Vulkan core
     VkInstance instance_ = VK_NULL_HANDLE;

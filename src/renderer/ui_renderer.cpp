@@ -11,6 +11,7 @@
 #include <vk_mem_alloc.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <utility>
 
@@ -807,11 +808,12 @@ void UIRenderer::update(lua_State* L, const ui::UIControlRegistry& registry,
 }
 
 void UIRenderer::render(VkCommandBuffer cmd, VkPipelineLayout layout,
-                        u32 viewport_w, u32 viewport_h) {
+                        u32 viewport_w, u32 viewport_h, f32 ui_scale) {
     if (groups_.empty() || !instance_buf_[fi_].buffer) return;
 
-    // Push viewport dimensions
-    f32 push[2] = {static_cast<f32>(viewport_w), static_cast<f32>(viewport_h)};
+    // The interface's size: the quads are in its units
+    f32 push[2] = {static_cast<f32>(viewport_w) / ui_scale,
+                   static_cast<f32>(viewport_h) / ui_scale};
     vkc::push_constants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, 8, push);
 
     // Bind instance buffer at binding 0
@@ -825,13 +827,12 @@ void UIRenderer::render(VkCommandBuffer cmd, VkPipelineLayout layout,
     for (const auto& group : groups_) {
         // Set scissor rect per group (clip children to parent bounds)
         if (group.clip != current_scissor) {
+            const auto px = [&](i32 v) { return static_cast<i32>(std::lround(v * ui_scale)); };
             VkRect2D scissor{};
-            scissor.offset.x = std::max(group.clip.x, 0);
-            scissor.offset.y = std::max(group.clip.y, 0);
-            scissor.extent.width = static_cast<u32>(
-                std::max(group.clip.w, 0));
-            scissor.extent.height = static_cast<u32>(
-                std::max(group.clip.h, 0));
+            scissor.offset.x = std::max(px(group.clip.x), 0);
+            scissor.offset.y = std::max(px(group.clip.y), 0);
+            scissor.extent.width = static_cast<u32>(std::max(px(group.clip.w), 0));
+            scissor.extent.height = static_cast<u32>(std::max(px(group.clip.h), 0));
             vkCmdSetScissor(cmd, 0, 1, &scissor);
             current_scissor = group.clip;
         }

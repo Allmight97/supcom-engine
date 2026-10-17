@@ -199,7 +199,7 @@ static void bind_world_view(lua_State* L, ui::WorldView* wv) {
     if (r) {
         wv->set_renderer(r);
         wv->register_camera("WorldCamera", &r->camera());
-        wv->set_viewport(r->width(), r->height());
+        wv->set_viewport(r->ui_width(), r->ui_height());
     }
     auto* sim = get_sim(L);
     if (sim && sim->terrain()) wv->set_terrain(sim->terrain());
@@ -293,7 +293,7 @@ static int worldview_Project(lua_State* L) {
 
     // Update viewport from renderer if available
     auto* r = get_renderer(L);
-    if (r) wv->set_viewport(r->width(), r->height());
+    if (r) wv->set_viewport(r->ui_width(), r->ui_height());
 
     // Args: self, Vector {x,y,z}
     f32 wx = 0, wy = 0, wz = 0;
@@ -875,7 +875,7 @@ static int l_UnProject(lua_State* L) {
         sx = component(1, "x");
         sy = component(2, "y");
     }
-    if (auto* r = get_renderer(L); r && wv) wv->set_viewport(r->width(), r->height());
+    if (auto* r = get_renderer(L); r && wv) wv->set_viewport(r->ui_width(), r->ui_height());
     sim::Vector3 at{};
     if (!wv || !wv->camera() || !wv->get_mouse_world_pos(sx, sy, at.x, at.y, at.z)) {
         const f32 nan = std::numeric_limits<f32>::quiet_NaN();
@@ -917,7 +917,7 @@ static int l_GetMouseWorldPos(lua_State* L) {
         r->mouse_position(dx, dy);
         mx = static_cast<f32>(dx);
         my = static_cast<f32>(dy);
-        wv->set_viewport(r->width(), r->height());
+        wv->set_viewport(r->ui_width(), r->ui_height());
     }
 
     f32 wx = 0, wy = 0, wz = 0;
@@ -2122,7 +2122,7 @@ bool cursor_world_pos(lua_State* L, sim::Vector3& out) {
         r->mouse_position(dx, dy);
         mx = static_cast<f32>(dx);
         my = static_cast<f32>(dy);
-        wv->set_viewport(r->width(), r->height());
+        wv->set_viewport(r->ui_width(), r->ui_height());
     }
     return wv->get_mouse_world_pos(mx, my, out.x, out.y, out.z);
 }

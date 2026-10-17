@@ -400,12 +400,12 @@ void MinimapRenderer::build(const sim::FrameView& view, const Camera& camera,
 }
 
 void MinimapRenderer::render(VkCommandBuffer cmd, VkPipelineLayout layout,
-                              u32 viewport_w, u32 viewport_h) {
+                              u32 viewport_w, u32 viewport_h, f32 ui_scale) {
     if (quad_count_ == 0) return;
 
     // Push viewport size
-    f32 vp[2] = {static_cast<f32>(viewport_w),
-                 static_cast<f32>(viewport_h)};
+    f32 vp[2] = {static_cast<f32>(viewport_w) / ui_scale,
+                 static_cast<f32>(viewport_h) / ui_scale};
     vkc::push_constants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(f32) * 2, vp);
 
     // Bind instance buffer
@@ -419,10 +419,10 @@ void MinimapRenderer::render(VkCommandBuffer cmd, VkPipelineLayout layout,
 
         // Set scissor to minimap area (with small border margin, clamped to >= 0)
         VkRect2D scissor{};
-        scissor.offset.x = std::max(0, static_cast<i32>(view_.x) - 2);
-        scissor.offset.y = std::max(0, static_cast<i32>(view_.y) - 2);
-        scissor.extent.width = static_cast<u32>(view_.w) + 4;
-        scissor.extent.height = static_cast<u32>(view_.h) + 4;
+        scissor.offset.x = std::max(0, static_cast<i32>((view_.x - 2) * ui_scale));
+        scissor.offset.y = std::max(0, static_cast<i32>((view_.y - 2) * ui_scale));
+        scissor.extent.width = static_cast<u32>((view_.w + 4) * ui_scale);
+        scissor.extent.height = static_cast<u32>((view_.h + 4) * ui_scale);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         vkc::bind_descriptor_sets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &group.ds, 0,
