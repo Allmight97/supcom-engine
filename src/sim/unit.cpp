@@ -6,6 +6,7 @@
 #include "sim/air_combat.hpp"
 #include "sim/blueprint_categories.hpp"
 #include "sim/bone_data.hpp"
+#include "sim/build_site_props.hpp"
 #include "sim/collision.hpp"
 #include "sim/sim_random.hpp"
 #include "sim/entity_registry.hpp"
@@ -327,6 +328,32 @@ void destroy_unfinished(EntityRegistry& registry, lua_State* L, u32 target_id) {
     }
 }
 
+// A target that's gone goes as nil (faf-re CScriptObject::OnStopBuild).
+void tell_stop_build(const Unit& builder, lua_State* L, int target_ref, const char* order) {
+    if (!L || builder.lua_table_ref() < 0) {
+        return;
+    }
+    const int top = lua_gettop(L);
+    lua_rawgeti(L, LUA_REGISTRYINDEX, builder.lua_table_ref());
+    lua_pushstring(L, "OnStopBuild");
+    lua_gettable(L, -2);
+    if (lua_isfunction(L, -1)) {
+        lua_pushvalue(L, -2);
+        if (target_ref >= 0) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, target_ref);
+        } else {
+            lua_pushnil(L);
+        }
+        if (order) {
+            lua_pushstring(L, order);
+        }
+        if (lua_pcall(L, order ? 3 : 2, 0, 0) != 0) {
+            spdlog::warn("OnStopBuild error: {}", lua_tostring(L, -1));
+        }
+    }
+    lua_settop(L, top);
+}
+
 void tell_build_failed(const Unit& builder, lua_State* L, int frame_ref, const char* order) {
     if (builder.destroyed() || builder.lua_table_ref() < 0) {
         return;
@@ -349,20 +376,10 @@ void tell_build_failed(const Unit& builder, lua_State* L, int frame_ref, const c
         }
         lua_settop(L, frame_tbl);
     }
-    if (!builder.destroyed()) {
-        lua_rawgeti(L, LUA_REGISTRYINDEX, builder.lua_table_ref());
-        lua_pushstring(L, "OnStopBuild");
-        lua_gettable(L, -2);
-        if (lua_isfunction(L, -1)) {
-            lua_pushvalue(L, -2);
-            lua_pushvalue(L, frame_tbl);
-            lua_pushstring(L, order);
-            if (lua_pcall(L, 3, 0, 0) != 0) {
-                spdlog::warn("OnStopBuild error: {}", lua_tostring(L, -1));
-            }
-        }
-    }
     lua_settop(L, top);
+    if (!builder.destroyed()) {
+        tell_stop_build(builder, L, frame_ref, order);
+    }
 }
 
 int lua_ref_of(const EntityRegistry& registry, u32 id) {
@@ -565,14 +582,19 @@ void Unit::update_speed_through() {
         return type == CommandType::Move || type == CommandType::Attack ||
                type == CommandType::Patrol || type == CommandType::Guard;
     };
-    if (command_queue_.empty() || !busy(command_queue_.front().type) ||
-        has_unit_state("Refueling")) {
+    if (has_unit_state("Refueling")) {
         return;
     }
-    bool through = command_queue_.size() > 1 && busy(command_queue_[1].type);
-    if (command_queue_.front().type == CommandType::Guard && !has_unit_state("Ferrying") &&
-        !has_category("EXPERIMENTAL")) {
-        through = true;
+    bool through = has_unit_state("ForceSpeedThrough") || has_unit_state("CannotFindPlaceToLand");
+    if (!through && !command_queue_.empty()) {
+        if (!busy(command_queue_.front().type)) {
+            return;
+        }
+        through = command_queue_.size() > 1 && busy(command_queue_[1].type);
+        if (command_queue_.front().type == CommandType::Guard && !has_unit_state("Ferrying") &&
+            !has_category("EXPERIMENTAL")) {
+            through = true;
+        }
     }
     navigator_.set_speed_through_goal(through);
 }
@@ -1036,45 +1058,53 @@ bool Unit::auto_initiate_allowed(const EntityRegistry& registry) const {
 }
 
 Unit::BuildStart Unit::start_build(const UnitCommand& cmd, EntityRegistry& registry, lua_State* L) {
-    // Call __osc_create_building_unit from Lua registry
-    lua_pushstring(L, "__osc_create_building_unit");
-    lua_rawget(L, LUA_REGISTRYINDEX);
-    if (!lua_isfunction(L, -1)) {
-        spdlog::warn("start_build: __osc_create_building_unit not registered");
-        lua_pop(L, 1);
-        return BuildStart::Failed;
-    }
-
-    lua_pushstring(L, cmd.blueprint_id.c_str());
-    lua_pushnumber(L, army() + 1); // 1-based for Lua
     bool build_at_self = (cmd.type == CommandType::BuildFactory ||
                           cmd.type == CommandType::Upgrade);
     f32 bx = build_at_self ? position().x : cmd.target_pos.x;
     f32 bz = build_at_self ? position().z : cmd.target_pos.z;
-    lua_pushnumber(L, bx);
-    // Built in place, at the builder's height; elsewhere, nil: where the
-    // structure stands there (__osc_create_building_unit works it out)
-    if (build_at_self) {
-        lua_pushnumber(L, position().y);
+    const Unit* frame = cmd.type == CommandType::BuildMobile
+                            ? find_build_site_frame(registry, cmd.blueprint_id, cmd.target_pos)
+                            : nullptr;
+    if (frame) {
+        lua_pushnumber(L, frame->entity_id());
+        lua_rawgeti(L, LUA_REGISTRYINDEX, frame->lua_table_ref());
     } else {
-        lua_pushnil(L);
-    }
-    lua_pushnumber(L, bz);
-    // Held to the unit cap, but for an upgrade (Moho makes those uncapped).
-    lua_pushboolean(L, cmd.type != CommandType::Upgrade);
-    lua_pushnumber(L, entity_id());
+        // Call __osc_create_building_unit from Lua registry
+        lua_pushstring(L, "__osc_create_building_unit");
+        lua_rawget(L, LUA_REGISTRYINDEX);
+        if (!lua_isfunction(L, -1)) {
+            spdlog::warn("start_build: __osc_create_building_unit not registered");
+            lua_pop(L, 1);
+            return BuildStart::Failed;
+        }
 
-    if (lua_pcall(L, 7, 2, 0) != 0) {
-        spdlog::warn("start_build pcall failed: {}", lua_tostring(L, -1));
-        lua_pop(L, 1);
-        return BuildStart::Failed;
-    }
+        lua_pushstring(L, cmd.blueprint_id.c_str());
+        lua_pushnumber(L, army() + 1); // 1-based for Lua
+        lua_pushnumber(L, bx);
+        // Built in place, at the builder's height; elsewhere, nil: where the
+        // structure stands there (__osc_create_building_unit works it out)
+        if (build_at_self) {
+            lua_pushnumber(L, position().y);
+        } else {
+            lua_pushnil(L);
+        }
+        lua_pushnumber(L, bz);
+        // Held to the unit cap, but for an upgrade (Moho makes those uncapped).
+        lua_pushboolean(L, cmd.type != CommandType::Upgrade);
+        lua_pushnumber(L, entity_id());
 
-    // Returns: entity_id, lua_table (nil, "cap" at the unit cap)
-    if (lua_isnil(L, -2)) {
-        const bool at_cap = lua_type(L, -1) == LUA_TSTRING;
-        lua_pop(L, 2);
-        return at_cap ? BuildStart::AtCap : BuildStart::Failed;
+        if (lua_pcall(L, 7, 2, 0) != 0) {
+            spdlog::warn("start_build pcall failed: {}", lua_tostring(L, -1));
+            lua_pop(L, 1);
+            return BuildStart::Failed;
+        }
+
+        // Returns: entity_id, lua_table (nil, "cap" at the unit cap)
+        if (lua_isnil(L, -2)) {
+            const bool at_cap = lua_type(L, -1) == LUA_TSTRING;
+            lua_pop(L, 2);
+            return at_cap ? BuildStart::AtCap : BuildStart::Failed;
+        }
     }
 
     build_target_id_ = static_cast<u32>(lua_tonumber(L, -2));
@@ -1174,7 +1204,9 @@ Unit::BuildStart Unit::start_build(const UnitCommand& cmd, EntityRegistry& regis
     // Call target:OnStartBeingBuilt(builder, layer)
     lua_pushstring(L, "OnStartBeingBuilt");
     lua_gettable(L, target_tbl);
-    if (lua_isfunction(L, -1)) {
+    if (frame) {
+        lua_pop(L, 1);
+    } else if (lua_isfunction(L, -1)) {
         lua_pushvalue(L, target_tbl); // self
         if (lua_table_ref() >= 0) {
             lua_rawgeti(L, LUA_REGISTRYINDEX, lua_table_ref());
@@ -1191,7 +1223,7 @@ Unit::BuildStart Unit::start_build(const UnitCommand& cmd, EntityRegistry& regis
     }
 
     lua_pop(L, 2); // pop entity_id + target_tbl from create_building_unit
-    work_progress_ = 0.0f;
+    work_progress_ = frame ? frame->fraction_complete() : 0.0f;
     return BuildStart::Started;
 }
 
@@ -1200,7 +1232,7 @@ bool Unit::progress_build(f64 dt, EntityRegistry& registry, lua_State* L,
     if (built) *built = false;
     auto* target = registry.find(build_target_id_);
     if (!target || target->destroyed()) {
-        finish_build(registry, L, false, grid);
+        fail_build(registry, L);
         return false;
     }
 
@@ -1216,7 +1248,7 @@ bool Unit::progress_build(f64 dt, EntityRegistry& registry, lua_State* L,
     }
 
     if (build_time_ <= 0 || build_rate_ <= 0) {
-        finish_build(registry, L, false, grid);
+        fail_build(registry, L);
         return false;
     }
 
@@ -1243,7 +1275,9 @@ void Unit::finish_build(EntityRegistry& registry, lua_State* L, bool success,
     const std::string order = std::exchange(build_order_, std::string());
     build_command_id_ = 0;
     build_released_with_order_ = false;
-    build_repairs_ = false;
+    if (std::exchange(build_repairs_, false)) {
+        set_unit_state("Repairing", false);
+    }
     economy_.consumption_mass = 0;
     economy_.consumption_energy = 0;
     economy_.consumption_active = false;
@@ -1346,8 +1380,8 @@ void Unit::finish_build(EntityRegistry& registry, lua_State* L, bool success,
             }
         }
 
-        call_build_callback(L, "OnStopBuild", registry.find(target_id),
-                            order.empty() ? nullptr : order.c_str());
+        tell_stop_build(*this, L, lua_ref_of(registry, target_id),
+                        order.empty() ? nullptr : order.c_str());
     } else if (target_id != 0) {
         spdlog::debug("finish_build: entity #{} failed/cancelled build of target #{}", entity_id(),
                       target_id);
@@ -1403,7 +1437,9 @@ void Unit::stop_assisting(lua_State* L, EntityRegistry* registry) {
     const std::string order = std::exchange(build_order_, std::string());
     build_command_id_ = 0;
     build_released_with_order_ = false;
-    build_repairs_ = false;
+    if (std::exchange(build_repairs_, false)) {
+        set_unit_state("Repairing", false);
+    }
     economy_.consumption_mass = 0;
     economy_.consumption_energy = 0;
     economy_.consumption_active = false;
@@ -1413,9 +1449,20 @@ void Unit::stop_assisting(lua_State* L, EntityRegistry* registry) {
     work_progress_ = 0.0f;
     // A callback may clear the queue again or begin a new task.
     if (L && registry && target_id != 0) {
-        call_build_callback(L, "OnStopBuild", registry->find(target_id),
-                            order.empty() ? nullptr : order.c_str());
+        tell_stop_build(*this, L, lua_ref_of(*registry, target_id),
+                        order.empty() ? nullptr : order.c_str());
     }
+}
+
+void Unit::fail_build(EntityRegistry& registry, lua_State* L) {
+    if (build_order_ == "MobileBuild" || build_order_ == "Repair") {
+        release_build(L, registry);
+        return;
+    }
+    const int frame_ref = lua_ref_of(registry, build_target_id_);
+    const std::string order = build_order_;
+    finish_build(registry, L, false);
+    tell_build_failed(*this, L, frame_ref, order.c_str());
 }
 
 void Unit::release_build(lua_State* L, EntityRegistry& registry) {
@@ -1915,10 +1962,13 @@ void Unit::stop_repairing(lua_State* L, EntityRegistry& registry) {
     economy_.consumption_mass = 0;
     economy_.consumption_energy = 0;
     economy_.consumption_active = false;
+    // Moho's CUnitRepairTask clears Repairing as it ends, whoever set it
+    // (FAF's Unit.OnStartRepair sets it from Lua)
+    set_unit_state("Repairing", false);
 
     // Call builder:OnStopBuild(target) — FA handles OnStopRepair inside
     if (target_id != 0) {
-        call_build_callback(L, "OnStopBuild", registry.find(target_id), "Repair");
+        tell_stop_build(*this, L, lua_ref_of(registry, target_id), "Repair");
     }
 }
 
@@ -3400,9 +3450,11 @@ void Unit::tick_idle_landing(f64 dt, SimContext& ctx) {
         if (!navigator_.air_hold()) {
             navigator_.set_air_hold(air_stop_point());
         }
+        update_speed_through();
         AirMove move;
         move.target = *navigator_.air_hold();
         move.elevation = elevation_target_;
+        move.top_speed = navigator_.speed_through_goal();
         fly_air_move(*this, move, &sim, ctx.terrain, static_cast<f32>(dt));
     };
     Vector3 aim = land.target;
@@ -3494,9 +3546,11 @@ void Unit::fly_unflown_tick(f64 dt, SimContext& ctx) {
     if (!navigator_.air_hold()) {
         navigator_.set_air_hold(air_stop_point());
     }
+    update_speed_through();
     AirMove move;
     move.target = *navigator_.air_hold();
     move.elevation = elevation_target_;
+    move.top_speed = navigator_.speed_through_goal();
     fly_air_move(*this, move, ctx.sim, ctx.terrain, static_cast<f32>(dt));
 }
 

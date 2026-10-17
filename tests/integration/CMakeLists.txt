@@ -63,8 +63,10 @@ add_executable(osc_integration
     runner/cartographic_main_test.cpp
     runner/playable_boundary_test.cpp
     runner/map_border_test.cpp
+    runner/minimap_mesh_test.cpp
     runner/world_shapes_test.cpp
     runner/mobile_build_start_test.cpp
+    runner/build_site_join_test.cpp
     runner/drown_test.cpp
     runner/spawn_layer_test.cpp
     runner/warp_test.cpp

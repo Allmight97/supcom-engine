@@ -590,6 +590,9 @@ public:
                         bool* built = nullptr);
     void finish_build(EntityRegistry& registry, lua_State* L, bool success,
                       map::PathfindingGrid* grid = nullptr);
+    /// A build that ends unfinished, as its task ends in Moho (faf-re
+    /// ~CUnitRepairTask, ~CUnitMobileBuildTask, CBuildTaskHelper::OnStopBuild).
+    void fail_build(EntityRegistry& registry, lua_State* L);
 
     /// Assist helpers (Guard command)
     void stop_assisting(lua_State* L = nullptr, EntityRegistry* registry = nullptr);
@@ -872,6 +875,7 @@ public:
     /// terrain, `at` as given.
     void warp(const map::Terrain* terrain, const Vector3& at);
     /// Air.FlyInWater: an aircraft that may fly under the water's surface.
+    bool fly_in_water() const { return fly_in_water_; }
     void set_fly_in_water(bool b) { fly_in_water_ = b; }
     /// What an aircraft holds its height over at (x, z): the ground, or the
     /// water's surface above it unless it flies in water (Moho's CUnitMotion

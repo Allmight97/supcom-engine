@@ -177,6 +177,7 @@ constexpr Mode kModesBefore[] = {
     {"--cartographic-main-test", test_cartographic_main, true},
     {"--playable-boundary-test", test_playable_boundary, false},
     {"--map-border-test", test_map_border, true},
+    {"--minimap-mesh-test", test_minimap_meshes, true},
     {"--world-shapes-test", test_world_shapes, true},
     {"--skirt-render-test", test_skirt_render, false},
     {"--water-reflection-test", test_water_reflection, false},
@@ -224,6 +225,7 @@ constexpr Mode kModesBefore[] = {
     {"--guard-engage-test", test_guard_engage, false},
     {"--rebuilder-guard-test", test_rebuilder_guard, false},
     {"--mobile-build-start-test", test_mobile_build_start, false},
+    {"--build-site-join-test", test_build_site_join, false},
     {"--drown-test", test_drown, false},
     {"--spawn-layer-test", test_spawn_layer, false},
     {"--warp-test", test_warp, false},
@@ -324,6 +326,7 @@ void IntegrationModes::print_usage() const {
               << "  --economy-test     After ticks, log economy state for all armies\n"
               << "  --build-test       After ticks, build a T1 power gen near entity #1\n"
               << "  --mobile-build-start-test An engineer's build start, tick by tick, as the original\n"
+              << "  --build-site-join-test Builders sent to one site build one structure there\n"
               << "  --drown-test       Units made in water: a land tank drowns, as the original\n"
               << "  --spawn-layer-test Where a unit made by script stands: subs, ships, aircraft\n"
               << "  --warp-test        Where Warp puts a unit: its layer, height and move\n"
@@ -1191,6 +1194,7 @@ std::optional<int> IntegrationModes::headless_first(Engine& e) {
 
         osc::i32 peak_entities = 0;
         osc::i32 tick_target = 10000;
+        bool result_noted = false;
 
         for (osc::i32 t = 0; t < tick_target; t++) {
             sim_state->tick();
@@ -1209,10 +1213,10 @@ std::optional<int> IntegrationModes::headless_first(Engine& e) {
 
             // Check game-over — continue tracking but note it
             osc::i32 result = sim_state->player_result();
-            if (result != 0 && !sim_state->game_ended()) {
+            if (result != 0 && !result_noted) {
                 const char* result_str = result == 1 ? "VICTORY" : result == 2 ? "DEFEAT" : "DRAW";
                 spdlog::info("  Game over at tick {}: {}", t + 1, result_str);
-                sim_state->set_game_ended(true);
+                result_noted = true;
             }
         }
 
