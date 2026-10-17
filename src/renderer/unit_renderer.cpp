@@ -17,7 +17,6 @@
 #include <string>
 #include <algorithm>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace osc::renderer {
 
@@ -271,8 +270,7 @@ void UnitRenderer::preload_meshes(const std::vector<std::string>& bp_ids,
 }
 
 void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua_State* L,
-                          TextureCache* tex_cache, const Camera* camera,
-                          const std::unordered_set<u32>* selected_ids, const Frustum* frustum,
+                          TextureCache* tex_cache, const Camera* camera, const Frustum* frustum,
                           bool meshes_drawn) {
     mesh_groups_.clear();
     cube_instance_count_ = 0;
@@ -405,13 +403,6 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
             // which then tints its albedo by white (FA's NormalMappedAlpha).
             else if (entity.is_prop) {
                 g = -1.0f;
-            }
-            // Selection highlight: brighten team color (not a wreck's, whose
-            // negative red must stand)
-            if (selected_ids && entity.is_unit && !wreck && selected_ids->count(entity.id)) {
-                r = r * 0.5f + 0.5f;
-                g = g * 0.5f + 0.5f;
-                b = b * 0.5f + 0.5f;
             }
             inst.r = r;
             inst.g = g;
@@ -723,8 +714,10 @@ bool UnitRenderer::inject_mesh(const GPUMesh* mesh, const MeshInstance& instance
     grp.mesh = mesh;
     // A UI world mesh is made reflected, as every mesh instance no entity
     // made is (M213b); not an order mark, which tests no depth and would
-    // show through the reflected world.
-    grp.reflected = !is_feedback_technique(mesh->technique);
+    // show through the reflected world, nor the map's border, whose
+    // technique has no reflection stage.
+    grp.reflected =
+        !is_feedback_technique(mesh->technique) && mesh->technique != MeshTechnique::MapImager;
     grp.fading = is_blended_technique(mesh->technique);
     grp.instance_offset = total;
     grp.instance_count = 1;

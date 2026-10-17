@@ -26,6 +26,7 @@
 #include <initializer_list>
 #include <limits>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <spdlog/spdlog.h>
 
@@ -942,34 +943,6 @@ bool Unit::tick_after_orders(f64 dt, SimContext& ctx) {
     // Over water, the layer it is on (Moho's UpdateCurrentLayer).
     update_current_layer(ctx.terrain, L);
     if (destroyed() || !in_registry()) return false;
-
-    // Air unit separation: lightweight boids repulsion to prevent stacking
-    if (is_air_unit() && !dying_ && navigator_.is_moving()) {
-        constexpr f32 SEPARATION_RADIUS = 8.0f;
-        constexpr f32 SEPARATION_FORCE = 3.0f;
-        const auto nearby = registry.units_in_radius(position().x, position().z, SEPARATION_RADIUS);
-        f32 repulse_x = 0, repulse_z = 0;
-        for (auto* ne : nearby) {
-            if (ne == this) continue;
-            auto* nu = static_cast<Unit*>(ne);
-            if (!nu->is_air_unit() || nu->army() != army()) continue;
-            f32 ndx = position().x - ne->position().x;
-            f32 ndz = position().z - ne->position().z;
-            f32 nd2 = ndx * ndx + ndz * ndz;
-            if (nd2 > 0.01f && nd2 < SEPARATION_RADIUS * SEPARATION_RADIUS) {
-                f32 inv = 1.0f / std::sqrt(nd2);
-                repulse_x += ndx * inv;
-                repulse_z += ndz * inv;
-            }
-        }
-        if (repulse_x != 0 || repulse_z != 0) {
-            auto p = position();
-            f32 fdt = static_cast<f32>(dt);
-            p.x += repulse_x * SEPARATION_FORCE * fdt;
-            p.z += repulse_z * SEPARATION_FORCE * fdt;
-            set_position(p);
-        }
-    }
 
     // Carried units hang where the transport now is (M206l), however their
     // own ticks fall around ours: Moho moves attached entities with their
@@ -3066,6 +3039,15 @@ Vector3 normalized(const Vector3& v) {
     return {v.x * inv, v.y * inv, v.z * inv};
 }
 
+Quaternion quat_normalized(const Quaternion& q) {
+    const f32 length = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (length <= 0.0f) {
+        return q;
+    }
+    const f32 inv = 1.0f / length;
+    return {q.x * inv, q.y * inv, q.z * inv, q.w * inv};
+}
+
 } // namespace
 
 // Moho's COORDS_Tilt and BuildTiltShortestArcDelta (faf-re Entity.cpp,
@@ -3155,7 +3137,8 @@ Unit::GroundStance Unit::ground_stance(const map::Terrain* terrain, f32 x, f32 z
         normal.y += hover_tilt_.y + wobble_offset_.y;
         normal.z += hover_tilt_.z + wobble_offset_.z;
     }
-    return {y, tilt_to(facing, normal)};
+    // Moho's MoveTo normalizes the orientation SnapToGround tilted (faf-re CUnitMotion.cpp).
+    return {y, quat_normalized(tilt_to(facing, normal))};
 }
 
 namespace {
@@ -3694,6 +3677,22 @@ void Unit::pause(lua_State* L, bool p) {
     }
     call_lua_method(L, p ? "OnPaused" : "OnUnpaused");
     set_paused(p);
+}
+
+u16 Unit::toggle_cap_bits() const {
+    static constexpr std::array<std::string_view, 9> kToggles = {
+        "RULEUTC_ShieldToggle",  "RULEUTC_WeaponToggle",     "RULEUTC_JammingToggle",
+        "RULEUTC_IntelToggle",   "RULEUTC_ProductionToggle", "RULEUTC_StealthToggle",
+        "RULEUTC_GenericToggle", "RULEUTC_SpecialToggle",    "RULEUTC_CloakToggle"};
+    u16 bits = 0;
+    for (const std::string& cap : toggle_caps_) {
+        for (size_t i = 0; i < kToggles.size(); ++i) {
+            if (cap == kToggles[i]) {
+                bits |= static_cast<u16>(1u << i);
+            }
+        }
+    }
+    return bits;
 }
 
 void Unit::call_lua_method(lua_State* L, const char* method_name) {

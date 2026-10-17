@@ -1775,6 +1775,21 @@ void main() {
                         0.2);
         return;
     }
+    if (pc.technique == 31u) {
+        // MapImagerPS0: the albedo, brightened by its alpha, lit by the sun
+        // but where the SpecTeam's blue masks it, glowing nowhere; then
+        // MapImagerPS1, the glow alone (that blue plus glowMinimum). Moho's
+        // 8-bit target saturates them.
+        float mask = texture(texSpecTeam, fragUV).b;
+        if (pc.pass == 0u) {
+            vec4 albedo = texture(texAlbedo, fragUV);
+            float shade = mix(clamp(dot(S, worldNormal), 0.0, 1.0), 1.0, mask);
+            outColor = vec4(clamp(shade * (albedo.rgb + albedo.aaa) + vec3(0.02), 0.0, 1.0), 0.0);
+        } else {
+            outColor = vec4(0.0, 0.0, 0.0, clamp(mask + 0.010, 0.0, 1.0));
+        }
+        return;
+    }
     float NdotL = dot(worldNormal, S);
     float shadow = calcShadow(fragWorldPos);
     vec3 light = computeLight(NdotL, shadow, 1.0, 1.0);
@@ -2235,15 +2250,21 @@ layout(location = 1) in vec4 fragColor;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec4 texColor = texture(texSampler, fragUV);
+    vec4 texColor;
     if (fragColor.a < 0.0) {
-        // A negative alpha asks for FA's StrategicIconPS (M215c): the
-        // icon's grey texels take the tint (its army's colour), the rest
-        // (outlines, the selected ring) keep their own.
+        // A negative alpha asks for FA's StrategicIconPS (M215c), through
+        // its PointSampler (primbatcher.fx): the icon's grey texels take the
+        // tint (its army's colour), the rest (outlines, the selected ring)
+        // keep their own.
+        ivec2 size = textureSize(texSampler, 0);
+        texColor = texelFetch(texSampler, clamp(ivec2(fragUV * vec2(size)), ivec2(0), size - 1), 0);
         vec3 d = texColor.rgb - vec3(0.5);
-        if (dot(d, d) < 0.25) texColor.rgb = fragColor.rgb;
+        if (fragColor.r >= 0.0 && dot(d, d) < 0.25) {
+            texColor.rgb = fragColor.rgb;
+        }
         outColor = texColor;
     } else {
+        texColor = texture(texSampler, fragUV);
         outColor = texColor * fragColor;
     }
     if (outColor.a < 0.01) discard;
@@ -2346,7 +2367,8 @@ layout(location = 1) in float fragGlow;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec4 color = texture(texSampler, fragUV);
+    ivec2 size = textureSize(texSampler, 0);
+    vec4 color = texelFetch(texSampler, clamp(ivec2(fragUV * vec2(size)), ivec2(0), size - 1), 0);
     if (pc.glow > 0.5) {
         if (fragGlow < 0.0) {
             discard;

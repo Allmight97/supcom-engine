@@ -417,6 +417,8 @@ public:
     bool has_toggle_cap(const std::string& cap) const {
         return toggle_caps_.count(cap) > 0;
     }
+    /// Its toggle caps, a bit each as the script bits number them.
+    u16 toggle_cap_bits() const;
     void add_toggle_cap(const std::string& cap) { toggle_caps_.insert(cap); }
     void remove_toggle_cap(const std::string& cap) { toggle_caps_.erase(cap); }
     void restore_toggle_caps() { toggle_caps_ = original_toggle_caps_; }
@@ -1504,7 +1506,7 @@ private:
     /// targets of an immobile NeedUnpack unit, so its weapon packs up and
     /// the unit can go.
     void begin_order(UnitCommand& cmd, lua_State* L);
-    /// Coasting, amphibious layer changes, air separation, fuel.
+    /// Coasting, amphibious layer changes, fuel.
     bool tick_after_orders(f64 dt, SimContext& ctx);
     /// A silo assist ended, regeneration, the silo, motion events, weapons,
     /// manipulators. Runs while paused too.

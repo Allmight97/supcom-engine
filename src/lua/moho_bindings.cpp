@@ -2195,24 +2195,31 @@ static int l_GetArmyAvatars(lua_State* L) {
     return 1;
 }
 
-/// GetIdleEngineers() -> the focus army's idle engineers (commanders are
-/// avatars, not engineers), or nil if there are none.
+/// GetIdleEngineers() -> the focus army's idle engineers, as Moho's UserUnit
+/// counts them, or nil if there are none.
 static int l_GetIdleEngineers(lua_State* L) {
     push_ui_unit_array(L,
                        idle_focus_army_units(L,
                                              [](const sim::Unit& u) {
                                                  return u.has_category("ENGINEER") &&
-                                                        !u.has_category("COMMAND");
+                                                        !u.has_category("COMMAND") &&
+                                                        !u.has_category("SCOUT") &&
+                                                        !u.has_category("UNTARGETABLE");
                                              }),
                        true);
     return 1;
 }
 
-/// GetIdleFactories() -> the focus army's idle factories, or nil.
+/// GetIdleFactories() -> the focus army's idle factories, as Moho's UserUnit
+/// counts them, or nil.
 static int l_GetIdleFactories(lua_State* L) {
-    push_ui_unit_array(
-        L, idle_focus_army_units(L, [](const sim::Unit& u) { return u.has_category("FACTORY"); }),
-        true);
+    push_ui_unit_array(L,
+                       idle_focus_army_units(L,
+                                             [](const sim::Unit& u) {
+                                                 return u.has_category("FACTORY") &&
+                                                        u.has_category("STRUCTURE");
+                                             }),
+                       true);
     return 1;
 }
 
@@ -3483,7 +3490,7 @@ static int l_SessionIsPaused(lua_State* L) {
 
 /// MapBorderClear() / MapBorderAdd(mesh): the decorative meshes around the
 /// map's edge (the skin's "imager" mesh; retail's UpdateWorldBorderState).
-/// They are kept for the world view; nothing draws them yet.
+/// Kept in order for the renderer, which draws each (map_border.hpp).
 static int l_MapBorderClear(lua_State* L) {
     lua_pushstring(L, "__osc_map_border_meshes");
     lua_newtable(L);
@@ -3906,7 +3913,8 @@ void register_console_commands(ui::Console& console) {
             spdlog::info("SetFocusArmy: no session");
             return;
         }
-        request_focus_army(L, std::atoi(args[1].c_str()));
+        request_focus_army(
+            L, static_cast<i32>(std::strtol(args[1].c_str(), nullptr, 10))); // Moho: atoi
     });
     // The sim rate (Moho's WLD_* commands).
     console.add("WLD_GameSpeed", [](lua_State* L, const Args& args) {

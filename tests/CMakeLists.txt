@@ -30,6 +30,7 @@ add_executable(osc_tests
     test_ground_attack.cpp
     test_primary_weapon_target.cpp
     test_command_feedback.cpp
+    test_map_border.cpp
     test_seabed_layer.cpp
     test_raised_platforms.cpp
     test_favors_water.cpp
@@ -171,7 +172,6 @@ add_executable(osc_tests
     test_checksum_coverage.cpp
     test_sha256.cpp
     test_platform_secrets.cpp
-    test_common_army.cpp
     test_handicap.cpp
     test_team_share_overflow.cpp
     test_lockstep.cpp

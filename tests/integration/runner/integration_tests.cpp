@@ -7744,12 +7744,38 @@ void test_aim(TestContext& ctx) {
         if math.abs(h) > 1e-3 then error('heading ' .. math.deg(h) .. ' deg') end
     )");
 
+    lua_check("setup: a Scathis sent at a target 120 off", R"(
+        local function spawn(bp, army, x, z)
+            return CreateUnitHPR(bp, army, x, GetTerrainHeight(x, z), z, 0, 0, 0)
+        end
+        __osc_scathis = spawn('url0401', 'ARMY_1', 260, 880)
+        __osc_scathis_mark = spawn('ueb1101', 'ARMY_2', 260, 760)
+        __osc_scathis_mark:SetCanTakeDamage(false)
+        __osc_scathis_shots = 0
+        local w = __osc_scathis:GetWeapon(1)
+        local fire = w.CreateProjectileAtMuzzle
+        w.CreateProjectileAtMuzzle = function(self, muzzle)
+            __osc_scathis_shots = __osc_scathis_shots + 1
+            return fire(self, muzzle)
+        end
+        IssueAttack({__osc_scathis}, __osc_scathis_mark)
+    )");
+    for (int i = 0; i < 250; ++i) {
+        ctx.sim.tick();
+    }
+    lua_check("Test 8: a Scathis fires its high arc from its unpacked barrel", R"(
+        if __osc_scathis_shots == 0 then
+            local _, pitch = __osc_scathis:GetWeapon(1):GetAimManipulator():GetHeadingPitch()
+            error('no shot; pitch ' .. math.deg(pitch) .. ' deg')
+        end
+    )");
+
     if (osc::test_status::failure_count() - fail == failures_before) {
         pass++;
-        spdlog::info("[PASS] Test 8: no script errors");
+        spdlog::info("[PASS] Test 9: no script errors");
     } else {
         fail++;
-        osc::test_status::fail("[FAIL] Test 8: script errors while aiming");
+        osc::test_status::fail("[FAIL] Test 9: script errors while aiming");
     }
     spdlog::info("Aim test: {}/{} passed", pass, pass + fail);
 }
@@ -9929,6 +9955,22 @@ void test_missile(TestContext& ctx) {
         for i, v in __osc_victims do
             if not v:IsDead() then error('victim ' .. i .. ' lives') end
         end
+    )");
+    lua_check("Test 8b: the silo is credited with what its nuke killed", R"(
+        local kills = __osc_s:GetStat('KILLS', 0).Value
+        if kills ~= table.getn(__osc_victims) then error('S has ' .. kills .. ' kills') end
+    )");
+    lua_check("Test 8c: a projectile's projectile is launched by the first's launcher", R"(
+        local bp = '/projectiles/TDFGauss01/TDFGauss01_proj.bp'
+        local first = __osc_s:CreateProjectile(bp, 0, 30, 0, nil, nil, nil)
+        local second = first:CreateProjectile(bp, 0, 0, 0, nil, nil, nil)
+        local launcher = second:GetLauncher()
+        local first_launcher = first:GetLauncher()
+        second:Destroy()
+        first:Destroy()
+        if first_launcher ~= __osc_s then error('the first is not launched by S') end
+        if launcher == first then error('the second is launched by the first') end
+        if launcher ~= __osc_s then error('the second is launched by ' .. tostring(launcher)) end
     )");
 
     // Phase 2:
