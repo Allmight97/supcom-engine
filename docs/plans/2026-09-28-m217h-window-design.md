@@ -87,6 +87,9 @@ The rules come from faf-re:
 - **HiDPI:** cursor positions are scaled from window units to framebuffer
   pixels, everywhere they're read: the UI dispatch, the camera, world
   clicks, the minimap, `GetMouseWorldPos`.
+- *Since 2026-10-16* the root frame and the cursor are in the interface's
+  units, the framebuffer's pixels over the display's scale:
+  `2026-10-16-interface-scale-design.md`.
 - **vsync:** the present mode is FIFO with vsync on, and MAILBOX
   (IMMEDIATE if there's no MAILBOX) with it off.
 - **Tests and captures** keep their fixed offscreen 1600×900. Options
