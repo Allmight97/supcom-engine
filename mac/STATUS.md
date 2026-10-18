@@ -11,10 +11,13 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   `upstream` = bwiemz (push disabled). Deferred Mac work: [fork issue #1](https://github.com/Allmight97/supcom-engine/issues/1).
 - Fork `main` (2026-10-18): upstream `d98ad203` plus the Mac branches for UI scale,
   the SDK loader, bundled drivers, full screen on the main display and an FPS cap
-  (merges `1e4af415`, `a416dc0d`, `dde2665a`, `da8ff2ba`, `7d39ac25`), and this toolkit in `mac/`. Built arm64
+  (merges `1e4af415`, `a416dc0d`, `dde2665a`, `da8ff2ba`, `7d39ac25`), full screen from a
+  maximized window (`69830c38`) and the nuke's effect techniques (`b4b857f5`, #3), and this
+  toolkit in `mac/`. Built arm64
   RelWithDebInfo with `mac/recipe/build.sh`; ships the loader and both drivers in `build/play`.
   After the move (2026-10-18): unit tests pass, `ctest -L mp` 4/4, `ctest -L gate` 269/269,
-  smoke and render check pass ([consolidation log](log/2026-10-18-consolidation.md)).
+  smoke and render check pass ([consolidation log](log/2026-10-18-consolidation.md)); again
+  after `b4b857f5` ([agent play-test log](log/2026-10-18-agent-playtests.md)).
 - Mac driver: KosmicKrisp, SDK 1.4.363.0 installed locally in
   `mac/work/vulkan-sdk/1.4.363.0/`; `mac/recipe/env.sh` sets only `VULKAN_SDK`. The game
   prefers KosmicKrisp and loads `libvulkan_kosmickrisp.dylib` (loader debug, `mac/work/logs/archive-pre-2026-10-18/metal4/driver-proof.stderr`).
@@ -29,8 +32,15 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
 - Display: Studio Display XDR, 5120x2880 panel, 120 Hz maximum, set to "looks like"
   2880x1620 at 2x backing; built-in display also 120 Hz.
 - Defects still open (2026-10-17 play test, [notes](notes/play-test-2026-10-17.md)):
-  anti-aliasing unavailable (single-sample renderer); nuclear explosion renders wrongly
-  (#3); one Lua warning, `terranunits.lua:517` (#4).
+  anti-aliasing unavailable (single-sample renderer); one Lua warning, `terranunits.lua:517`
+  (#4: cause traced, not fixed). The nuke's opaque sphere (#3) is fixed offscreen
+  (`--effect-mesh-test`); its look against the original is unchecked. Seven mesh shader
+  names still draw as opaque units (`docs/current-state.md`, M211o).
+- Agent soaks (2026-10-18, headless, 8 AIs): 0 Lua errors; late-game sim 93 ms per tick of
+  100; unverified: script threads 7,614 to 24,929 from minute 30 to 60, no unit gains
+  veterancy. `test_net_lobby.cpp:356` (LaunchGame) failed once, then passed: a flake.
+- Upstream: another Mac contributor opened PRs on 2026-10-18 (bwiemz #734 to #746: macOS
+  presets and vcpkg triplet, `~/Library` data, MoltenVK ICD, peak memory in bytes).
 - OSC's game-folder search order is command line, `OSC_FA_PATH`, FAF, Steam, chosen
   folder; GOG is never searched. Without `OSC_FA_PATH` it picks FAF's files.
 - The original (GOG 1.5.3599) runs only in CrossOver 26.3 under Rosetta; the dev Mac
@@ -78,27 +88,30 @@ apart, so FAF addresses never apply directly.
 - Where the second copy of the reference corpus goes (`mac/work/corpus-manifest.txt`
   lists it; about 1.6 GB that cannot be recaptured after Rosetta ends).
 - Best Mac display setup for the game: "looks like" 2880x1620, 2560x1440 or native.
+- The Mac build contribution (M1) now overlaps another contributor's upstream PRs
+  (#735, #745, #736, #746): build on theirs, or offer ours?
 
 ## Next actions
 
-1. JStar checks the overnight changes by eye:
+1. JStar checks by eye (`mac/scripts/play`):
    - Bundled drivers, no setup script: in a shell that has not sourced `mac/recipe/env.sh`,
      run `build/play/opensupcom --fa-path ~/Projects/OpenSupCom/mac/work/game`. Expect
-     `driver KosmicKrisp` in `~/.local/state/opensupcom/logs/opensupcom.log` and normal play.
-   - Full screen on the main display (Studio Display main, MacBook screen on). Start
-     `mac/scripts/play --full` from WezTerm on the MacBook screen: expect the Studio Display.
-     In the options go to Windowed, drag the window to the MacBook screen, go back to
-     Full Screen: expect the MacBook screen, and again after a relaunch. Drag it back to
-     the Studio Display and repeat: expect the Studio Display. A window maximized on one
-     display, then Full Screen: expect that display.
-   - FPS cap -2: `mac/scripts/play --full --hud`, then the same with `-- --fps-cap 0` and
-     `-- --fps-cap 60`. Look for stutter that alternates between one and two refresh
-     intervals at 118.
-2. Play-test findings still open (notes/play-test-2026-10-17.md): Game Mode through the
-   `.app`, the nuke effect (#3), the `terranunits.lua:517` warning (#4), the play
-   recorder (#2).
-3. The Mac build contribution: macOS preset, vcpkg fixes, CI job (`mac/roadmap.md`);
-   fork issue #1 holds the rest of the packaging.
+     normal play (agents saw `driver KosmicKrisp` in a hidden run).
+   - Full screen (Studio Display main, MacBook screen on): `mac/scripts/play --full` from the
+     MacBook screen: expect the Studio Display. Windowed, drag to the MacBook, maximize there,
+     Full Screen: expect the MacBook; quit in full screen and relaunch with `--full`: the
+     MacBook; Windowed: maximized on the MacBook; un-maximize: the size from before, at the
+     MacBook's top-left corner. Drag back to the Studio Display and repeat: the Studio.
+   - The nuke: a UEF ACU death or nuke in a skirmish. The dome should be translucent and
+     fade, not an opaque sphere; compare with the original as remembered.
+   - FPS cap: watch the `--hud` frame times; agents do no more FPS work (JStar).
+2. Upstream PR of the effect techniques (`d53c82f4`, `fc8c39ce`) after JStar's look at the
+   nuke: an `up/effect-shaders` branch from `upstream/main`, a draft PR.
+3. #4: look the pod's id up through `blueprint_name()` in `brain_GetUnitBlueprint`, with a
+   failing test first.
+4. Play-test findings still open: Game Mode through the `.app`, the play recorder (#2).
+5. The Mac build contribution: macOS preset, vcpkg fixes, CI job (`mac/roadmap.md`), now
+   against the other contributor's PRs (Open questions); fork issue #1 holds the packaging.
 
 ## Tracks
 
