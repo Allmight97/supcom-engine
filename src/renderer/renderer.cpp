@@ -3887,17 +3887,50 @@ void Renderer::refresh_ui_scale() {
     ui_scale_ = core::content_scale(ww, fw) * ui_zoom_;
 }
 
-void Renderer::set_fullscreen(u32 width, u32 height, u32 rate) {
+void Renderer::set_fullscreen(u32 width, u32 height, u32 rate,
+                              std::optional<core::DisplayArea> last_window) {
     if (!window_) return;
+    int count = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&count);
+    std::vector<core::DisplayArea> displays(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        core::DisplayArea& d = displays[static_cast<size_t>(i)];
+        glfwGetMonitorPos(monitors[i], &d.x, &d.y);
+        if (const GLFWvidmode* mode = glfwGetVideoMode(monitors[i])) {
+            d.width = mode->width;
+            d.height = mode->height;
+        }
+    }
+    const size_t target = core::display_at(displays, last_window);
     if constexpr (core::kNativeFullscreen) {
+        // macOS fills the screen holding most of the window: unless it lies
+        // inside the target, fit it there first
+        if (count > 0 && !fullscreen()) {
+            int x = 0;
+            int y = 0;
+            int w = 0;
+            int h = 0;
+            glfwGetMonitorWorkarea(monitors[target], &x, &y, &w, &h);
+            int wx = 0;
+            int wy = 0;
+            int ww = 0;
+            int wh = 0;
+            glfwGetWindowPos(window_, &wx, &wy);
+            glfwGetWindowSize(window_, &ww, &wh);
+            if (wx < x || wy < y || wx + ww > x + w || wy + wh > y + h) {
+                ww = std::min(ww, w);
+                wh = std::min(wh, h);
+                glfwSetWindowSize(window_, ww, wh);
+                glfwSetWindowPos(window_, x + (w - ww) / 2, y + (h - wh) / 2);
+            }
+        }
         native_fullscreen_request_ = true;
         windowed_pending_.reset();
         settle_native_fullscreen();
         return;
     }
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-    if (!monitor) return;
-    glfwSetWindowMonitor(window_, monitor, 0, 0, static_cast<int>(width), static_cast<int>(height),
+    if (count == 0) return;
+    glfwSetWindowMonitor(window_, monitors[target], 0, 0, static_cast<int>(width), static_cast<int>(height),
                          rate > 0 ? static_cast<int>(rate) : GLFW_DONT_CARE);
 }
 

@@ -82,6 +82,13 @@ void set_custom_data(lua_State* L, const char* key, const std::vector<OptionStat
     run(L, code, "publishing the adapter options");
 }
 
+/// The windowed place the prefs hold, if they hold one.
+std::optional<core::DisplayArea> last_window(const WindowPrefs& w) {
+    if (!w.x || !w.y) return std::nullopt;
+    return core::DisplayArea{*w.x, *w.y, static_cast<int>(w.width.value_or(kDefaultWidth)),
+                             static_cast<int>(w.height.value_or(kDefaultHeight))};
+}
+
 } // namespace
 
 WindowPrefs read_window_prefs(const core::Preferences& prefs) {
@@ -109,9 +116,10 @@ bool vsync_option(const core::Preferences& prefs) {
 
 WindowMode open_window(renderer::Renderer& r, const std::vector<std::string>& args,
                        const core::Preferences& prefs) {
-    const WindowMode m = startup_window_mode(args, read_window_prefs(prefs));
+    const WindowPrefs w = read_window_prefs(prefs);
+    const WindowMode m = startup_window_mode(args, w);
     if (m.fullscreen) {
-        r.set_fullscreen(m.size.width, m.size.height, m.size.rate);
+        r.set_fullscreen(m.size.width, m.size.height, m.size.rate, last_window(w));
     } else {
         r.set_windowed(m.size.width, m.size.height, m.position, m.maximized);
     }
@@ -225,7 +233,8 @@ void register_window_commands(ui::Console& console, core::Preferences& prefs, bo
             return;
         }
         save_window_geometry(prefs, *r); // for "windowed" again
-        r->set_fullscreen(mode->width, mode->height, mode->rate);
+        r->set_fullscreen(mode->width, mode->height, mode->rate,
+                          last_window(read_window_prefs(prefs)));
     });
     // SC_SecondaryAdapter <bool>: republishes the secondary adapter's states
     // (one display here: disabled, or the command line's).

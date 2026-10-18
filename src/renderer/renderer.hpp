@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/cursor.hpp"
+#include "core/fullscreen.hpp"
 #include "map/heightmap.hpp"
 #include "map/scmap_parser.hpp"
 
@@ -482,7 +483,10 @@ public:
     /// Full screen on the primary display at a mode (FA's primary_adapter
     /// "w,h,fps"), or a decorated window at a size, placed there (else where
     /// it is), maximized or not ("windowed").
-    void set_fullscreen(u32 width, u32 height, u32 rate);
+    /// Full screen on the display holding the middle of `last_window` (the
+    /// windowed place the player last had), else on the main display.
+    void set_fullscreen(u32 width, u32 height, u32 rate,
+                        std::optional<core::DisplayArea> last_window);
     void set_windowed(u32 width, u32 height, std::optional<std::array<i32, 2>> position,
                       bool maximized);
     bool fullscreen() const;
