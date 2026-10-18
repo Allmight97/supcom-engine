@@ -105,11 +105,11 @@ fixes, what is open. Never edit an earlier log.
 - One session at a time owns the checkout; STATUS.md "Tracks" names it.
   Another session that needs it asks JStar for a worktree instead of switching branches.
 - Main session: Opus at medium; judgement and adjudication stay there with JStar.
-  Delegate bounded labour to Haiku at high, judgement-heavy subtasks to Opus at
-  medium, and coding tasks or second opinions to GPT 6.1 Sol at high through
-  `codex exec` (stdin closed: `</dev/null`). Give Codex a narrow brief that names the files to touch. Stop a
-  run that has edited no file after 20 minutes. Prefer Codex for review over open-ended
-  implementation.
+  Delegate bounded labour and light judgement to Haiku at high or Sonnet at medium,
+  judgement-heavy subtasks to Opus at medium. GPT 6.1 Sol at xhigh through `codex exec`
+  (stdin closed: `</dev/null`) gives reviews and opinions before or after implementation,
+  never the implementation itself; give it a narrow brief naming the files to read, and stop
+  a run that has produced nothing after 20 minutes.
 - Commit with `git commit -m … -- <paths>`; one logical change per commit, as
   CONTRIBUTING.md asks; merge branches into `main` with a merge commit; push at
   milestones and pauses. Git command restrictions are enforced by
