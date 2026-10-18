@@ -8,6 +8,7 @@
 #include "core/cursor.hpp"
 #include "core/fullscreen.hpp"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -189,4 +190,22 @@ TEST_CASE("A Retina window's UI is its size in points, drawn at the framebuffer'
     CHECK(core::content_scale(0, 0) == 1.0f);
     CHECK(core::ui_extent(1600, 900, 1.0f) == std::array<u32, 2>{1600, 900});
     CHECK(core::ui_to_pixels(100.0, 200.0, 1.0f) == std::array<f64, 2>{100.0, 200.0});
+}
+
+TEST_CASE("Full screen goes to the display holding the last window, else the main one",
+          "[window]") {
+    using core::DisplayArea;
+    using core::display_at;
+    // The main display, a laptop screen to its left and lower, one above
+    const std::array<DisplayArea, 3> displays{DisplayArea{0, 0, 2880, 1620},
+                                              DisplayArea{-1512, 700, 1512, 982},
+                                              DisplayArea{0, -1080, 1920, 1080}};
+    CHECK(display_at(displays, std::nullopt) == 0);
+    CHECK(display_at(displays, DisplayArea{-1400, 800, 1024, 768}) == 1);
+    CHECK(display_at(displays, DisplayArea{200, -900, 1024, 768}) == 2);
+    CHECK(display_at(displays, DisplayArea{5000, 5000, 1024, 768}) == 0);
+    // Straddling the laptop and the main display: the middle is on the main one
+    CHECK(display_at(displays, DisplayArea{-300, 800, 1024, 768}) == 0);
+    CHECK(display_at(displays, DisplayArea{-900, 800, 1024, 768}) == 1);
+    CHECK(display_at({}, DisplayArea{0, 0, 1024, 768}) == 0);
 }
