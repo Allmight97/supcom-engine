@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""What upstream OpenSupCom did that the fork's main lacks, and open upstream PRs in Mac areas.
+
+  mac/scripts/upstream-news           fetch upstream, list missing landings and Mac-related open PRs
+  mac/scripts/upstream-news --behind  print only the count of upstream commits missing from main
+  mac/scripts/upstream-news --self-test
+Run before starting any Mac change, so work upstream already did or is doing is found first.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+OSC = os.environ.get('OSC_ROOT', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+REPO = 'bwiemz/supcom-engine'
+MAC = re.compile(r'macos|\bmac\b|apple|retina|hidpi|dpi|moltenvk|kosmic|vulkan loader|loader|'
+                 r'validation layer|window|full ?screen|display|cursor|platform/|\.mm\b|metal', re.I)
+
+
+def mac_related(text):
+    return bool(MAC.search(text))
+
+
+def git(*args):
+    return subprocess.run(['git', '-C', OSC, *args], capture_output=True, text=True).stdout.strip()
+
+
+def base():
+    return 'main' if git('rev-parse', '--verify', '--quiet', 'main') else 'HEAD'
+
+
+def behind():
+    return int(git('rev-list', '--count', f'{base()}..upstream/main') or 0)
+
+
+def landed():
+    body = git('log', '--format=%B', f'{base()}..upstream/main')
+    return [line[2:] for line in body.splitlines() if line.startswith('* ')] or \
+        git('log', '--format=%s', f'{base()}..upstream/main').splitlines()
+
+
+def open_prs():
+    result = subprocess.run(['gh', 'pr', 'list', '--repo', REPO, '--state', 'open', '--limit', '100',
+                             '--json', 'number,title,author,files'], capture_output=True, text=True)
+    if result.returncode:
+        return None
+    prs = json.loads(result.stdout)
+    return [p for p in prs if mac_related(p['title'] + ' ' + ' '.join(f['path'] for f in p.get('files') or []))]
+
+
+def self_test():
+    assert mac_related('renderer: on a HiDPI display FA\'s UI is laid out in points')
+    assert mac_related('touches src/platform/native_fullscreen.mm')
+    assert not mac_related('sim: a guard helping a silo fights and repairs it')
+    print('upstream-news self-test passed')
+
+
+def main():
+    if '--self-test' in sys.argv:
+        return self_test()
+    try:
+        subprocess.run(['git', '-C', OSC, 'fetch', '-q', 'upstream'], timeout=15)
+    except subprocess.TimeoutExpired:
+        print('fetch timed out; using the last fetched upstream', file=sys.stderr)
+    if '--behind' in sys.argv:
+        return print(behind())
+    items = landed()
+    print(f'{behind()} upstream commits not in {base()} ({len(items)} landings):')
+    for item in items:
+        print(('  MAC ' if mac_related(item) else '      ') + item[:110])
+    prs = open_prs()
+    if prs is None:
+        print('Open PRs: gh unavailable, skipped.')
+    else:
+        print(f'Open upstream PRs in Mac areas ({len(prs)}):')
+        for p in prs:
+            print(f"  #{p['number']} {p['author']['login']}: {p['title'][:100]}")
+    if behind():
+        print(f'Sync: cd {OSC} && git switch main && git merge upstream/main')
+
+
+main()

@@ -1,3 +1,7 @@
+> **Fork note:** this is [Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine), JStar's fork for the
+> macOS port. Its Mac toolkit, status and play instructions are in [mac/README.md](mac/README.md);
+> the rest is upstream [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine).
+
 # OpenSupCom
 
 An open-source reimplementation of the Moho engine that powers *Supreme Commander: Forged Alliance*.

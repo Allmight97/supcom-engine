@@ -1,0 +1,39 @@
+#!/bin/sh
+# Start the game fullscreen and print, live, how far the game's cursor is from the Mac pointer.
+#   tools/mouse-probe/run        GOG game
+#   tools/mouse-probe/run faf    FAF's ForgedAlliance.exe (front end; use Skirmish, or Multiplayer -> LAN for a lobby)
+# macprobe logs the Mac pointer and the game window's bounds and layer (a layer above 1,000,000 means the
+# window took over the display); the Lua hook logs the game's cursor (root-frame mouse events, and
+# GetMouseScreenPos inside a match). Offsets are exact only while the pointer is still: the two logs
+# sample at different moments. Logs: work/mouse-probe/{mac,game,pairs}-KIND-TIME.log.
+# The player runs this and moves the mouse; it sends no input. Quit the game (or Ctrl-C here) to stop.
+set -eu
+cd "$(dirname "$0")/../.."
+d=tools/mouse-probe out=work/mouse-probe; stamp=$(date +%H%M%S); kind=${1:-gog}
+mkdir -p "$out"
+[ "$out/macprobe" -nt "$d/macprobe.swift" ] || swiftc -O "$d/macprobe.swift" -o "$out/macprobe"
+mac_log="$out/mac-$kind-$stamp.log"; game_log="$out/game-$kind-$stamp.log"
+pgrep -f '(SupremeCommander|ForgedAlliance)[.]exe' >/dev/null && { echo "A game is already running; close it first."; exit 1; }
+"$out/macprobe" > "$mac_log" & probe=$!
+python3 -I "$d/live.py" "$mac_log" "$game_log" & live=$!
+trap 'kill $probe $live 2>/dev/null' EXIT INT TERM
+win() { case "$1" in /*) p=$1 ;; *) p=$PWD/$1 ;; esac; printf 'Z:%s' "$p" | tr / '\\'; }
+if [ "$kind" = faf ]; then
+    fwd() { win "$1" | tr '\\' /; }
+    cat > "$out/init-faf.lua" <<LUA
+FafBinDir = '$(fwd "$HOME/.faforever/bin")'
+ProbeDir = '$(fwd "$PWD/$d")'
+InitFileDir = FafBinDir
+dofile(FafBinDir .. '/init.lua')
+table.insert(path, 1, { dir = ProbeDir, mountpoint = '/probe' })
+table.insert(path, 1, { dir = ProbeDir .. '/hook', mountpoint = '/probehook' })
+table.insert(hook, 1, '/probehook')
+LOG('mouse-probe: hooks mounted from ' .. ProbeDir)
+LUA
+    (cd "$HOME/.faforever/bin" && "$OLDPWD/agents/faf-crossover" game "$HOME/.faforever/bin/ForgedAlliance.exe" \
+        /init "$(win "$OLDPWD/$out/init-faf.lua")" /nobugreport /nomovie /log "$(win "$OLDPWD/$game_log")") >/dev/null 2>&1 || true
+else
+    agents/faf-crossover original /init "$(win $d/init-probe.lua)" /nomovie /log "$(win $game_log)" >/dev/null 2>&1 || true
+fi
+sleep 1
+echo "Game closed. Logs: $mac_log $game_log"

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Render SCMP_009 in a hidden window and verify the selected Vulkan driver.
+set -uo pipefail
+toolkit=$(cd "$(dirname "$0")/.." && pwd) || exit 1
+osc=${OSC_ROOT:-$toolkit/..}
+cd "$osc" && source "$toolkit/recipe/env.sh" || exit 1
+mkdir -p .local || exit 1
+log="$PWD/.local/mac-render-check.log"
+capture="$PWD/.local/mac-render-check.png"
+rm -f "$log" || exit 1
+echo "Render log: $log"
+echo "Render capture: $capture"
+OSC_VK_VALIDATION=1 VK_ADD_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d" \
+    build/play/opensupcom --fa-path "$OSC_FA_PATH" \
+    --map /maps/SCMP_009/SCMP_009_scenario.lua \
+    --screenshot "$capture" --screenshot-frame 600 --log "$log"
+code=$?
+if [[ $code != 0 ]] || [[ ! -f "$log" ]] || grep -q '\[error\]' "$log" ||
+    ! grep -Eq '\[info\] Vulkan loader [0-9]+\.[0-9]+\.[0-9]+, driver KosmicKrisp \(' "$log"; then
+    echo RENDER_CHECK_FAIL >&2
+    exit 1
+fi
+echo RENDER_CHECK_OK

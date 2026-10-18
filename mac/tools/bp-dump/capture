@@ -1,0 +1,22 @@
+#!/bin/sh
+# Dump the blueprints the original's sim state holds (after the engine merged its defaults into them).
+#   tools/bp-dump/capture NAME [GAME ARGS...]     (default game args: /map X1MP_006)
+# Launches the original game in the CrossOver bottle with tools/bp-dump/init-dump.lua, waits for the
+# BPDUMP|END line, stops the game and leaves the log in work/traces/NAME.log.
+# The game writes work/traces/NAME.log.partial; it is renamed to NAME.log only after BPDUMP|END.
+# Needs movie.nologo = true in Game.prefs so no key press is needed at the splash.
+set -eu
+# The whole script runs from main, read in full before it starts, so editing it during a run is safe.
+main() {
+cd "$(dirname "$0")/../.."
+. tools/lib/game-run.sh
+name=$1; shift
+[ $# -gt 0 ] || set -- /map X1MP_006
+GAME_RUN_WINDOW="640 480"
+game_run_start original tools/bp-dump/init-dump.lua "work/traces/$name.log" "$@"
+game_run_wait_marker 'BPDUMP|END' 300
+sleep 2
+game_run_finish
+echo "work/traces/$name.log: $(grep -c 'BPDUMP|' "work/traces/$name.log") blueprint lines"
+}
+main "$@"

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Fork push guard (copied to .git/mac-hooks/ by mac/scripts/setup). An up/* branch is an upstream pull
+# request: cut from upstream/main with engine commits cherry-picked. Refuse it if any commit in
+# upstream/main..branch touches the fork-only paths mac/, AGENTS.md or CLAUDE.md.
+set -euo pipefail
+zero=0000000000000000000000000000000000000000
+rejected=0
+while read -r local_ref local_sha _ _; do
+    [[ $local_ref == refs/heads/up/* && $local_sha != "$zero" ]] || continue
+    if ! git rev-parse --verify -q refs/remotes/upstream/main >/dev/null; then
+        printf 'pre-push: %s: no upstream/main to compare with (git fetch upstream).\n' "${local_ref#refs/heads/}" >&2
+        rejected=1
+        continue
+    fi
+    fork_only=$(git rev-list --full-history upstream/main.."$local_sha" -- mac AGENTS.md CLAUDE.md)
+    if [[ -n $fork_only ]]; then
+        printf 'pre-push: %s carries fork-only commits (mac/, AGENTS.md or CLAUDE.md):\n%s\n' \
+            "${local_ref#refs/heads/}" "$(git log --oneline --no-walk $fork_only | head -5)" >&2
+        rejected=1
+    fi
+done
+(( rejected == 0 )) || { echo 'Push refused: cut up/* branches from upstream/main and cherry-pick engine commits only.' >&2; exit 1; }

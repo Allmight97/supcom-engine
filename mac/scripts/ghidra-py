@@ -1,0 +1,16 @@
+#!/bin/sh
+# Run a pyghidra script against the saved project with the Ghidra environment set, waiting up to
+# GHIDRA_LOCK_WAIT seconds (default 300) for a live holder to release the one-writer lock. A lock file with
+# no live holder is stale: the project opens and Ghidra clears it.
+#   scripts/ghidra-py scripts/dossier.py Unit:GetHealth
+set -eu
+cd "$(dirname "$0")/.."
+export GHIDRA_INSTALL_DIR="${GHIDRA_INSTALL_DIR:-$HOME/Applications/ghidra_12.1.4_PUBLIC}"
+export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home}"
+export GHIDRA_MAXMEM="${GHIDRA_MAXMEM:-12G}"
+deadline=$(( $(date +%s) + ${GHIDRA_LOCK_WAIT:-300} ))
+until scripts/ghidra-lock >/dev/null; do
+    [ "$(date +%s)" -lt "$deadline" ] || { scripts/ghidra-lock >&2; exit 1; }
+    sleep 5
+done
+exec uv run --python 3.12 "$@"

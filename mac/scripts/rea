@@ -1,0 +1,20 @@
+#!/bin/sh
+# Run the latest globally installed REA from any shell without changing global Java.
+set -eu
+
+export GHIDRA_INSTALL_DIR="${GHIDRA_INSTALL_DIR:-$HOME/Applications/ghidra_12.1.4_PUBLIC}"
+if [ -z "${JAVA_HOME:-}" ]; then
+    JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
+fi
+export JAVA_HOME
+export HOPPER_LAUNCHER_PATH="${HOPPER_LAUNCHER_PATH:-$HOME/Applications/Hopper Disassembler.app/Contents/MacOS/hopper}"
+
+if [ ! -x "$GHIDRA_INSTALL_DIR/support/analyzeHeadless" ] || [ ! -x "$JAVA_HOME/bin/javac" ]; then
+    printf '%s\n' 'Ghidra or the full Java 21 JDK is missing. Follow docs/toolchain.md.' >&2
+    exit 1
+fi
+if ! command -v rea >/dev/null 2>&1; then
+    printf '%s\n' 'rea is not installed. Run: npm install --global rea-agents' >&2
+    exit 1
+fi
+exec rea "$@"
