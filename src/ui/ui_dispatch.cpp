@@ -59,7 +59,7 @@ void UIDispatch::install_callbacks(GLFWwindow* window) {
     });
     glfwSetCursorPosCallback(window, [](GLFWwindow*, double x, double y) {
         if (s_dispatch) {
-            s_dispatch->on_cursor_pos(x, y);
+            s_dispatch->on_cursor_pos(x / s_dispatch->ui_zoom_, y / s_dispatch->ui_zoom_);
         }
     });
     glfwSetCharCallback(window, [](GLFWwindow*, unsigned int cp) {

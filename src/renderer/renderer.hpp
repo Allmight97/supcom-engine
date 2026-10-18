@@ -128,6 +128,13 @@ public:
     bool init(u32 width, u32 height, const std::string& title,
               bool offscreen = false);
     void set_offscreen_scale(f32 scale) { offscreen_scale_ = scale; }
+    /// The player's zoom of the UI on top of the display's scale (--ui-scale):
+    /// the root frame is the window's points over it
+    void set_ui_zoom(f32 zoom) {
+        ui_zoom_ = zoom;
+        ui_dispatch_.set_ui_zoom(zoom);
+    }
+    f32 ui_zoom() const { return ui_zoom_; }
 
     /// One-time scene upload (terrain mesh, static buffers, and the meshes
     /// of `preload`, e.g. sim::world_blueprints).
@@ -789,6 +796,7 @@ private:
     u32 window_height_ = 0;
     f32 ui_scale_ = 1.0f;
     f32 offscreen_scale_ = 1.0f;
+    f32 ui_zoom_ = 1.0f;
 
     // Vulkan core
     VkInstance instance_ = VK_NULL_HANDLE;

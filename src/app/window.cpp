@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <string>
 
@@ -37,6 +38,14 @@ std::optional<int> App::Window::run() {
         offscreen_capture && !scale.empty()) {
         const f32 s = std::strtof(scale.c_str(), nullptr);
         renderer.set_offscreen_scale(s > 0.0f ? s : 1.0f);
+    }
+    if (const std::string zoom = parse_string_arg(argc, argv, "--ui-scale", ""); !zoom.empty()) {
+        const f32 z = std::strtof(zoom.c_str(), nullptr);
+        if (z >= 0.5f && z <= 4.0f) {
+            renderer.set_ui_zoom(z);
+        } else {
+            spdlog::warn("--ui-scale {}: not a factor from 0.5 to 4; ignored", zoom);
+        }
     }
     if (renderer.init(bench ? 1920 : 1600, bench ? 1080 : 900, "OpenSupCom", offscreen_capture)) {
         if (auto code = set_up()) return code;
@@ -71,8 +80,9 @@ std::optional<int> App::Window::set_up() {
         const WindowMode mode = open_window(renderer, args, prefs);
         adapter_overridden = mode.overridden;
         shown_fullscreen = renderer.fullscreen();
-        root_width = mode.size.width;
-        root_height = mode.size.height;
+        const f32 zoom = renderer.ui_zoom();
+        root_width = static_cast<u32>(std::lround(static_cast<f32>(mode.size.width) / zoom));
+        root_height = static_cast<u32>(std::lround(static_cast<f32>(mode.size.height) / zoom));
     }
     register_window_commands(console, prefs, adapter_overridden);
     for (const auto& m : renderer.display_modes()) display_modes.push_back({m[0], m[1], m[2]});

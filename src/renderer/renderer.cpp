@@ -3823,6 +3823,8 @@ void Renderer::ui_mouse_position(f64& x, f64& y) const {
     y = 0;
     if (window_) {
         glfwGetCursorPos(window_, &x, &y);
+        x /= ui_zoom_;
+        y /= ui_zoom_;
     }
 }
 
@@ -3835,7 +3837,7 @@ void Renderer::mouse_position(f64& x, f64& y) const {
 
 void Renderer::refresh_ui_scale() {
     if (offscreen_ || !window_) {
-        ui_scale_ = offscreen_scale_;
+        ui_scale_ = offscreen_scale_ * ui_zoom_;
         return;
     }
     int ww = 0;
@@ -3844,7 +3846,7 @@ void Renderer::refresh_ui_scale() {
     int fh = 0;
     glfwGetWindowSize(window_, &ww, &wh);
     glfwGetFramebufferSize(window_, &fw, &fh);
-    ui_scale_ = core::content_scale(ww, fw);
+    ui_scale_ = core::content_scale(ww, fw) * ui_zoom_;
 }
 
 void Renderer::set_fullscreen(u32 width, u32 height, u32 rate) {

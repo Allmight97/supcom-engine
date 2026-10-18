@@ -59,6 +59,8 @@ void print_usage() {
               << "  --camera <x>,<z>,<zoom> Initial camera target and zoom\n"
               << "  --capture-scale <s> Capture as a display at scale s draws it: the UI\n"
               << "                     at the capture's size, its pixels s times it\n"
+              << "  --ui-scale <f>     Zoom FA's UI by f (0.5 to 4) on top of the display's\n"
+              << "                     scale; FAF's own UI Scale does the same, so use one\n"
               << "  --legacy-hud       Draw the C++ HUD placeholders over FA's game interface\n"
               << "  --prefs <path>     Game.prefs to use (default: the user's config dir;\n"
               << "                     tests and captures keep preferences in memory)\n"
