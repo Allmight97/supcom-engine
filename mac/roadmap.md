@@ -29,7 +29,7 @@ when the check passed and the result is recorded in STATUS.md or a log.
 | Full screen on the main display, or the one last used | Done 2026-10-18 (merge `da8ff2ba`); JStar's check by eye is open (STATUS.md) |
 | A frame-rate cap, absolute or below the display's refresh rate (`--fps-cap`) | Done 2026-10-18 (merge `7d39ac25`); JStar's check by eye is open (STATUS.md) |
 | Low-end Modern Mac: JStar's M1 with 8 GB plays a skirmish on default settings | JStar's play notes and the engine's frame log |
-| `macos-arm64` CMake preset; the zlib and minizip vcpkg fixes (today in `mac/recipe/overlays/`) | Fresh clone, preset, build |
+| `macos-arm64` CMake preset; the zlib and minizip vcpkg fixes (today in `mac/recipe/overlays/`): from upstream #745 (another contributor), which the fork builds on | Fresh clone, preset, build |
 | macOS arm64 CI job (`macos-26`) running what CI runs elsewhere (`ctest -LE data`; needs no Vulkan driver) | Green on the PR |
 | The provenance doc's "Not yet: macOS" changed, in its own PR as upstream asks | Part of the PR set |
 | The seven golden-image tests on Mac (missing baselines, not a Mac bug) | They run with local goldens |

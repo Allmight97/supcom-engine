@@ -40,7 +40,15 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   100; unverified: script threads 7,614 to 24,929 from minute 30 to 60, no unit gains
   veterancy. `test_net_lobby.cpp:356` (LaunchGame) failed once, then passed: a flake.
 - Upstream: another Mac contributor opened PRs on 2026-10-18 (bwiemz #734 to #746: macOS
-  presets and vcpkg triplet, `~/Library` data, MoltenVK ICD, peak memory in bytes).
+  presets and vcpkg triplet, `~/Library` data, MoltenVK ICD, peak memory in bytes). Upstream
+  takes about 30 PRs a day, most by agents; the owner lands outside PRs in batches ("Land #A to
+  #B"). Watch: `mac/scripts/upstream-news` (MAC and OVERLAP PRs), at each session start, in the
+  fork's daily issue "Upstream Mac watch", and `/supcom-upstream:shape` before an upstream PR.
+- FAF on the Mac (FAForever repos, 2026-10-18): no released Mac client; `develop` has an arm64
+  client (downlords-faf-client #3504, June 2026, one author, quiet since May) that runs
+  `ForgedAlliance.exe` through one old CrossOver Wine build under Rosetta 2, chosen for Rosetta's
+  x87 lockstep precision. It ends with Rosetta in macOS 28. The client launches only
+  `ForgedAlliance.exe` (its command-line format is configurable); FAF has nothing on OpenSupCom.
 - OSC's game-folder search order is command line, `OSC_FA_PATH`, FAF, Steam, chosen
   folder; GOG is never searched. Without `OSC_FA_PATH` it picks FAF's files.
 - The original (GOG 1.5.3599) runs only in CrossOver 26.3 under Rosetta; the dev Mac
@@ -82,14 +90,18 @@ apart, so FAF addresses never apply directly.
   (JStar is its only author); Allmight97/SupCom is archived after the move.
 - Goal beyond the build: a faithful copy of the original that also runs FAF and its
   improvements; adapting FAF's open code is fine.
+- Focus (2026-10-18), where no one else upstream is: KosmicKrisp and Metal 4 runtime quality,
+  frame pacing and 120 fps on high-resolution displays, effect-rendering fidelity checked against
+  captures of the original, and FAF on the Mac. Not volume: the Mac build presets come from
+  another contributor's upstream PR #745, which the fork builds on.
 
 ## Open questions
 
 - Where the second copy of the reference corpus goes (`mac/work/corpus-manifest.txt`
   lists it; about 1.6 GB that cannot be recaptured after Rosetta ends).
 - Best Mac display setup for the game: "looks like" 2880x1620, 2560x1440 or native.
-- The Mac build contribution (M1) now overlaps another contributor's upstream PRs
-  (#735, #745, #736, #746): build on theirs, or offer ours?
+- FAF on a Mac after Rosetta: OSC launched by FAF's client (GPGNet is in OSC's tests), and
+  lockstep between a native arm64 OSC and Windows players (OSC's cross-OS replay check).
 
 ## Next actions
 
@@ -110,8 +122,10 @@ apart, so FAF addresses never apply directly.
 3. #4: look the pod's id up through `blueprint_name()` in `brain_GetUnitBlueprint`, with a
    failing test first.
 4. Play-test findings still open: Game Mode through the `.app`, the play recorder (#2).
-5. The Mac build contribution: macOS preset, vcpkg fixes, CI job (`mac/roadmap.md`), now
-   against the other contributor's PRs (Open questions); fork issue #1 holds the packaging.
+5. Build on upstream #745 (macOS presets) once it lands; drop the fork's own preset work and
+   keep `mac/recipe/` only for what #745 lacks. Fork issue #1 holds the packaging.
+6. Original-side nuke capture: a `kill` action in `mac/tools/ref-shot/hook/lua/SimCallbacks.lua`
+   and a `shots/nuke.lua`, then a time-boxed try at running the same hook in OSC (M3).
 
 ## Tracks
 
