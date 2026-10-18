@@ -272,7 +272,7 @@ void InputHandler::update(Renderer& renderer, sim::SimState& sim, f64 dt,
     clock_ += dt;
     prune_selection(sim.entity_registry());
     f64 mx_d, my_d;
-    renderer.mouse_position(mx_d, my_d);
+    renderer.ui_mouse_position(mx_d, my_d);
     f32 mx = static_cast<f32>(mx_d);
     f32 my = static_cast<f32>(my_d);
     measure_snap_radius(renderer, sim, mx, my);
@@ -479,8 +479,10 @@ void InputHandler::update(Renderer& renderer, sim::SimState& sim, f64 dt,
             if (world_at(renderer, sim, mx, my, wx, wz)) {
                 const bool shift = renderer.is_key_pressed(GLFW_KEY_LEFT_SHIFT) ||
                                    renderer.is_key_pressed(GLFW_KEY_RIGHT_SHIFT);
-                const f32 aspect = static_cast<f32>(renderer.ui_width()) /
-                                   static_cast<f32>(renderer.ui_height());
+                const f32 aspect = renderer.ui_height() > 0
+                                       ? static_cast<f32>(renderer.ui_width()) /
+                                             static_cast<f32>(renderer.ui_height())
+                                       : 1.0f;
                 const bool ctrl = renderer.is_key_pressed(GLFW_KEY_LEFT_CONTROL) ||
                                   renderer.is_key_pressed(GLFW_KEY_RIGHT_CONTROL);
                 world_click(sim, wx, wz, shift, ctrl, double_click,
@@ -782,8 +784,8 @@ bool InputHandler::world_at(const Renderer& renderer, const sim::SimState& sim, 
     // clicks had met the plane y = 0, short of the cursor on high ground.
     f32 wy = 0.0f;
     return renderer.camera().pick_ground(mx, my, static_cast<f32>(renderer.ui_width()),
-                                         static_cast<f32>(renderer.ui_height()), sim.terrain(),
-                                         wx, wy, wz);
+                                         static_cast<f32>(renderer.ui_height()), sim.terrain(), wx,
+                                         wy, wz);
 }
 
 void InputHandler::snap_to_deposit(const sim::SimState& sim, const CommandMode& mode, f32& x,
@@ -1468,7 +1470,7 @@ std::optional<IssuedCommand> InputHandler::click_in_command_mode(
                 last = nullptr;
             } else if (order.type != sim::CommandType::SiloBuildNuke &&
                        order.type != sim::CommandType::SiloBuildTactical &&
-                       sim.takes_command(u, order)) {
+                       sim.takes_command(u, order, scheduled.clear_existing)) {
                 last = &order;
             }
         }
@@ -1841,7 +1843,7 @@ std::optional<BuildGhost> InputHandler::build_ghost(const Renderer& renderer,
 
     // The cursor on the ground, where the range overlays are drawn
     f64 mx = 0, my = 0;
-    renderer.mouse_position(mx, my);
+    renderer.ui_mouse_position(mx, my);
     f32 wx = 0, wz = 0;
     const bool on_ground =
         world_at(renderer, sim, static_cast<f32>(mx), static_cast<f32>(my), wx, wz);

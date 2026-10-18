@@ -57,11 +57,9 @@ void print_usage() {
               << "  --screenshot <png> Render on a fixed clock, save frame N, exit\n"
               << "  --screenshot-frame <N>  Frame to capture (default 120)\n"
               << "  --camera <x>,<z>,<zoom> Initial camera target and zoom\n"
+              << "  --capture-scale <s> Capture as a display at scale s draws it: the UI\n"
+              << "                     at the capture's size, its pixels s times it\n"
               << "  --legacy-hud       Draw the C++ HUD placeholders over FA's game interface\n"
-              << "  --ui-scale <f>     Zoom the interface by f (0.5 to 4) on top of the display's\n"
-              << "                     scale; FAF's own UI Scale option does the same, so use\n"
-              << "                     one. A capture keeps its 1600x900 interface at f times\n"
-              << "                     the pixels\n"
               << "  --prefs <path>     Game.prefs to use (default: the user's config dir;\n"
               << "                     tests and captures keep preferences in memory)\n"
               << "  --golden <name>    Capture like --screenshot, compare to golden image\n"
@@ -376,14 +374,6 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     o.builder_debug = parse_flag(argc, argv, "--builder-debug");
     o.ai_personality = parse_string_arg(argc, argv, "--ai-personality", "adaptive");
     // --ai-armies <n>: how many of the scenario's armies play (all AI).
-    if (const auto s = parse_string_arg(argc, argv, "--ui-scale", ""); !s.empty()) {
-        const f32 scale = std::strtof(s.c_str(), nullptr);
-        if (scale < 0.5f || scale > 4.0f) {
-            std::cerr << "--ui-scale: " << s << " is not a factor from 0.5 to 4\n";
-            return std::nullopt;
-        }
-        o.ui_scale = scale;
-    }
     if (const auto n = parse_string_arg(argc, argv, "--ai-armies", ""); !n.empty()) {
         o.ai_army_count = static_cast<size_t>(std::max(1, std::atoi(n.c_str())));
     }

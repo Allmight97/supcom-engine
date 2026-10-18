@@ -5,6 +5,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -15,15 +17,14 @@ class VirtualFileSystem;
 
 namespace osc::renderer {
 
-/// Per-glyph data for a rasterized character, in the interface's units (the
-/// bitmap is the density's pixels: sharp on a dense display).
+/// Per-glyph data for a rasterized character.
 struct GlyphInfo {
     f32 u0, v0, u1, v1;  // UV coords in atlas
-    f32 x_offset;         // left bearing
+    f32 x_offset;         // left bearing in pixels
     f32 y_offset;         // baseline to the bitmap's top, negative above it (stb_truetype's yoff)
-    f32 width;            // glyph bitmap width
-    f32 height;           // glyph bitmap height
-    f32 x_advance;        // horizontal advance, whole units at the point size
+    f32 width;            // glyph bitmap width in pixels
+    f32 height;           // glyph bitmap height in pixels
+    f32 x_advance;        // horizontal advance in pixels
 };
 
 /// Font metrics for a loaded font at a specific point size.
@@ -67,6 +68,10 @@ f32 place_glyphs(const FontAtlas& atlas, const std::string& text, f32 x, f32 y, 
     return cursor_x - x;
 }
 
+inline i32 raster_pointsize(i32 pointsize, f32 scale) {
+    return std::max(1, static_cast<i32>(std::lround(static_cast<f32>(pointsize) * scale)));
+}
+
 /// Caches rasterized font atlases keyed by (family, pointsize).
 class FontCache {
 public:
@@ -75,13 +80,13 @@ public:
               VkDescriptorSetLayout ds_layout, VkSampler sampler,
               vfs::VirtualFileSystem* vfs);
 
-    /// Pixels per interface unit that later atlases are rasterized at (the
-    /// interface's scale). Metrics and advances don't change with it.
-    void set_density(f32 density) { density_ = density; }
-
     /// Get or lazily load a font atlas for a given family and pointsize.
     /// Returns nullptr if the font cannot be loaded.
     const FontAtlas* get(const std::string& family, i32 pointsize);
+
+    bool loaded(const std::string& family, i32 pointsize) const {
+        return cache_.contains(make_key(family, pointsize));
+    }
 
     /// Get the metrics for a font (loads if needed).
     const FontMetrics* get_metrics(const std::string& family, i32 pointsize);
@@ -100,7 +105,6 @@ private:
     std::unordered_map<std::string, std::unique_ptr<FontAtlas>> cache_;
     std::unordered_map<std::string, std::vector<char>> ttf_data_cache_;
 
-    f32 density_ = 1.0f;
     VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout ds_layout_ = VK_NULL_HANDLE;
     VkSampler sampler_ = VK_NULL_HANDLE;

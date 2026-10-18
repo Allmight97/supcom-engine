@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <string>
 
 namespace osc::app {
@@ -30,13 +31,14 @@ App::Window::Window(App& app)
 
 std::optional<int> App::Window::run() {
     // The render benchmark's frames are 1920x1080 (M223b); captures keep
-    // their 1600x900. Offscreen, --ui-scale keeps that interface and
-    // multiplies its pixels, as a dense display would.
+    // their 1600x900.
     const bool bench = !opt.render_bench_report.empty();
-    const f32 pixels = offscreen_capture ? opt.ui_scale : 1.0f;
-    if (renderer.init(static_cast<u32>((bench ? 1920 : 1600) * pixels),
-                      static_cast<u32>((bench ? 1080 : 900) * pixels), "OpenSupCom",
-                      offscreen_capture, opt.ui_scale)) {
+    if (const std::string scale = parse_string_arg(argc, argv, "--capture-scale", "");
+        offscreen_capture && !scale.empty()) {
+        const f32 s = std::strtof(scale.c_str(), nullptr);
+        renderer.set_offscreen_scale(s > 0.0f ? s : 1.0f);
+    }
+    if (renderer.init(bench ? 1920 : 1600, bench ? 1080 : 900, "OpenSupCom", offscreen_capture)) {
         if (auto code = set_up()) return code;
         while (running()) {
             if (!frame()) break;
@@ -69,9 +71,8 @@ std::optional<int> App::Window::set_up() {
         const WindowMode mode = open_window(renderer, args, prefs);
         adapter_overridden = mode.overridden;
         shown_fullscreen = renderer.fullscreen();
-        const auto ui = renderer.ui_size_of_window(mode.size.width, mode.size.height);
-        root_width = ui[0];
-        root_height = ui[1];
+        root_width = mode.size.width;
+        root_height = mode.size.height;
     }
     register_window_commands(console, prefs, adapter_overridden);
     for (const auto& m : renderer.display_modes()) display_modes.push_back({m[0], m[1], m[2]});
@@ -92,6 +93,8 @@ std::optional<int> App::Window::set_up() {
     // Player input handler (ARMY_1 = index 0)
     input_handler.set_player_army(0);
     renderer.set_player_army(0);
+    // FAF's data runs as FAF's patched game would (its minimap mesh toggle)
+    renderer.set_faf_exe(!app.config.faf_data_path.empty());
     input_handler.set_recon(&renderer.recon()); // clicks pick what it shows
 
     publish_window_objects();

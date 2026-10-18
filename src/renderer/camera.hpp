@@ -87,13 +87,11 @@ public:
     }
     /// The playable rect (SetPlayableRect), which the zoom and target keep to.
     void set_playable_rect(f32 x0, f32 z0, f32 x1, f32 z1);
-    /// The view's size in the interface's units, the cursor's: its aspect,
-    /// and the pan's and spin's scale.
+    /// The view's size in pixels: its aspect, and the pan's and spin's scale.
     void set_viewport(f32 width, f32 height);
 
-    /// This frame's input from the window, then apply(). ui_scale: the
-    /// framebuffer's pixels per interface unit.
-    void update(GLFWwindow* window, f64 dt, f64 ui_scale);
+    /// This frame's input from the window, then apply().
+    void update(GLFWwindow* window, f64 dt);
     /// The world view's input for this frame (CUIWorldView::Frame and
     /// HandleEvent): keyboard pan and spin, Space spin and its revert, the
     /// middle-button drag. Then frame().

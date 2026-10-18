@@ -25,6 +25,8 @@ extern "C" {
 #include "renderer/terrain_normal_maps.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/decal_math.hpp"
+#include "renderer/map_border.hpp"
+#include "renderer/minimap_meshes.hpp"
 #include "map/pathfinding_grid.hpp"
 #include "map/intel_grid.hpp"
 #include "ui/world_view.hpp"
@@ -76,6 +78,47 @@ std::array<f32, 16> mirrored_view_proj(const std::array<f32, 16>& vp, f32 e) {
     return m;
 }
 
+/// The meshes' vertex input: binding 0 the SCM vertex (pos, normal, uv,
+/// bone indices and weights, tangent, binormal), binding 1 the instance
+/// (model matrix, colour, colour lookup, time, parameter, scroll).
+struct MeshVertexInput {
+    std::array<VkVertexInputBindingDescription, 2> bindings{};
+    std::array<VkVertexInputAttributeDescription, 16> attrs{};
+};
+
+MeshVertexInput mesh_vertex_input() {
+    MeshVertexInput in;
+    auto& bindings = in.bindings;
+    auto& attrs = in.attrs;
+    bindings[0].binding = 0;
+    bindings[0].stride = static_cast<u32>(sizeof(sim::SCMMesh::Vertex));
+    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    bindings[1].binding = 1;
+    bindings[1].stride = sizeof(MeshInstance);
+    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+    attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};               // position
+    attrs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(f32) * 3}; // normal
+    attrs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(f32) * 6};    // UV
+    attrs[3] = {3, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(MeshInstance, model) + 0};
+    attrs[4] = {4, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
+                offsetof(MeshInstance, model) + sizeof(f32) * 4};
+    attrs[5] = {5, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
+                offsetof(MeshInstance, model) + sizeof(f32) * 8};
+    attrs[6] = {6, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
+                offsetof(MeshInstance, model) + sizeof(f32) * 12};
+    attrs[7] = {7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(MeshInstance, r)}; // color
+    attrs[8] = {8, 0, VK_FORMAT_R8G8B8A8_UINT,
+                offsetof(sim::SCMMesh::Vertex, bone_indices)}; // bone_indices
+    attrs[9] = {9, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                offsetof(sim::SCMMesh::Vertex, bone_weights)}; // bone_weights
+    attrs[10] = {10, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(sim::SCMMesh::Vertex, tx)}; // tangent
+    attrs[11] = {11, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(sim::SCMMesh::Vertex, bx)}; // binormal
+    attrs[12] = {12, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, color_lookup)};
+    attrs[13] = {13, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, shader_time)};
+    attrs[14] = {14, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, parameter)};
+    attrs[15] = {15, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshInstance, scroll_u)};
+    return in;
+}
 } // namespace
 
 // GLFW scroll callback — forward to Renderer via user pointer
@@ -98,9 +141,8 @@ void Renderer::on_scroll(f64 y_offset) {
 }
 
 bool Renderer::init(u32 width, u32 height, const std::string& title,
-                    bool offscreen, f32 ui_zoom) {
+                    bool offscreen) {
     offscreen_ = offscreen;
-    ui_zoom_ = ui_zoom;
     if (!create_window(width, height, title, offscreen)) return false;
 
     vkb::Instance vkb_inst;
@@ -172,6 +214,10 @@ bool Renderer::create_window(u32 width, u32 height, const std::string& title, bo
     glfwWindowHint(GLFW_VISIBLE, offscreen ? GLFW_FALSE : GLFW_TRUE);
     // An offscreen capture is its size in pixels, unscaled on a Retina display
     glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, offscreen ? GLFW_FALSE : GLFW_TRUE);
+    if (offscreen) {
+        width = static_cast<u32>(std::lround(static_cast<f32>(width) * offscreen_scale_));
+        height = static_cast<u32>(std::lround(static_cast<f32>(height) * offscreen_scale_));
+    }
     window_ = glfwCreateWindow(static_cast<int>(width),
                                static_cast<int>(height),
                                title.c_str(), nullptr, nullptr);
@@ -202,11 +248,6 @@ bool Renderer::create_window(u32 width, u32 height, const std::string& title, bo
     // A resize rebuilds the swapchain before the next frame (M217h): Wayland
     // and some drivers never report the old one out of date
     glfwSetFramebufferSizeCallback(window_, [](GLFWwindow* w, int, int) {
-        if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
-            r->on_framebuffer_resized();
-    });
-    // A display of another scale (Windows and X11 keep the framebuffer's size)
-    glfwSetWindowContentScaleCallback(window_, [](GLFWwindow* w, float, float) {
         if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
             r->on_framebuffer_resized();
     });
@@ -496,6 +537,7 @@ void Renderer::init_sub_renderers() {
     // The cartographic view (the minimap's map), and the range rings and fog
     // drawn into its frame
     cartographic_.init(device_, allocator_, depth_format_, texture_ds_layout_, frame_.scene_pass());
+    create_minimap_mesh_pipelines();
     if (has_stencil()) {
         minimap_ranges_.init(device_, allocator_, cartographic_.frame_pass());
         minimap_vision_.init(device_, allocator_, cartographic_.frame_pass());
@@ -523,6 +565,8 @@ void Renderer::init_sub_renderers() {
     // What the player's intel shows, for everything that draws units (M215a)
     unit_renderer_.set_recon(&recon_);
     unit_renderer_.set_playable_rect(&playable_rect_);
+    minimap_units_.set_recon(&recon_);
+    minimap_units_.set_playable_rect(&playable_rect_);
     strategic_icon_renderer_.set_recon(&recon_);
     overlay_renderer_.set_recon(&recon_);
     minimap_renderer_.set_icons(&strategic_icon_renderer_);
@@ -578,8 +622,12 @@ bool Renderer::create_swapchain(u32 width, u32 height) {
         resized_ = true;
     window_width_ = vkb_sc.extent.width;
     window_height_ = vkb_sc.extent.height;
-    if (update_ui_scale()) resized_ = true;
     present_mode_ = vkb_sc.present_mode;
+    const f32 scale = ui_scale_;
+    refresh_ui_scale();
+    if (ui_scale_ != scale) {
+        resized_ = true;
+    }
 
     // One render-finished semaphore per image (the device is idle here: first
     // creation, or recreate_swapchain() after vkDeviceWaitIdle).
@@ -1062,43 +1110,9 @@ void Renderer::create_unit_pipeline(VkShaderModule uv, VkShaderModule uf) {
 
 void Renderer::create_mesh_pipelines(VkShaderModule mv, VkShaderModule mf) {
     // --- Mesh pipeline (real SCM meshes, GPU skinning, per-instance model matrix + texture) ---
-    std::array<VkVertexInputBindingDescription, 2> bindings{};
-    // Binding 0: per-vertex mesh data (pos + normal + UV + bone_indices + bone_weights +
-    // tangent + binormal = 76 bytes)
-    bindings[0].binding = 0;
-    bindings[0].stride = static_cast<u32>(sizeof(sim::SCMMesh::Vertex));
-    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    // Binding 1: per-instance data (mat4 model + vec4 color + colour lookup + time +
-    // parameter + scroll = 100 bytes)
-    bindings[1].binding = 1;
-    bindings[1].stride = sizeof(MeshInstance);
-    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-    // 16 attributes: pos(0), normal(1), uv(2), model col0-3(3-6), color(7), bone_indices(8),
-    // bone_weights(9), tangent(10), binormal(11), colour lookup(12), instance time(13),
-    // parameter(14), scroll(15)
-    std::array<VkVertexInputAttributeDescription, 16> attrs{};
-    attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};               // position
-    attrs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(f32) * 3}; // normal
-    attrs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(f32) * 6};    // UV
-    attrs[3] = {3, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(MeshInstance, model) + 0};
-    attrs[4] = {4, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
-                offsetof(MeshInstance, model) + sizeof(f32) * 4};
-    attrs[5] = {5, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
-                offsetof(MeshInstance, model) + sizeof(f32) * 8};
-    attrs[6] = {6, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
-                offsetof(MeshInstance, model) + sizeof(f32) * 12};
-    attrs[7] = {7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(MeshInstance, r)}; // color
-    attrs[8] = {8, 0, VK_FORMAT_R8G8B8A8_UINT,
-                offsetof(sim::SCMMesh::Vertex, bone_indices)}; // bone_indices
-    attrs[9] = {9, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-                offsetof(sim::SCMMesh::Vertex, bone_weights)}; // bone_weights
-    attrs[10] = {10, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(sim::SCMMesh::Vertex, tx)}; // tangent
-    attrs[11] = {11, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(sim::SCMMesh::Vertex, bx)}; // binormal
-    attrs[12] = {12, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, color_lookup)};
-    attrs[13] = {13, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, shader_time)};
-    attrs[14] = {14, 1, VK_FORMAT_R32_SFLOAT, offsetof(MeshInstance, parameter)};
-    attrs[15] = {15, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshInstance, scroll_u)};
+    const MeshVertexInput input = mesh_vertex_input();
+    const auto& bindings = input.bindings;
+    const auto& attrs = input.attrs;
 
     // Push constant: mat4 viewProj (64B) + uint boneBase (4B) + uint bonesPerInst (4B) + vec3
     // eye (12B) + uint technique (4B, M211b) + uint pass + float time (8B, M211f) + uint
@@ -1107,20 +1121,25 @@ void Renderer::create_mesh_pipelines(VkShaderModule mv, VkShaderModule mf) {
     // by their alpha and write colour only; the build overlays that
     // write alpha blend it too, as D3D9 does (M211f); UEF's build cube
     // leaves depth unwritten (M211g). The layouts match.
-    // The order marks (CommandFeedback) blend colour with no depth test.
-    enum class Blend { Opaque, Fade, Overlay, FadeNoDepthWrite, Feedback };
+    // The order marks (CommandFeedback) blend colour with no depth test;
+    // the map border's second pass writes its glow alone.
+    enum class Blend { Opaque, Fade, Overlay, FadeNoDepthWrite, Feedback, GlowOnly };
     const auto build_mesh = [&](Blend blend, VkPipelineLayout* layout) {
         const bool colour_only =
             blend == Blend::Fade || blend == Blend::FadeNoDepthWrite || blend == Blend::Feedback;
+        constexpr VkColorComponentFlags kGlowOnly = VK_COLOR_COMPONENT_A_BIT;
+        const VkColorComponentFlags written = blend == Blend::GlowOnly ? kGlowOnly
+                                              : colour_only            ? kColorOnly
+                                                                       : kColorAndGlow;
         return PipelineBuilder()
             .set_shaders(mv, mf)
             .set_vertex_input(bindings.data(), static_cast<u32>(bindings.size()), attrs.data(),
                               static_cast<u32>(attrs.size()))
             .set_depth_test(blend != Blend::Feedback,
                             blend != Blend::FadeNoDepthWrite && blend != Blend::Feedback)
-            .set_blend(blend != Blend::Opaque)
+            .set_blend(blend != Blend::Opaque && blend != Blend::GlowOnly)
             .set_alpha_blend(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
-            .set_color_write_mask(colour_only ? kColorOnly : kColorAndGlow)
+            .set_color_write_mask(written)
             .set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE)
             .set_push_constant(sizeof(f32) * 16 + sizeof(u32) * 2 + sizeof(f32) * 3 +
                                    sizeof(u32) * 2 + sizeof(f32) + sizeof(u32) + sizeof(f32) +
@@ -1140,6 +1159,7 @@ void Renderer::create_mesh_pipelines(VkShaderModule mv, VkShaderModule mf) {
     mesh_overlay_pipeline_ = build_mesh(Blend::Overlay, &mesh_overlay_layout_);
     mesh_cube_pipeline_ = build_mesh(Blend::FadeNoDepthWrite, &mesh_cube_layout_);
     mesh_feedback_pipeline_ = build_mesh(Blend::Feedback, &mesh_feedback_layout_);
+    mesh_glow_pipeline_ = build_mesh(Blend::GlowOnly, &mesh_glow_layout_);
 
     // The shields' (M211k): their own shaders, the mesh's input, push
     // block and sets, and mesh.fx's states. Each depth-tests; only the
@@ -1193,33 +1213,56 @@ void Renderer::create_mesh_pipelines(VkShaderModule mv, VkShaderModule mf) {
         compile_glsl(device_, shaders::cartographic_mesh_vert(), "cartographic_mesh.vert", true);
     VkShaderModule cf =
         compile_glsl(device_, shaders::cartographic_mesh_frag(), "cartographic_mesh.frag", false);
-    const auto build_cartographic = [&](CartographicMeshState state, VkPipelineLayout* layout) {
-        using S = CartographicMeshState;
-        const bool blend = state == S::UnitColour || state == S::Shield;
-        VkColorComponentFlags mask = kColorOnly;
-        if (state == S::UnitGlow) mask = VK_COLOR_COMPONENT_A_BIT;
-        else if (state == S::OpaqueAlpha) mask = kColorAndGlow;
-        return PipelineBuilder()
-            .set_shaders(cv, cf)
-            .set_vertex_input(bindings.data(), static_cast<u32>(bindings.size()), attrs.data(),
-                              static_cast<u32>(attrs.size()))
-            .set_depth_test(state != S::UnitGlow, state != S::UnitGlow && state != S::Shield)
-            .set_blend(blend)
-            .set_color_blend(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
-            .set_color_write_mask(mask)
-            .set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE)
-            .set_push_constant(sizeof(f32) * 16 + sizeof(u32) * 2 + sizeof(f32) * 3 +
-                                   sizeof(u32) * 2,
-                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
-            .set_descriptor_set_layout(texture_ds_layout_) // set=0: albedo
-            .add_descriptor_set_layout(bone_ds_layout_)    // set=1: bone SSBO
-            .add_descriptor_set_layout(texture_ds_layout_) // set=2: the height ramp
-            .build(device_, frame_.scene_pass(), layout);
-    };
     if (cv && cf) {
         for (u32 i = 0; i < kCartographicMeshStates; ++i)
-            cartographic_mesh_pipelines_[i] = build_cartographic(
-                static_cast<CartographicMeshState>(i), &cartographic_mesh_layouts_[i]);
+            cartographic_mesh_pipelines_[i] = build_cartographic_mesh_pipeline(
+                cv, cf, static_cast<CartographicMeshState>(i), frame_.scene_pass(),
+                &cartographic_mesh_layouts_[i]);
+    }
+    if (cv) vkDestroyShaderModule(device_, cv, nullptr);
+    if (cf) vkDestroyShaderModule(device_, cf, nullptr);
+}
+
+VkPipeline Renderer::build_cartographic_mesh_pipeline(VkShaderModule cv, VkShaderModule cf,
+                                                      CartographicMeshState state,
+                                                      VkRenderPass pass, VkPipelineLayout* layout) {
+    using S = CartographicMeshState;
+    const MeshVertexInput input = mesh_vertex_input();
+    const bool blend = state == S::UnitColour || state == S::Shield;
+    VkColorComponentFlags mask = kColorOnly;
+    if (state == S::UnitGlow) mask = VK_COLOR_COMPONENT_A_BIT;
+    else if (state == S::OpaqueAlpha) mask = kColorAndGlow;
+    return PipelineBuilder()
+        .set_shaders(cv, cf)
+        .set_vertex_input(input.bindings.data(), static_cast<u32>(input.bindings.size()),
+                          input.attrs.data(), static_cast<u32>(input.attrs.size()))
+        .set_depth_test(state != S::UnitGlow, state != S::UnitGlow && state != S::Shield)
+        .set_blend(blend)
+        .set_color_blend(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
+        .set_color_write_mask(mask)
+        .set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE)
+        .set_push_constant(sizeof(f32) * 16 + sizeof(u32) * 2 + sizeof(f32) * 3 + sizeof(u32) * 2,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .set_descriptor_set_layout(texture_ds_layout_) // set=0: albedo
+        .add_descriptor_set_layout(bone_ds_layout_)    // set=1: bone SSBO
+        .add_descriptor_set_layout(texture_ds_layout_) // set=2: the height ramp
+        .build(device_, pass, layout);
+}
+
+void Renderer::create_minimap_mesh_pipelines() {
+    // The cartographic minimap's meshes (RenderMeshes after Stage 1): the
+    // same pipelines, made for the minimap output's pass (8-bit, its own
+    // depth), which exists once the cartographic renderer is made
+    VkRenderPass pass = cartographic_.output_pass();
+    if (!pass) return;
+    VkShaderModule cv =
+        compile_glsl(device_, shaders::cartographic_mesh_vert(), "cartographic_mesh.vert", true);
+    VkShaderModule cf =
+        compile_glsl(device_, shaders::cartographic_mesh_frag(), "cartographic_mesh.frag", false);
+    if (cv && cf) {
+        for (u32 i = 0; i < kCartographicMeshStates; ++i)
+            minimap_mesh_pipelines_[i] = build_cartographic_mesh_pipeline(
+                cv, cf, static_cast<CartographicMeshState>(i), pass, &minimap_mesh_layouts_[i]);
     }
     if (cv) vkDestroyShaderModule(device_, cv, nullptr);
     if (cf) vkDestroyShaderModule(device_, cf, nullptr);
@@ -1320,17 +1363,23 @@ void Renderer::create_ui_pipeline() {
         attrs[1] = {1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(f32) * 4};     // uvRect
         attrs[2] = {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(f32) * 8};     // color
 
-        ui_pipeline_ = PipelineBuilder()
-            .set_shaders(uiv, uif)
-            .set_vertex_input(&binding, 1, attrs.data(),
-                              static_cast<u32>(attrs.size()))
-            .set_depth_test(false, false)
-            .set_blend(true)
-            .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE)
-            .set_push_constant(sizeof(f32) * 2,
-                               VK_SHADER_STAGE_VERTEX_BIT)
-            .set_descriptor_set_layout(texture_ds_layout_)
-            .build(device_, render_pass_, &ui_layout_);
+        const auto builder = [&] {
+            PipelineBuilder b;
+            b.set_shaders(uiv, uif)
+                .set_vertex_input(&binding, 1, attrs.data(), static_cast<u32>(attrs.size()))
+                .set_depth_test(false, false)
+                .set_blend(true)
+                .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                .set_push_constant(sizeof(f32) * 2, VK_SHADER_STAGE_VERTEX_BIT)
+                .set_descriptor_set_layout(texture_ds_layout_);
+            return b;
+        };
+        ui_pipeline_ = builder().build(device_, render_pass_, &ui_layout_);
+        scene_ui_pipeline_ =
+            builder()
+                .set_color_write_mask(VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                      VK_COLOR_COMPONENT_B_BIT)
+                .build(device_, frame_.scene_pass(), &scene_ui_layout_);
     }
     if (uiv) vkDestroyShaderModule(device_, uiv, nullptr);
     if (uif) vkDestroyShaderModule(device_, uif, nullptr);
@@ -1432,6 +1481,26 @@ void Renderer::inject_feedback_blips(lua_State* L, const std::vector<WorldMeshDr
     }
 }
 
+void Renderer::inject_map_border(lua_State* L, const std::vector<std::string>& meshes) {
+    if (meshes.empty() || !terrain_ || !height_bounds_) {
+        return;
+    }
+    // Over the heightfield as it is now (UpdateMeshStances, each frame)
+    const Box field = height_bounds_->box();
+    const f32 offset = terrain_->cartographic().imager_elevation_offset;
+    for (const std::string& id : meshes) {
+        const GPUMesh* mesh = mesh_cache_.get(id, L);
+        if (!mesh) {
+            continue;
+        }
+        MeshInstance inst{};
+        const auto model = map_border_model(field, offset, mesh_cache_.mesh_uniform_scale(id, L));
+        std::copy(model.begin(), model.end(), inst.model);
+        inst.r = inst.g = inst.b = inst.a = 1.0f;
+        unit_renderer_.inject_mesh(mesh, inst, &texture_cache_);
+    }
+}
+
 void Renderer::clear_scene() {
     vkDeviceWaitIdle(device_);
     feedback_blips_.clear();         // the old world's order marks
@@ -1442,6 +1511,9 @@ void Renderer::clear_scene() {
 
     terrain_mesh_.destroy(device_, allocator_);
     unit_renderer_.destroy(device_, allocator_);
+    minimap_units_.destroy(device_, allocator_);
+    minimap_meshes_gathered_ = false;
+    mesh_cache_.forget_reaches(); // the next map's blueprints
     water_renderer_.clear();
     sky_renderer_.clear();
     cartographic_.clear(texture_cache_);
@@ -1450,6 +1522,7 @@ void Renderer::clear_scene() {
         vkDestroyDescriptorPool(device_, bone_ds_pool_, nullptr);
         bone_ds_pool_ = VK_NULL_HANDLE;
         for (auto& ds : bone_ds_) ds = VK_NULL_HANDLE;
+        for (auto& ds : minimap_bone_ds_) ds = VK_NULL_HANDLE;
     }
     if (terrain_tex_ds_pool_) {
         vkDestroyDescriptorPool(device_, terrain_tex_ds_pool_, nullptr);
@@ -1573,6 +1646,7 @@ void Renderer::build_scene(const map::Terrain* terrain, blueprints::BlueprintSto
     upload_lighting();
 
     unit_renderer_.build(device_, allocator_, cmd_pool_, graphics_queue_);
+    minimap_units_.build(device_, allocator_, cmd_pool_, graphics_queue_);
 
     // Initialize mesh cache, texture cache, and preload meshes
     if (vfs && store) {
@@ -1597,6 +1671,7 @@ void Renderer::build_scene(const map::Terrain* terrain, blueprints::BlueprintSto
         sim::GameColors colors = sim::read_game_colors(L);
         recon_.set_unidentified_color(colors.unidentified_color);
         strategic_icon_renderer_.set_team_colors(colors.team_colors);
+        minimap_units_.set_game_colors(colors);
         unit_renderer_.set_game_colors(std::move(colors));
     }
     // The cubes and lookups meshes shade with (M211a/b), once the texture
@@ -1639,7 +1714,7 @@ void Renderer::build_scene(const map::Terrain* terrain, blueprints::BlueprintSto
     strategic_icon_renderer_.build_atlas(texture_cache_);
 
     // The view's size before the reset: the farthest zoom takes its aspect
-    camera_.set_viewport(static_cast<f32>(ui_width()), static_cast<f32>(ui_height()));
+    camera_.set_viewport(static_cast<f32>(window_width_), static_cast<f32>(window_height_));
     camera_.init(static_cast<f32>(terrain->map_width()),
                  static_cast<f32>(terrain->map_height()));
 
@@ -1648,13 +1723,14 @@ void Renderer::build_scene(const map::Terrain* terrain, blueprints::BlueprintSto
 
 void Renderer::create_bone_descriptors() {
     if (!unit_renderer_.bone_ssbo_buffer(0) || !bone_ds_layout_) return;
+    // The world view's units' sets and the minimap's
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = FRAMES_IN_FLIGHT;
+    pool_size.descriptorCount = FRAMES_IN_FLIGHT * 2;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = FRAMES_IN_FLIGHT;
+    pool_ci.maxSets = FRAMES_IN_FLIGHT * 2;
     pool_ci.poolSizeCount = 1;
     pool_ci.pPoolSizes = &pool_size;
     VK_CHECK(vkCreateDescriptorPool(device_, &pool_ci, nullptr, &bone_ds_pool_));
@@ -1667,6 +1743,10 @@ void Renderer::create_bone_descriptors() {
         alloc_info.pSetLayouts = &bone_ds_layout_;
         VK_CHECK(vkAllocateDescriptorSets(device_, &alloc_info, &bone_ds_[i]));
         write_bone_descriptor(i);
+        if (minimap_units_.bone_ssbo_buffer(i)) {
+            VK_CHECK(vkAllocateDescriptorSets(device_, &alloc_info, &minimap_bone_ds_[i]));
+            write_minimap_bone_descriptor(i);
+        }
     }
 }
 
@@ -1806,7 +1886,8 @@ void Renderer::bind_terrain_strata(const map::Terrain& terrain,
     std::array<VkDescriptorImageInfo, 20> img_infos{};
     std::array<VkWriteDescriptorSet, 20> writes{};
     for (u32 i = 0; i < 20; i++) {
-        img_infos[i].sampler = texture_sampler_;
+        // terrain.fx's UtilitySamplerA and B: the blend masks clamp
+        img_infos[i].sampler = i < 2 ? lookup_sampler_ : texture_sampler_;
         img_infos[i].imageView = views[i];
         img_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -1951,7 +2032,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
                       const std::unordered_set<u32>* selected_ids) {
     // The view's aspect, which the camera's farthest zoom and projection
     // take (its moves and basis run in poll_events); the world it follows
-    camera_.set_viewport(static_cast<f32>(ui_width()), static_cast<f32>(ui_height()));
+    camera_.set_viewport(static_cast<f32>(window_width_), static_cast<f32>(window_height_));
     camera_view_ = view;
     for (const auto& follow : events.camera_follows) {
         camera_.camera_follow(follow.source, follow.projectile, follow.timeout);
@@ -2000,6 +2081,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
     // the other slot while the GPU could still be reading it, and the draws
     // then showed data one frame old.)
     unit_renderer_.set_frame_index(fi);
+    minimap_units_.set_frame_index(fi);
     ui_renderer_.set_frame_index(fi);
     overlay_renderer_.set_frame_index(fi);
     minimap_renderer_.set_frame_index(fi);
@@ -2056,10 +2138,14 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
     // The cartographic frame the minimap's quad samples (its own passes),
     // its range rings and fog drawn into it
     if (cartographic_view_) {
-        cartographic_.record(cmd_buf_[fi], fi, *cartographic_view_,
-                             [&](VkCommandBuffer cmd, const f32* view_proj, u32 w, u32 h) {
-                                 draw_minimap_overlays(cmd, view_proj, w, h, fi);
-                             });
+        cartographic_.record(
+            cmd_buf_[fi], fi, *cartographic_view_,
+            [&](VkCommandBuffer cmd, const f32* view_proj, u32 w, u32 h) {
+                draw_minimap_overlays(cmd, view_proj, w, h, fi);
+            },
+            [&](VkCommandBuffer cmd, const f32* view_proj) {
+                draw_minimap_meshes(cmd, fi, view_proj);
+            });
     }
     // A cartographic main view's frame, through the camera, at the scene's
     // size: its range rings (the main view's, at its zoom) and the fog
@@ -2127,13 +2213,11 @@ void Renderer::record_cartographic_main(u32 fi, const std::array<f32, 16>& vp) {
     // no trails)
     particle_renderer_.render(cmd, window_width_, window_height_, vp.data(), false, fi, true);
     // RenUI and the world view's own drawing: the order lines, selection,
-    // the resource and projectile icons, FAF's world drawing (the strategic
-    // icons are the screen's layer, on at every zoom)
+    // the resource, strategic (on at every zoom) and projectile icons, FAF's
+    // world drawing
     command_graph_renderer_.render(cmd, window_width_, window_height_, vp.data(), fi);
     selection_renderer_.render(cmd, window_width_, window_height_, vp.data(), fi);
-    resource_icon_renderer_.render(cmd, ui_width(), ui_height(), resource_icon_time_, fi);
-    projectile_icon_renderer_.render(cmd, ui_width(), ui_height(), fi);
-    world_shapes_batch_.render(cmd, window_width_, window_height_, vp.data(), fi);
+    record_view_drawing(cmd, fi, vp);
 }
 
 void Renderer::record_terrain_sync(VkCommandBuffer cmd) {
@@ -2354,10 +2438,10 @@ void Renderer::dump_frame(std::ostream& out) const {
 
 void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16>& vp,
                            MeshPass stage) {
-    // None when strategic zoom replaces 3D units with 2D icons.
-    if (strategic_icon_renderer_.is_strategic_zoom() || unit_renderer_.mesh_groups().empty() ||
-        !mesh_pipeline_)
-        return;
+    if (unit_renderer_.mesh_groups().empty() || !mesh_pipeline_) return;
+    // At strategic zoom the icons stand in for the meshes; all but the map's
+    // border, whose one LOD shows to 100000 (map-border_*_mesh.bp).
+    const bool strategic = strategic_icon_renderer_.is_strategic_zoom();
     const bool mirrored = stage == MeshPass::Reflection;
     const f32 surface = water_renderer_.water_elevation();
     vkc::bind_pipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline_);
@@ -2425,6 +2509,7 @@ void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16
         // before the water or after it, or after the effects too (the
         // shields', M211k); only units are reflected.
         const MeshTechnique technique = drawn_technique(group);
+        if (strategic && technique != MeshTechnique::MapImager) continue;
         const bool after_effects = is_post_effect_technique(technique);
         const bool after_water = is_post_water_technique(technique);
         if ((stage == MeshPass::AfterEffects) != after_effects ||
@@ -2510,6 +2595,9 @@ void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16
         else if (technique == MeshTechnique::UnitPlace) {
             passes[0] = mesh_overlay_pipeline_;
         }
+        // The map's border: lit colour, then its glow alone.
+        else if (technique == MeshTechnique::MapImager)
+            passes[1] = mesh_glow_pipeline_;
         mesh_pc.boneBase = group.bone_base_offset;
         mesh_pc.bonesPerInst = group.bones_per_instance;
         for (u32 pass = 0; pass < passes.size() && passes[pass]; ++pass) {
@@ -2553,10 +2641,52 @@ void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16
 void Renderer::draw_cartographic_meshes(VkCommandBuffer cmd, u32 fi,
                                         const std::array<f32, 16>& vp) {
     // None when strategic zoom replaces the units with icons, as draw_meshes
-    VkDescriptorSet ramp = cartographic_.hypsometric_descriptor();
-    if (strategic_icon_renderer_.is_strategic_zoom() || unit_renderer_.mesh_groups().empty() ||
-        !cartographic_mesh_pipelines_[0] || !ramp || !bone_ds_[fi])
+    if (strategic_icon_renderer_.is_strategic_zoom()) return;
+    draw_cartographic_groups(cmd, unit_renderer_, bone_ds_[fi], cartographic_mesh_pipelines_,
+                             cartographic_mesh_layouts_[0], vp.data(), cartographic_mesh_draws_);
+}
+
+void Renderer::update_minimap_meshes(const sim::FrameView& view, lua_State* L, u32 fi) {
+    minimap_meshes_gathered_ = false;
+    minimap_lod_metric_ = 0.0f;
+    minimap_mesh_draws_.fill(0);
+    // FAF's patched game skips RenderMeshes while cam_DefaultMiniLOD is 0
+    if (!cartographic_view_ || !minimap_units_.bone_ssbo_buffer(fi) ||
+        !minimap_meshes_on(faf_exe_, ui::WorldView::default_mini_lod()))
         return;
+    PROFILE_ZONE("Render::minimap_meshes");
+    const CartographicRenderer::View& frame = *cartographic_view_;
+    minimap_lod_metric_ = renderer::minimap_lod_metric(frame.x1 - frame.x0, minimap_lod_scale_);
+    const Frustum frustum(cartographic_.mesh_view_proj(frame));
+    minimap_units_.set_ghost_slots(0);
+    minimap_units_.update(view, mesh_cache_, L, &texture_cache_, nullptr, &frustum, true,
+                          minimap_lod_metric_);
+    if (minimap_bone_ds_[fi] &&
+        minimap_bone_ds_generation_[fi] != minimap_units_.bone_ssbo_generation(fi))
+        write_minimap_bone_descriptor(fi);
+    minimap_meshes_gathered_ = true;
+    minimap_fi_ = fi;
+}
+
+u32 Renderer::minimap_mesh_instances() const {
+    if (!minimap_meshes_gathered_) return 0;
+    u32 n = 0;
+    for (const MeshDrawGroup& g : minimap_units_.mesh_groups()) n += g.instance_count;
+    return n;
+}
+
+void Renderer::draw_minimap_meshes(VkCommandBuffer cmd, u32 fi, const f32* view_proj) {
+    if (!minimap_meshes_gathered_ || minimap_fi_ != fi) return;
+    draw_cartographic_groups(cmd, minimap_units_, minimap_bone_ds_[fi], minimap_mesh_pipelines_,
+                             minimap_mesh_layouts_[0], view_proj, minimap_mesh_draws_);
+}
+
+void Renderer::draw_cartographic_groups(
+    VkCommandBuffer cmd, const UnitRenderer& units, VkDescriptorSet bones,
+    const std::array<VkPipeline, kCartographicMeshStates>& pipelines, VkPipelineLayout layout,
+    const f32* view_proj, std::array<u32, 7>& draws) {
+    VkDescriptorSet ramp = cartographic_.hypsometric_descriptor();
+    if (units.mesh_groups().empty() || !pipelines[0] || !ramp || !bones) return;
     struct Push {
         f32 view_proj[16];
         u32 bone_base;
@@ -2568,25 +2698,24 @@ void Renderer::draw_cartographic_meshes(VkCommandBuffer cmd, u32 fi,
         u32 pass;
     } push{};
     static_assert(sizeof(Push) == 92, "matches cartographic_mesh_vert/frag's push block");
-    std::memcpy(push.view_proj, vp.data(), sizeof(push.view_proj));
+    std::memcpy(push.view_proj, view_proj, sizeof(push.view_proj));
     // RenderCartographic's surfaceElevation, minimumElevation and
     // maximumElevation: the frame's
     const CartographicParams& params = cartographic_.params();
     push.surface = params.surface;
     push.elev_min = params.elev_min;
     push.elev_max = params.elev_max;
-    VkPipelineLayout layout = cartographic_mesh_layouts_[0];
     VkDescriptorSet fallback = texture_cache_.fallback_descriptor();
     if (!fallback) return;
     // All three sets at once: set 0 was the frame's edge pass's, a layout
     // these aren't compatible with, so binding it alone after the others
     // would disturb them. Then each group's albedo at set 0 leaves them be.
-    const std::array<VkDescriptorSet, 3> sets = {fallback, bone_ds_[fi], ramp};
+    const std::array<VkDescriptorSet, 3> sets = {fallback, bones, ramp};
     vkc::bind_descriptor_sets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0,
                               static_cast<u32>(sets.size()), sets.data(), 0, nullptr);
     VkPipeline bound = VK_NULL_HANDLE;
     const int lane = std::clamp(fidelity(), 0, 2);
-    for (const auto& group : unit_renderer_.mesh_groups()) {
+    for (const auto& group : units.mesh_groups()) {
         if (!group.mesh || group.instance_count == 0) continue;
         // A build ghost draws as UnitPlace does, whatever its mesh's shader
         const CartographicTechnique technique =
@@ -2597,7 +2726,7 @@ void Renderer::draw_cartographic_meshes(VkCommandBuffer cmd, u32 fi,
         VkDescriptorSet albedo = group.texture_ds ? group.texture_ds : fallback;
         vkc::bind_descriptor_sets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &albedo, 0,
                                   nullptr);
-        VkBuffer vbufs[] = {group.mesh->vertex_buf.buffer, unit_renderer_.mesh_instance_buffer()};
+        VkBuffer vbufs[] = {group.mesh->vertex_buf.buffer, units.mesh_instance_buffer()};
         VkDeviceSize offsets[] = {0, static_cast<VkDeviceSize>(group.instance_offset) *
                                          sizeof(MeshInstance)};
         vkCmdBindVertexBuffers(cmd, 0, 2, vbufs, offsets);
@@ -2606,8 +2735,7 @@ void Renderer::draw_cartographic_meshes(VkCommandBuffer cmd, u32 fi,
         push.bones_per_instance = group.bones_per_instance;
         push.technique = static_cast<u32>(technique);
         for (u32 pass = 0; pass < passes.count; ++pass) {
-            VkPipeline pipeline =
-                cartographic_mesh_pipelines_[static_cast<u32>(passes.state[pass])];
+            VkPipeline pipeline = pipelines[static_cast<u32>(passes.state[pass])];
             if (pipeline != bound) {
                 vkc::bind_pipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                 bound = pipeline;
@@ -2617,7 +2745,7 @@ void Renderer::draw_cartographic_meshes(VkCommandBuffer cmd, u32 fi,
                                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                 sizeof(push), &push);
             vkc::draw_indexed(cmd, group.mesh->index_count, group.instance_count, 0, 0, 0);
-            ++cartographic_mesh_draws_[static_cast<u32>(technique)];
+            ++draws[static_cast<u32>(technique)];
         }
     }
 }
@@ -2729,8 +2857,9 @@ void Renderer::render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry) 
         ui_dispatch_.dispatch_events(L, *ui_registry);
         movie_textures_.prepare(*ui_registry, fi);
         update_system_cursor(L);
-        ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_, ui_width(),
-                            ui_height(), static_cast<f32>(ui_dispatch_.mouse_x()),
+        ui_renderer_.set_scale(ui_scale_);
+        ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_, ui_width(), ui_height(),
+                            static_cast<f32>(ui_dispatch_.mouse_x()),
                             static_cast<f32>(ui_dispatch_.mouse_y()));
     }
 
@@ -2745,7 +2874,7 @@ void Renderer::render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry) 
 
     if (ui_registry && L && ui_pipeline_ && ui_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        ui_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_, ui_scale_);
+        ui_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_);
     }
 
     vkCmdEndRenderPass(cmd_buf_[fi]);
@@ -2754,8 +2883,8 @@ void Renderer::render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry) 
 }
 
 void Renderer::update_world_shapes(lua_State* L, u32 fi) {
-    // The world's size of a pixel at a point: the LOD metric (the view's
-    // width at the point's depth) over the view's width in pixels
+    // The world's size of one of the UI's points at a spot: the LOD metric
+    // (the view's width at its depth) over the view's width in points
     sim::Vector3 eye;
     camera_.eye_position(eye.x, eye.y, eye.z);
     sim::Vector3 forward{camera_.focus_x() - eye.x, camera_.focus_y() - eye.y,
@@ -2764,7 +2893,7 @@ void Renderer::update_world_shapes(lua_State* L, u32 fi) {
         std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
     if (length > 0.0f) forward = {forward.x / length, forward.y / length, forward.z / length};
     const f32 fov = camera_.fov();
-    const auto width = static_cast<f32>(ui_width());
+    const f32 width = ui_width() > 0 ? static_cast<f32>(ui_width()) : 1.0f;
     world_shapes_.begin([eye, forward, fov, width](const sim::Vector3& p) {
         return lod_metric(p, eye, forward, fov) / width;
     });
@@ -2855,6 +2984,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
 
     const std::vector<WorldMeshDraw> world_meshes =
         ui_registry ? shown_world_meshes(*ui_registry) : std::vector<WorldMeshDraw>{};
+    const std::vector<std::string> border_meshes = map_border_meshes(L);
     // Update unit instances (mesh + cube fallback + texture resolution + frustum culling)
     {
         PROFILE_ZONE("Render::unit_update");
@@ -2866,9 +2996,9 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
             static_cast<u32>(command_graph_renderer_.planned_sites().size()) +
             static_cast<u32>(formation_ghosts_.size()) +
             static_cast<u32>(feedback_blips_.blips().size()) +
-            static_cast<u32>(world_meshes.size()));
-        unit_renderer_.update(view, mesh_cache_, L, &texture_cache_, &camera_, selected_ids,
-                              &frustum, meshes_drawn);
+            static_cast<u32>(world_meshes.size()) + static_cast<u32>(border_meshes.size()));
+        unit_renderer_.update(view, mesh_cache_, L, &texture_cache_, &camera_, &frustum,
+                              meshes_drawn);
     }
     // A bone SSBO the update grew is a new buffer for this slot's set.
     if (bone_ds_[fi] && bone_ds_generation_[fi] != unit_renderer_.bone_ssbo_generation(fi))
@@ -2927,6 +3057,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
     // The order marks, aged by the frame (Moho's UpdateCommandFeedbackBlips)
     feedback_blips_.update(frame_dt_);
     inject_feedback_blips(L, world_meshes);
+    inject_map_border(L, border_meshes);
 
     // Update UI quads (walk control tree, read LazyVar positions)
     if (ui_registry) {
@@ -2954,22 +3085,21 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
                 // A cartographic view (retail's minimap sets it) draws the
                 // cartographic frame, at the view's whole pixels; one view a
                 // frame, the others the terrain texture.
-                // shortcut: its pixels are interface units, magnified on a dense
-                // display; draw it at ui_scale_ once its lines are checked there
                 ui::ControlRect at = r;
                 VkDescriptorSet cartographic = VK_NULL_HANDLE;
                 if (wv.is_cartographic() && !cartographic_view_ && terrain_) {
-                    const auto m = cartographic_minimap(r.x, r.y, r.w, r.h,
-                                                        static_cast<f32>(terrain_->map_width()),
-                                                        static_cast<f32>(terrain_->map_height()));
+                    const auto m = cartographic_minimap(
+                        r.x, r.y, r.w, r.h, static_cast<f32>(terrain_->map_width()),
+                        static_cast<f32>(terrain_->map_height()), ui_scale_);
                     if (m && cartographic_.prepare(fi, m->frame.width, m->frame.height)) {
                         at = {m->rect.x, m->rect.y, m->rect.w, m->rect.h};
                         cartographic = cartographic_.ui_descriptor(fi);
                         cartographic_view_ = m->frame;
+                        minimap_lod_scale_ = wv.lod_scale();
                     }
                 }
                 minimap_renderer_.paint(view, camera_, texture_cache_, at.x, at.y, at.w, at.h,
-                                        ui_width(), ui_height(), selected_ids, L, out,
+                                        window_width_, window_height_, selected_ids, L, out,
                                         resources, cartographic);
                 painted_minimap_.insert(painted_minimap_.end(),
                                         out.begin() + static_cast<std::ptrdiff_t>(first), out.end());
@@ -2977,11 +3107,10 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
         }
         movie_textures_.prepare(*ui_registry, fi);
         update_system_cursor(L);
-        ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_,
-                            ui_width(), ui_height(),
+        ui_renderer_.set_scale(ui_scale_);
+        ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_, ui_width(), ui_height(),
                             static_cast<f32>(ui_dispatch_.mouse_x()),
-                            static_cast<f32>(ui_dispatch_.mouse_y()),
-                            minimap_painter);
+                            static_cast<f32>(ui_dispatch_.mouse_y()), minimap_painter);
     }
 
     // The fog of war, from the focus army's vision circles (Moho's VisionDB),
@@ -3034,6 +3163,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
                                       camera_.zoom() / camera_.max_zoom(), fi);
         if (cartographic_view_) update_minimap_overlays(view, ghost, L, selected_ids, span, fi);
     }
+    update_minimap_meshes(view, L, fi);
 
     // Update game overlays (health bars, selection circles, game over)
     {
@@ -3041,8 +3171,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
         const i32 game_result = legacy_hud_active_ && view.cur() ? view.cur()->player_result : 0;
         overlay_renderer_.set_hovered(hovered_);
         overlay_renderer_.update(view, events, camera_, vp, selected_ids, texture_cache_,
-                                 ui_width(), ui_height(), game_result, frame_dt_, &frustum,
-                                 ghost);
+                                 ui_width(), ui_height(), game_result, frame_dt_, &frustum, ghost);
     }
 
     // FA's water: this frame's camera and time (M213a)
@@ -3085,7 +3214,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
     economy_overlay_renderer_.update(
         view, camera_, vp, player_army_,
         [&](const std::string& id) { return strategic_icon_renderer_.fade_in_zoom(id, L); },
-        texture_cache_, font_cache_, ui_width(), ui_height(), L);
+        texture_cache_, font_cache_, window_width_, window_height_, L);
     projectile_icon_renderer_.update(strategic_icon_renderer_.projectile_icons(), fi);
 
     {
@@ -3104,8 +3233,8 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
             const PlayableRect whole{0, 0, static_cast<i32>(terrain.map_width()),
                                      static_cast<i32>(terrain.map_height())};
             icons = renderer::resource_icons(
-                view.cur()->deposits, camera_, static_cast<f32>(ui_width()),
-                static_cast<f32>(ui_height()), playable_rect_.rect().value_or(whole),
+                view.cur()->deposits, camera_, static_cast<f32>(window_width_),
+                static_cast<f32>(window_height_), playable_rect_.rect().value_or(whole),
                 [&](f32 x, f32 z) { return terrain.get_terrain_height(x, z); });
         }
         resource_icon_renderer_.update(icons, texture_cache_, fi);
@@ -3114,18 +3243,17 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
 
     if (legacy_hud_active_) {
         // Update economy HUD
-        hud_renderer_.update(view, player_army_, font_cache_, texture_cache_,
-                              ui_width(), ui_height());
+        hud_renderer_.update(view, player_army_, font_cache_, texture_cache_, ui_width(),
+                             ui_height());
 
         // Update selection info panel
         selection_info_renderer_.update(view, selected_ids, font_cache_, texture_cache_,
-                                        strategic_icon_renderer_.atlas_descriptor(),
-                                        ui_width(), ui_height());
+                                        strategic_icon_renderer_.atlas_descriptor(), ui_width(),
+                                        ui_height());
     }
 
     // Update profile overlay
-    profile_overlay_.update(font_cache_, texture_cache_,
-                             ui_width(), ui_height());
+    profile_overlay_.update(font_cache_, texture_cache_, ui_width(), ui_height());
 }
 
 void Renderer::begin_commands(u32 fi) {
@@ -3384,59 +3512,59 @@ void Renderer::record_main_pass(u32 fi, const std::array<f32, 16>& vp) {
         particle_renderer_.render_refracting(cmd_buf_[fi], window_width_, window_height_, vp.data(),
                                              fi);
     }
-    resource_icon_renderer_.render(cmd_buf_[fi], ui_width(), ui_height(), resource_icon_time_, fi);
-    projectile_icon_renderer_.render(cmd_buf_[fi], ui_width(), ui_height(), fi);
+    record_view_drawing(cmd_buf_[fi], fi, vp);
+}
+
+void Renderer::record_view_drawing(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16>& vp) {
+    resource_icon_renderer_.render(cmd, window_width_, window_height_, resource_icon_time_, fi);
+    if (scene_ui_pipeline_ && strategic_icon_renderer_.quad_count() > 0) {
+        vkc::bind_pipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, scene_ui_pipeline_);
+        strategic_icon_renderer_.render(cmd, scene_ui_layout_, window_width_, window_height_,
+                                        ui_scale_);
+    }
+    projectile_icon_renderer_.render(cmd, ui_width(), ui_height(), fi);
     // FAF's world drawing, at the end of the world view's own drawing
     // (DrawFunc.cpp's hook at CUIWorldView::Render's end)
-    world_shapes_batch_.render(cmd_buf_[fi], window_width_, window_height_, vp.data(), fi);
+    world_shapes_batch_.render(cmd, window_width_, window_height_, vp.data(), fi);
 }
 
 void Renderer::record_screen_layers(u32 fi) {
-    // 6. Draw strategic icons (when zoomed out, replaces 3D unit meshes)
-    if (ui_pipeline_ && strategic_icon_renderer_.quad_count() > 0) {
-        vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        strategic_icon_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                         window_width_, window_height_, ui_scale_);
-    }
-
     // 7. Draw game overlays (health bars, selection, command lines)
     if (ui_pipeline_ && overlay_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        overlay_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                 window_width_, window_height_, ui_scale_);
+        overlay_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_,
+                                 ui_scale_);
     }
     if (ui_pipeline_ && economy_overlay_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        economy_overlay_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_,
-                                         ui_scale_);
+        economy_overlay_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_);
     }
 
     // 8. Draw minimap (terrain bg + unit icons + camera box)
     if (legacy_hud_active_ && ui_pipeline_ && minimap_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        minimap_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                  window_width_, window_height_, ui_scale_);
+        minimap_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_,
+                                 ui_scale_);
     }
 
     // 9. Draw economy HUD (resource bars + text at top of screen)
     if (legacy_hud_active_ && ui_pipeline_ && hud_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        hud_renderer_.render(cmd_buf_[fi], ui_layout_,
-                              window_width_, window_height_, ui_scale_);
+        hud_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_, ui_scale_);
     }
 
     // 10. Draw selection info panel (bottom-center unit details)
     if (legacy_hud_active_ && ui_pipeline_ && selection_info_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
-        selection_info_renderer_.render(cmd_buf_[fi], ui_layout_,
-                                         window_width_, window_height_, ui_scale_);
+        selection_info_renderer_.render(cmd_buf_[fi], ui_layout_, window_width_, window_height_,
+                                        ui_scale_);
     }
 
     // 11. Draw UI (screen-space 2D quads, last — always on top)
     if (ui_pipeline_ && ui_renderer_.quad_count() > 0) {
         vkc::bind_pipeline(cmd_buf_[fi], VK_PIPELINE_BIND_POINT_GRAPHICS, ui_pipeline_);
         ui_renderer_.render(cmd_buf_[fi], ui_layout_,
-                            window_width_, window_height_, ui_scale_);
+                            window_width_, window_height_);
     }
 
     // 12. Draw profile overlay (topmost, after all other UI)
@@ -3624,7 +3752,8 @@ void Renderer::bind_normal_target() {
 
 u32 Renderer::mesh_instance_count() const {
     u32 n = 0;
-    for (const MeshDrawGroup& g : unit_renderer_.mesh_groups()) n += g.instance_count;
+    for (const MeshDrawGroup& g : unit_renderer_.mesh_groups())
+        if (g.mesh && g.mesh->technique != MeshTechnique::MapImager) n += g.instance_count;
     return n;
 }
 
@@ -3684,7 +3813,7 @@ bool Renderer::copy_to_clipboard(const std::string& text) {
     return true;
 }
 
-void Renderer::mouse_position(f64& x, f64& y) const {
+void Renderer::ui_mouse_position(f64& x, f64& y) const {
     if (scripted_pointer_) {
         x = scripted_pointer_->x;
         y = scripted_pointer_->y;
@@ -3692,18 +3821,30 @@ void Renderer::mouse_position(f64& x, f64& y) const {
     }
     x = 0;
     y = 0;
-    if (!window_) return;
-    // In the interface's units: the camera's view's and the UI's
-    glfwGetCursorPos(window_, &x, &y);
+    if (window_) {
+        glfwGetCursorPos(window_, &x, &y);
+    }
+}
+
+void Renderer::mouse_position(f64& x, f64& y) const {
+    ui_mouse_position(x, y);
+    const auto p = core::ui_to_pixels(x, y, ui_scale_);
+    x = p[0];
+    y = p[1];
+}
+
+void Renderer::refresh_ui_scale() {
+    if (offscreen_ || !window_) {
+        ui_scale_ = offscreen_scale_;
+        return;
+    }
     int ww = 0;
     int wh = 0;
     int fw = 0;
     int fh = 0;
     glfwGetWindowSize(window_, &ww, &wh);
     glfwGetFramebufferSize(window_, &fw, &fh);
-    const auto p = core::to_interface(x, y, ww, wh, fw, fh, ui_scale_);
-    x = p[0];
-    y = p[1];
+    ui_scale_ = core::content_scale(ww, fw);
 }
 
 void Renderer::set_fullscreen(u32 width, u32 height, u32 rate) {
@@ -3796,31 +3937,6 @@ std::vector<std::array<u32, 3>> Renderer::display_modes() const {
                        static_cast<u32>(modes[i].refreshRate)});
     }
     return out;
-}
-
-bool Renderer::update_ui_scale() {
-    // An offscreen capture's framebuffer is unscaled: its display scale is 1
-    f32 content = 1.0f;
-    if (!offscreen_) glfwGetWindowContentScale(window_, &content, nullptr);
-    const auto scale = static_cast<f32>(core::interface_scale(content, ui_zoom_));
-    if (scale == ui_scale_) return false;
-    ui_scale_ = scale;
-    font_cache_.set_density(scale);
-    ui_dispatch_.set_ui_scale(scale);
-    spdlog::info("Interface scale {} ({}x{} units)", scale, ui_width(), ui_height());
-    return true;
-}
-
-std::array<u32, 2> Renderer::ui_size_of_window(u32 width, u32 height) const {
-    int ww = 0;
-    int wh = 0;
-    int fw = 0;
-    int fh = 0;
-    glfwGetWindowSize(window_, &ww, &wh);
-    glfwGetFramebufferSize(window_, &fw, &fh);
-    const f64 pixels = ww > 0 ? static_cast<f64>(fw) / ww : 1.0;
-    return {core::interface_size(static_cast<u32>(width * pixels), ui_scale_),
-            core::interface_size(static_cast<u32>(height * pixels), ui_scale_)};
 }
 
 std::optional<Renderer::WindowGeometry> Renderer::windowed_geometry() const {
@@ -3923,10 +4039,10 @@ void Renderer::poll_events(f64 dt) {
 
     // The world view's camera, before input picks this frame: its moves,
     // then its basis (a pan has moved the target)
-    camera_.set_viewport(static_cast<f32>(ui_width()), static_cast<f32>(ui_height()));
+    camera_.set_viewport(static_cast<f32>(window_width_), static_cast<f32>(window_height_));
     // Its clocks: the system's, and the game's
     camera_.set_clocks(glfwGetTime(), camera_game_time_);
-    camera_.update(window_, dt, ui_scale_);
+    camera_.update(window_, dt);
 }
 
 void Renderer::write_bone_descriptor(u32 fi) {
@@ -3944,6 +4060,23 @@ void Renderer::write_bone_descriptor(u32 fi) {
     write.pBufferInfo = &buf_info;
     vkc::update_descriptor_sets(device_, 1, &write, 0, nullptr);
     bone_ds_generation_[fi] = unit_renderer_.bone_ssbo_generation(fi);
+}
+
+void Renderer::write_minimap_bone_descriptor(u32 fi) {
+    VkDescriptorBufferInfo buf_info{};
+    buf_info.buffer = minimap_units_.bone_ssbo_buffer(fi);
+    buf_info.offset = 0;
+    buf_info.range = VK_WHOLE_SIZE;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = minimap_bone_ds_[fi];
+    write.dstBinding = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    write.descriptorCount = 1;
+    write.pBufferInfo = &buf_info;
+    vkc::update_descriptor_sets(device_, 1, &write, 0, nullptr);
+    minimap_bone_ds_generation_[fi] = minimap_units_.bone_ssbo_generation(fi);
 }
 
 void Renderer::bind_mesh_environment(const map::ScmapEnvironment& environment) {
@@ -4230,7 +4363,7 @@ void Renderer::draw_minimap_overlays(VkCommandBuffer cmd, const f32* view_proj, 
 
 std::optional<Renderer::CartographicImages>
 Renderer::capture_cartographic(const map::Terrain& terrain, const CartographicRenderer::View& view,
-                               const CartographicOverlayInput* overlays) {
+                               const CartographicOverlayInput* overlays, bool with_meshes) {
     if (!device_ || view.width == 0 || view.height == 0) return std::nullopt;
     vkQueueWaitIdle(graphics_queue_);
     cartographic_.build(terrain, texture_cache_);
@@ -4266,13 +4399,20 @@ Renderer::capture_cartographic(const map::Terrain& terrain, const CartographicRe
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &begin);
+    CartographicRenderer::Overlays draw_overlays;
     if (overlays) {
-        cartographic_.record(cmd, 0, view, [&](VkCommandBuffer c, const f32* vp, u32 w, u32 h) {
+        draw_overlays = [&](VkCommandBuffer c, const f32* vp, u32 w, u32 h) {
             draw_minimap_overlays(c, vp, w, h, 0);
-        });
-    } else {
-        cartographic_.record(cmd, 0, view);
+        };
     }
+    CartographicRenderer::Meshes draw_meshes_into;
+    if (with_meshes) {
+        // The last frame's gather, from its slot's instances and bones
+        draw_meshes_into = [&](VkCommandBuffer c, const f32* vp) {
+            draw_minimap_meshes(c, minimap_fi_, vp);
+        };
+    }
+    cartographic_.record(cmd, 0, view, draw_overlays, draw_meshes_into);
     // Both stages (shader-readable) copied out
     const std::array<VkImage, 2> images = {cartographic_.frame(0).image,
                                            cartographic_.output(0).image};
@@ -4460,6 +4600,7 @@ void Renderer::shutdown() {
     // Sub-renderers
     terrain_mesh_.destroy(device_, allocator_);
     unit_renderer_.destroy(device_, allocator_);
+    minimap_units_.destroy(device_, allocator_);
     water_renderer_.destroy(device_, allocator_);
     sky_renderer_.destroy(device_, allocator_);
     cartographic_.destroy();
@@ -4545,6 +4686,8 @@ void Renderer::shutdown() {
     vkDestroyPipelineLayout(device_, mesh_cube_layout_, nullptr);
     vkDestroyPipeline(device_, mesh_feedback_pipeline_, nullptr);
     vkDestroyPipelineLayout(device_, mesh_feedback_layout_, nullptr);
+    vkDestroyPipeline(device_, mesh_glow_pipeline_, nullptr);
+    vkDestroyPipelineLayout(device_, mesh_glow_layout_, nullptr);
     for (u32 i = 0; i < kShieldStates; ++i) {
         vkDestroyPipeline(device_, shield_pipelines_[i], nullptr);
         vkDestroyPipelineLayout(device_, shield_layouts_[i], nullptr);
@@ -4552,6 +4695,8 @@ void Renderer::shutdown() {
     for (u32 i = 0; i < kCartographicMeshStates; ++i) {
         vkDestroyPipeline(device_, cartographic_mesh_pipelines_[i], nullptr);
         vkDestroyPipelineLayout(device_, cartographic_mesh_layouts_[i], nullptr);
+        vkDestroyPipeline(device_, minimap_mesh_pipelines_[i], nullptr);
+        vkDestroyPipelineLayout(device_, minimap_mesh_layouts_[i], nullptr);
     }
     vkDestroyPipeline(device_, decal_pipeline_, nullptr);
     vkDestroyPipelineLayout(device_, decal_layout_, nullptr);
@@ -4563,8 +4708,16 @@ void Renderer::shutdown() {
          {decal_glow_layout_, decal_glow_mask_layout_, decal_normal_layout_, terrain_normal_layout_,
           decal_water_layout_})
         if (layout) vkDestroyPipelineLayout(device_, layout, nullptr);
-    if (ui_pipeline_) vkDestroyPipeline(device_, ui_pipeline_, nullptr);
-    if (ui_layout_) vkDestroyPipelineLayout(device_, ui_layout_, nullptr);
+    for (VkPipeline pipeline : {ui_pipeline_, scene_ui_pipeline_}) {
+        if (pipeline) {
+            vkDestroyPipeline(device_, pipeline, nullptr);
+        }
+    }
+    for (VkPipelineLayout layout : {ui_layout_, scene_ui_layout_}) {
+        if (layout) {
+            vkDestroyPipelineLayout(device_, layout, nullptr);
+        }
+    }
 
     // Sync (per-frame)
     for (u32 i = 0; i < FRAMES_IN_FLIGHT; ++i) {

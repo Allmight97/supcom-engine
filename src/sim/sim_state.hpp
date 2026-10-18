@@ -181,6 +181,12 @@ public:
     /// the cells as CAiPathNavigator does. Off by default for now.
     bool moho_pathing() const { return moho_pathing_; }
     void set_moho_pathing(bool on) { moho_pathing_ = on; }
+    /// Whether the game runs on FAF's data, so the engine plays FAF's
+    /// patched exe (FA-Binary-Patches) where it changes Moho's rules:
+    /// ChangeUnitArmy gives commanders and units being built
+    /// (hooks/HTransferACUs.cpp). The host's, as the executable is.
+    bool faf_exe() const { return faf_exe_; }
+    void set_faf_exe(bool on) { faf_exe_ = on; }
     map::PathfindingGrid* pathfinding_grid() { return pathfinding_grid_.get(); }
     const map::PathfindingGrid* pathfinding_grid() const { return pathfinding_grid_.get(); }
 
@@ -505,7 +511,8 @@ public:
     /// Whether `unit` takes `command` as it is issued: Moho checks each unit
     /// of an order and leaves out one that can't carry it out
     /// (func_ProcessUnitCommand). Checked here for Guard and Reclaim so far.
-    bool takes_command(const Unit& unit, const UnitCommand& command) const;
+    bool takes_command(const Unit& unit, const UnitCommand& command,
+                       bool clear_existing = false) const;
     /// Whether a live unit still has the command in its queue (IsCommandDone
     /// is its negation: a command is done once no unit holds it).
     bool command_queued(u32 command_id) const;
@@ -580,6 +587,9 @@ public:
     // Game end state
     bool game_ended() const { return game_ended_; }
     void set_game_ended(bool v) { game_ended_ = v; }
+    /// Moho's mGameOver: game_ended() latched as a tick ends. From then on
+    /// tick() runs no more (faf-re Sim::AdvanceBeat).
+    bool game_over() const { return game_over_; }
 
     /// Whether the scenario's scripts decide the game (retail and FAF fork
     /// /lua/victory.lua's CheckVictory from BeginSession): then they call
@@ -597,14 +607,8 @@ public:
     void set_fog_of_war(const std::string& mode);
     FogMode fog_mode() const { return fog_mode_; }
 
-    /// Common Army: allied (same-team) armies pool their mass/energy each tick,
-    /// so a teammate's reserves back up one that is stalling. Off by default.
-    void set_common_army(bool on) { common_army_ = on; }
-    bool common_army() const { return common_army_; }
-
     /// Team Share Overflow: resources a teammate would waste at full storage
-    /// flow to allies with room, instead of being lost. Off by default. Ignored
-    /// when Common Army is on (full pooling already covers it).
+    /// flow to allies with room, instead of being lost. Off by default.
     void set_team_share_overflow(bool on) { team_share_overflow_ = on; }
     bool team_share_overflow() const { return team_share_overflow_; }
 
@@ -821,6 +825,7 @@ public:
         std::string bank, cue, lod_cutoff;
         Vector3 pos;
         bool underwater = false; ///< a sub's or seabed unit's
+        u32 entity_id = 0;
     };
     void request_sound(SoundRequest r) { sound_requests_.push_back(std::move(r)); }
     const std::vector<SoundRequest>& sound_requests() const { return sound_requests_; }
@@ -950,7 +955,7 @@ private:
     }
 
     void update_economies();
-    /// Pool mass/energy across allied teams (Common Army). No-op unless enabled.
+    /// Pass allies' overflow on (Team Share Overflow). No-op unless enabled.
     void share_team_economy();
     /// Partition all non-civilian armies into alliance-connected teams.
     std::vector<std::vector<i32>> alliance_teams() const;
@@ -1071,6 +1076,7 @@ private:
     std::unique_ptr<PathTables> path_tables_;
     UnitBlockers unit_blockers_{*this};
     bool moho_pathing_ = false;
+    bool faf_exe_ = false; // see faf_exe
     /// Stored units whose carrier is gone, destroyed at a safe point of the
     /// tick (destroy_orphaned_stored_units).
     std::vector<u32> stored_to_destroy_;
@@ -1130,6 +1136,7 @@ private:
     u32 issuing_source_ = 0;
     u32 player_commands_issued_ = 0;
     bool game_ended_ = false;
+    bool game_over_ = false;
     bool script_victory_ = false;
     std::string victory_condition_ = "demoralization";
     VictoryMode victory_mode_ = VictoryMode::Demoralization;
@@ -1138,7 +1145,6 @@ private:
     FogMode fog_mode_ = FogMode::Explored;
     f32 no_rush_seconds_ = 0.0f;   // 0 = No Rush disabled
     f32 no_rush_radius_ = 75.0f;   // default confinement radius (game units)
-    bool common_army_ = false;     // pool allied economies when true
     bool team_share_overflow_ = false; // route wasted overflow to allies
     std::vector<CameraShakeEvent> camera_shake_events_;
     std::vector<CameraFollowEvent> camera_follow_events_;

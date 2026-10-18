@@ -180,9 +180,7 @@ void FontCache::init(VkDevice device, VmaAllocator allocator,
 }
 
 std::string FontCache::make_key(const std::string& family, i32 pointsize) const {
-    // shortcut: a density change keeps the old density's atlases until exit (about
-    // 16 a game, 64 descriptor sets); free them if windows move between displays often
-    return family + ":" + std::to_string(pointsize) + "@" + std::to_string(density_);
+    return family + ":" + std::to_string(pointsize);
 }
 
 std::string FontCache::resolve_font_path(const std::string& family) const {
@@ -273,10 +271,8 @@ FontAtlas* FontCache::load_font(const std::string& family, i32 pointsize) {
         return nullptr;
     }
 
-    // GDI's em is the point size in pixels (Moho's fonts); the bitmaps are
-    // drawn at the density's pixels
+    // GDI's em is the point size in pixels (Moho's fonts)
     f32 scale = stbtt_ScaleForMappingEmToPixels(&font, static_cast<f32>(pointsize));
-    const f32 raster = scale * density_;
 
     // Get font metrics
     int ascent_raw, descent_raw, line_gap_raw;
@@ -309,12 +305,12 @@ FontAtlas* FontCache::load_font(const std::string& family, i32 pointsize) {
     // largest glyph, which may stand taller than the em
     u32 cols = 32;
     u32 rows = (glyph_count + cols - 1) / cols;
-    u32 cell_w = static_cast<u32>(std::ceil(static_cast<f32>(pointsize) * density_)) + 2;
-    u32 cell_h = cell_w;
+    u32 cell_w = static_cast<u32>(pointsize) + 2;
+    u32 cell_h = static_cast<u32>(pointsize) + 2;
     for (u32 codepoint : codepoints) {
         int bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
-        stbtt_GetCodepointBitmapBox(&font, static_cast<int>(codepoint), raster, raster, &bx0,
-                                    &by0, &bx1, &by1);
+        stbtt_GetCodepointBitmapBox(&font, static_cast<int>(codepoint), scale, scale, &bx0, &by0,
+                                    &bx1, &by1);
         cell_w = std::max(cell_w, static_cast<u32>(bx1 - bx0) + 2);
         cell_h = std::max(cell_h, static_cast<u32>(by1 - by0) + 2);
     }
@@ -343,7 +339,7 @@ FontAtlas* FontCache::load_font(const std::string& family, i32 pointsize) {
 
         int gw, gh, xoff, yoff;
         unsigned char* glyph_bmp = stbtt_GetCodepointBitmap(
-            &font, 0, raster,
+            &font, 0, scale,
             static_cast<int>(codepoint),
             &gw, &gh, &xoff, &yoff);
 
@@ -378,10 +374,10 @@ FontAtlas* FontCache::load_font(const std::string& family, i32 pointsize) {
             gi.v0 = static_cast<f32>(y0) / atlas->atlas_height;
             gi.u1 = static_cast<f32>(x0 + copy_w) / atlas->atlas_width;
             gi.v1 = static_cast<f32>(y0 + copy_h) / atlas->atlas_height;
-            gi.x_offset = static_cast<f32>(xoff) / density_;
-            gi.y_offset = static_cast<f32>(yoff) / density_;
-            gi.width = static_cast<f32>(copy_w) / density_;
-            gi.height = static_cast<f32>(copy_h) / density_;
+            gi.x_offset = static_cast<f32>(xoff);
+            gi.y_offset = static_cast<f32>(yoff);
+            gi.width = static_cast<f32>(copy_w);
+            gi.height = static_cast<f32>(copy_h);
         }
         atlas->glyphs[codepoint] = gi;
     }

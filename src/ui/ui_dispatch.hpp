@@ -96,9 +96,6 @@ public:
         alpha_masks_.clear();
     }
 
-    /// Framebuffer pixels per interface unit, which the cursor is read in
-    void set_ui_scale(f64 scale) { ui_scale_ = scale; }
-
     /// Current mouse position (updated by cursor pos callback).
     f64 mouse_x() const { return mouse_x_; }
     f64 mouse_y() const { return mouse_y_; }
@@ -153,7 +150,6 @@ private:
     std::vector<UIEvent> pending_events_;
     f64 mouse_x_ = 0;
     f64 mouse_y_ = 0;
-    f64 ui_scale_ = 1.0;
     u8 buttons_down_ = 0; ///< kMouseLeft... held now
     /// The last press, which the next may make a double-click
     f64 last_press_time_ = -1.0;

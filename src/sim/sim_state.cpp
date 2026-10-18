@@ -813,7 +813,7 @@ u32 SimState::route_command(const std::vector<u32>& unit_ids, const UnitCommand&
         auto* unit = static_cast<Unit*>(e);
         if (cmd.type == CommandType::Stop && clear_existing) {
             stop_unit(*unit);
-        } else if (!apply_silo_build(*unit, cmd) && takes_command(*unit, cmd)) {
+        } else if (!apply_silo_build(*unit, cmd) && takes_command(*unit, cmd, clear_existing)) {
             if (clear_existing) {
                 unit->clear_commands(entity_registry_, L_);
                 if (unit->destroyed()) {
@@ -862,9 +862,17 @@ bool boards(const EntityRegistry& registry, const Unit& unit, u32 target_id) {
 
 } // namespace
 
-bool SimState::takes_command(const Unit& unit, const UnitCommand& command) const {
+bool SimState::takes_command(const Unit& unit, const UnitCommand& command,
+                             bool clear_existing) const {
     if (unit.is_being_built() && !unit.takes_orders_unfinished()) {
         return false;
+    }
+    if (clear_existing && command.type != CommandType::Stop && unit.has_unit_state("Enhancing")) {
+        return false;
+    }
+    if (command.type == CommandType::Move || command.type == CommandType::Patrol ||
+        command.type == CommandType::AggressiveMove) {
+        return unit.motion_type() != "RULEUMT_None";
     }
     if (command.type == CommandType::BuildMobile || command.type == CommandType::BuildFactory) {
         return unit.has_category("FACTORY") || unit.has_category("ENGINEER") ||
@@ -1001,7 +1009,8 @@ std::map<u32, SimState::QueueWithPending> SimState::queues_with_pending() const 
                 }
                 QueueWithPending& queue = queue_of(id, *unit);
                 for (size_t i = 0; i < queue.orders.size(); ++i) {
-                    if (queue.orders[i].command_id != *command) {
+                    const UnitCommand& c = queue.orders[i];
+                    if (c.command_id != *command || (!remove && (c.from_patrol || c.from_guard))) {
                         continue;
                     }
                     if (remove) {
@@ -1035,7 +1044,8 @@ std::map<u32, SimState::QueueWithPending> SimState::queues_with_pending() const 
                 continue;
             }
             if (cmd.type == CommandType::SiloBuildNuke ||
-                cmd.type == CommandType::SiloBuildTactical || !takes_command(*unit, cmd)) {
+                cmd.type == CommandType::SiloBuildTactical ||
+                !takes_command(*unit, cmd, scheduled.clear_existing)) {
                 continue;
             }
             if (scheduled.clear_existing) {
@@ -1426,7 +1436,7 @@ void SimState::dispatch_due_commands() {
             }
             // Each selected unit independently replaces (fresh order) or
             // appends (queued/shift) — matching the Issue* bindings.
-            if (!takes_command(*unit, cmd)) continue;
+            if (!takes_command(*unit, cmd, sc.clear_existing)) continue;
             if (sc.clear_existing) {
                 unit->clear_commands(entity_registry_, L_);
                 if (unit->destroyed()) {
@@ -1477,6 +1487,9 @@ void SimState::enforce_no_rush() {
 }
 
 void SimState::tick() {
+    if (game_over_) {
+        return;
+    }
     PROFILE_ZONE("Sim::tick");
     tick_count_++;
     game_time_ = tick_count_ * SECONDS_PER_TICK;
@@ -1724,6 +1737,7 @@ void SimState::tick() {
         resume_tick_ = 0;
         playback_ = false;
     }
+    game_over_ = game_ended_;
 }
 
 void SimState::update_economies() {
@@ -1803,7 +1817,7 @@ void distribute_overflow(std::vector<ResourceState*>& res, f64 pool) {
 } // namespace
 
 void SimState::share_team_economy() {
-    if (!common_army_ && !team_share_overflow_) return;
+    if (!team_share_overflow_) return;
     PROFILE_ZONE("Sim::share_econ");
     for (const auto& team : alliance_teams()) {
         if (team.size() < 2) continue;
@@ -1816,37 +1830,20 @@ void SimState::share_team_economy() {
         }
         if (members.size() < 2) continue;
 
-        if (common_army_) {
-            // Full pool: every member ends at the same storage fill ratio.
-            f64 mass_pool = 0.0, mass_cap = 0.0;
-            f64 energy_pool = 0.0, energy_cap = 0.0;
-            for (auto* b : members) {
-                mass_pool += b->economy().mass.stored;
-                mass_cap += b->economy().mass.max_storage;
-                energy_pool += b->economy().energy.stored;
-                energy_cap += b->economy().energy.max_storage;
-            }
-            for (auto* b : members) {
-                auto& econ = b->economy();
-                if (mass_cap > 0.0)
-                    econ.mass.stored = mass_pool * (econ.mass.max_storage / mass_cap);
-                if (energy_cap > 0.0)
-                    econ.energy.stored = energy_pool * (econ.energy.max_storage / energy_cap);
-            }
-        } else {
-            // Overflow only: resources members would waste at full storage flow
-            // to allies with room.
-            f64 mass_overflow = 0.0, energy_overflow = 0.0;
-            std::vector<ResourceState*> mass_res, energy_res;
-            for (auto* b : members) {
-                mass_overflow += b->economy().mass.overflow;
-                energy_overflow += b->economy().energy.overflow;
-                mass_res.push_back(&b->economy().mass);
-                energy_res.push_back(&b->economy().energy);
-            }
-            distribute_overflow(mass_res, mass_overflow);
-            distribute_overflow(energy_res, energy_overflow);
+        // Resources members would waste at full storage flow to allies with
+        // room. Allies keep their own reserves otherwise: Moho has no pool
+        // (FAF's Union keeps each player's resources; its Common army is one
+        // army, merged by its scripts).
+        f64 mass_overflow = 0.0, energy_overflow = 0.0;
+        std::vector<ResourceState*> mass_res, energy_res;
+        for (auto* b : members) {
+            mass_overflow += b->economy().mass.overflow;
+            energy_overflow += b->economy().energy.overflow;
+            mass_res.push_back(&b->economy().mass);
+            energy_res.push_back(&b->economy().energy);
         }
+        distribute_overflow(mass_res, mass_overflow);
+        distribute_overflow(energy_res, energy_overflow);
     }
 }
 
@@ -2123,20 +2120,10 @@ void SimState::separate_ground_units() {
         if (moho_pathing_ && footprint_fits_at(u.footprint(), p.x, p.z) == 0 &&
             footprint_fits_at(u.footprint(), u.position().x, u.position().z) != 0)
             continue;
-        // On the surface as it drives; a submarine keeps its depth. Tilted
-        // from its facing made unit length first: this pass is the engine's
-        // (Moho resolves overlaps in its motion), and a crowd can be pushed
-        // every tick, where tilting the last tilt again would build float
-        // error up without end on a slope.
+        // On the surface as it drives; a submarine keeps its depth.
         if (terrain_ && !bodies[i].sub) {
-            Quaternion facing = u.orientation();
-            const f32 length = std::sqrt(facing.x * facing.x + facing.y * facing.y +
-                                         facing.z * facing.z + facing.w * facing.w);
-            if (length > 0.0f) {
-                facing = {facing.x / length, facing.y / length, facing.z / length,
-                          facing.w / length};
-            }
-            const Unit::GroundStance stance = u.ground_stance(terrain_.get(), p.x, p.z, facing);
+            const Unit::GroundStance stance =
+                u.ground_stance(terrain_.get(), p.x, p.z, u.orientation());
             p.y = stance.y;
             u.set_orientation(stance.orientation);
         }

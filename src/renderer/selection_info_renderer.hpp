@@ -33,10 +33,8 @@ public:
                 VkDescriptorSet icon_atlas_ds,
                 u32 viewport_w, u32 viewport_h);
 
-    /// viewport_w/h: the framebuffer's pixels; ui_scale: its pixels per
-    /// interface unit, the units the quads are in.
-    void render(VkCommandBuffer cmd, VkPipelineLayout layout,
-                u32 viewport_w, u32 viewport_h, f32 ui_scale);
+    void render(VkCommandBuffer cmd, VkPipelineLayout layout, u32 viewport_w, u32 viewport_h,
+                f32 scale = 1.0f);
 
     void destroy(VkDevice device, VmaAllocator allocator);
 

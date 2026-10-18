@@ -17,6 +17,7 @@ add_executable(osc_integration
     runner/combo_click_test.cpp
     runner/command_sources_test.cpp
     runner/edit_text_test.cpp
+    runner/hidpi_test.cpp
     runner/keymap_test.cpp
     runner/pathing_evidence_test.cpp
     runner/camera_moves_test.cpp
@@ -61,8 +62,11 @@ add_executable(osc_integration
     runner/world_fog_test.cpp
     runner/cartographic_main_test.cpp
     runner/playable_boundary_test.cpp
+    runner/map_border_test.cpp
+    runner/minimap_mesh_test.cpp
     runner/world_shapes_test.cpp
     runner/mobile_build_start_test.cpp
+    runner/build_site_join_test.cpp
     runner/drown_test.cpp
     runner/spawn_layer_test.cpp
     runner/warp_test.cpp
@@ -195,6 +199,14 @@ endforeach()
 foreach(mode IN LISTS OSC_DATA_TESTS_NO_MAP_RETAIL_GAP)
     osc_add_data_test(${mode} retail-gap NO_MAP)
 endforeach()
+# --hidpi-test in FA's game interface, its minimap window shown as the golden's
+add_test(NAME data.minimap.hidpi-test
+         COMMAND osc_integration --map ${OSC_TEST_MAP} --hidpi-test
+                 --prefs ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/minimap.prefs)
+set_tests_properties(data.minimap.hidpi-test PROPERTIES
+    LABELS "data;gate"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 900)
 
 # M196: the same game, played twice as two processes (every address
 # different), stays identical tick for tick -- nothing depends on hash

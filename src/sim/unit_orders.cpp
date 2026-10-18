@@ -871,7 +871,16 @@ OrderStep Unit::order_build_mobile(UnitCommand& cmd, f64 dt, SimContext& ctx, f3
             command_queue_.pop_front();
             return OrderStep::Next;
         }
-        if (turns_to_face(cmd.target_pos) || awaits_arm() || waits_paused(cmd)) {
+        if (turns_to_face(cmd.target_pos)) {
+            return OrderStep::Hold;
+        }
+        if (!find_build_site_frame(registry, cmd.blueprint_id, cmd.target_pos) &&
+            build_site_taken(L, registry, cmd.blueprint_id, cmd.target_pos)) {
+            command_queue_.pop_front();
+            call_lua_method(L, "OnFailedToBuild");
+            return destroyed() || !in_registry() ? OrderStep::Gone : OrderStep::Next;
+        }
+        if (awaits_arm() || waits_paused(cmd)) {
             return OrderStep::Hold;
         }
         const u32 building = cmd.command_id; // cmd may go with the scripts' changes
@@ -1663,9 +1672,10 @@ OrderStep Unit::order_guard(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_
     // Help only within reach of the work (M206e): Moho's guard hands
     // it to a repair or reclaim task. A build, a silo or a repair
     // measures the gap to that unit's skirt (MaxBuildDistance to
-    // begin, twice that to go on); a reclaim, to its footprint. Out
-    // of reach, the unit walks just clear of the work, helping with
-    // nothing meanwhile.
+    // begin, twice that to go on; a factory's build begins at the
+    // factory's, as CUnitRepairTask takes its FACTORY creator); a
+    // reclaim, to its footprint. Out of reach, the unit walks just
+    // clear of the work, helping with nothing meanwhile.
     // Where a hovering aircraft flying its guard winged makes for (the work
     // it closes on, else what it guards): its one flight this tick, below.
     std::optional<Vector3> winged_goal;
@@ -1724,7 +1734,10 @@ OrderStep Unit::order_guard(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_
     if (guarded_build && !guarded_build->destroyed()) {
         working = true;
         u32 target_build_id = target_unit->build_target_id();
-        if (!within_reach(*guarded_build, true, build_target_id_ == target_build_id)) {
+        const bool helping = build_target_id_ == target_build_id;
+        const Entity& reach =
+            !helping && target_unit->has_category("FACTORY") ? *target_unit : *guarded_build;
+        if (!within_reach(reach, true, helping)) {
             if (is_building()) stop_assisting(ctx.L, &ctx.registry);
         } else {
             if (build_target_id_ != target_build_id) {

@@ -2,7 +2,6 @@
 // SC_PrimaryAdapter's "w,h,fps", the primary adapter option's states
 // (SetupPrimaryAdapterSettings), and the cursor on a scaled display.
 
-#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "app/window_mode.hpp"
@@ -162,32 +161,32 @@ TEST_CASE("A native full screen is one adapter state the option keeps", "[window
     CHECK(adapter_option_for(true, "windowed") == "1024,768,60");
 }
 
-TEST_CASE("A cursor in window units maps to the interface's units", "[window]") {
-    // Wayland at 150%, its framebuffer scaled: a 1000x600 window drawn at
-    // 1500x900, its interface 1000x600
-    const auto wayland = core::to_interface(100.0, 200.0, 1000, 600, 1500, 900, 1.5);
-    CHECK(wayland[0] == Catch::Approx(100.0));
-    CHECK(wayland[1] == Catch::Approx(200.0));
-    // Retina: a 2560x1440-point window drawn at 5120x2880, its interface 2560x1440
-    const auto retina = core::to_interface(100.0, 200.0, 2560, 1440, 5120, 2880, 2.0);
-    CHECK(retina[0] == 100.0);
-    CHECK(retina[1] == 200.0);
-    // Windows at 150%: the window in pixels, its interface 1067x600
-    const auto windows = core::to_interface(150.0, 300.0, 1600, 900, 1600, 900, 1.5);
-    CHECK(windows[0] == Catch::Approx(100.0));
-    CHECK(windows[1] == Catch::Approx(200.0));
-    const auto minimized = core::to_interface(5.0, 6.0, 0, 0, 0, 0, 1.0);
+TEST_CASE("A cursor in window units maps to framebuffer pixels (M217h)", "[window]") {
+    // 150% scale: a 1000x600 window drawn at 1500x900
+    const auto p = core::to_framebuffer(100.0, 200.0, 1000, 600, 1500, 900);
+    CHECK(p[0] == 150.0);
+    CHECK(p[1] == 300.0);
+    const auto same = core::to_framebuffer(100.0, 200.0, 1600, 900, 1600, 900);
+    CHECK(same[0] == 100.0);
+    CHECK(same[1] == 200.0);
+    const auto minimized = core::to_framebuffer(5.0, 6.0, 0, 0, 0, 0);
     CHECK(minimized[0] == 5.0);
     CHECK(minimized[1] == 6.0);
 }
 
-TEST_CASE("The interface's scale is the display's times the player's zoom", "[window]") {
-    CHECK(core::interface_scale(2.0, 1.0) == 2.0);   // Retina
-    CHECK(core::interface_scale(1.5, 1.0) == 1.5);   // Windows at 150%
-    CHECK(core::interface_scale(2.0, 1.25) == 2.5);  // Retina, zoomed
-    CHECK(core::interface_scale(0.0, 0.0) == 1.0);   // unknown: unscaled
-    CHECK(core::interface_size(5120, 2.0) == 2560);
-    CHECK(core::interface_size(2560, 1.5) == 1707);
-    CHECK(core::interface_size(1600, 1.0) == 1600);
-    CHECK(core::interface_size(0, 2.0) == 1);
+TEST_CASE("A Retina window's UI is its size in points, drawn at the framebuffer's scale",
+          "[window]") {
+    const f32 retina = core::content_scale(1512, 3024);
+    CHECK(retina == 2.0f);
+    CHECK(core::ui_extent(3024, 1964, retina) == std::array<u32, 2>{1512, 982});
+    CHECK(core::ui_to_pixels(100.5, 200.0, retina) == std::array<f64, 2>{201.0, 400.0});
+
+    const f32 wayland = core::content_scale(1000, 1500);
+    CHECK(wayland == 1.5f);
+    CHECK(core::ui_extent(1500, 900, wayland) == std::array<u32, 2>{1000, 600});
+
+    CHECK(core::content_scale(1600, 1600) == 1.0f);
+    CHECK(core::content_scale(0, 0) == 1.0f);
+    CHECK(core::ui_extent(1600, 900, 1.0f) == std::array<u32, 2>{1600, 900});
+    CHECK(core::ui_to_pixels(100.0, 200.0, 1.0f) == std::array<f64, 2>{100.0, 200.0});
 }
