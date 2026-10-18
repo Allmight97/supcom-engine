@@ -32,6 +32,8 @@ selects another). The Mac build recipe is in `mac/recipe/`:
 - `mac/scripts/play` builds (`--build`) and starts the game: windowed 2560x1440 by
   default; `--full`, `--size W H`, `--prefs` (the game's Video options decide),
   `--hud` (Metal performance HUD), `-- ARGS` for extra `opensupcom` arguments.
+  It passes `--fps-cap -2` (2 below the display's refresh rate) unless ARGS hold
+  their own `--fps-cap`; the game reads only the first one.
   The game log is `~/.local/state/opensupcom/logs/opensupcom.log`.
 - `mac/scripts/setup` (idempotent; `--check` reports differences and writes
   nothing) installs the guards outside the tree, so they also run on branches

@@ -28,13 +28,14 @@ checkout root (`~/Projects/OpenSupCom`).
 
 | Command | What it does |
 | --- | --- |
-| `mac/scripts/play` | Play, windowed 2560x1440 |
+| `mac/scripts/play` | Play, windowed 2560x1440, frame rate capped 2 below the display's refresh rate (`--fps-cap -2`) |
 | `mac/scripts/play --build` | Rebuild the current branch first |
 | `mac/scripts/play --full` | Full screen |
 | `mac/scripts/play --size W H` | Windowed at W x H |
 | `mac/scripts/play --prefs` | Let the game's own Video options decide the window |
 | `mac/scripts/play --hud` | Apple's Metal HUD: frame rate, GPU time, frame interval |
 | `mac/scripts/play ... -- --ui-scale 1.25` | Pass any game option after `--` (here: a larger interface) |
+| `mac/scripts/play -- --fps-cap 0` | Another frame-rate cap (`0`: none); it replaces the default |
 | `mac/scripts/osc-smoke` | Headless AI skirmish; fails on any error |
 | `mac/scripts/osc-render-check` | Hidden rendered capture; fails unless the driver is KosmicKrisp and there are no errors |
 | `mac/scripts/upstream-news` | What upstream landed or is working on that touches the Mac; run before any Mac change |
