@@ -339,15 +339,43 @@ bool Renderer::create_logical_device(const vkb::Instance& vkb_inst) {
         .set_surface(surface_)
         .set_minimum_version(1, 0)
         .set_required_features(required_features)
-        .select();
+        .select_devices();
 
-    if (!phys_ret) {
+    if (!phys_ret || phys_ret.value().empty()) {
         spdlog::error("No suitable Vulkan GPU found: {}",
-                      phys_ret.error().message());
+                      phys_ret ? "none offered" : phys_ret.error().message());
         return false;
     }
 
-    auto vkb_phys = phys_ret.value();
+    // vk-bootstrap enables properties2 on our Vulkan 1.0 instance when available.
+    // Keep older drivers working even when they cannot report driver properties.
+    auto get_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2KHR>(
+        vkGetInstanceProcAddr(instance_, "vkGetPhysicalDeviceProperties2KHR"));
+    const auto driver_properties = [&](const vkb::PhysicalDevice& phys) {
+        VkPhysicalDeviceDriverProperties driver{};
+        driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+        VkPhysicalDeviceProperties2 properties{};
+        properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        properties.pNext = &driver;
+        const auto extensions = phys.get_available_extensions();
+        if (get_properties &&
+            (phys.properties.apiVersion >= VK_API_VERSION_1_2 ||
+             std::find(extensions.begin(), extensions.end(),
+                       VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME) != extensions.end())) {
+            get_properties(phys.physical_device, &properties);
+        }
+        return driver;
+    };
+    const auto& candidates = phys_ret.value();
+    std::vector<VkPhysicalDeviceDriverProperties> drivers;
+    std::vector<VkDriverId> driver_ids;
+    for (const auto& phys : candidates) {
+        drivers.push_back(driver_properties(phys));
+        driver_ids.push_back(drivers.back().driverID);
+    }
+    const size_t chosen = preferred_device(driver_ids);
+    auto vkb_phys = candidates[chosen];
+    const VkPhysicalDeviceDriverProperties& driver = drivers[chosen];
     physical_device_ = vkb_phys.physical_device;
     spdlog::info("Vulkan GPU: {}", vkb_phys.name);
     device_name_ = vkb_phys.name;
@@ -358,22 +386,6 @@ bool Renderer::create_logical_device(const vkb::Instance& vkb_inst) {
     if (enumerate_version && enumerate_version(&loader_version) != VK_SUCCESS) {
         spdlog::error("Failed to query Vulkan loader version");
         return false;
-    }
-    VkPhysicalDeviceDriverProperties driver{};
-    driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
-    VkPhysicalDeviceProperties2 properties{};
-    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    properties.pNext = &driver;
-    // vk-bootstrap enables properties2 on our Vulkan 1.0 instance when available.
-    // Keep older drivers working even when they cannot report driver properties.
-    auto get_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2KHR>(
-        vkGetInstanceProcAddr(instance_, "vkGetPhysicalDeviceProperties2KHR"));
-    const auto extensions = vkb_phys.get_available_extensions();
-    if (get_properties &&
-        (vkb_phys.properties.apiVersion >= VK_API_VERSION_1_2 ||
-         std::find(extensions.begin(), extensions.end(), VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME) !=
-             extensions.end())) {
-        get_properties(physical_device_, &properties);
     }
     spdlog::info("{}", vulkan_runtime_description(loader_version, driver));
 

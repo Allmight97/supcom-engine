@@ -16,6 +16,13 @@ std::string vulkan_runtime_description(uint32_t loader_version,
                        static_cast<int>(driver.driverID));
 }
 
+size_t preferred_device(std::span<const VkDriverId> drivers) {
+    for (size_t i = 0; i < drivers.size(); ++i) {
+        if (drivers[i] == VK_DRIVER_ID_MESA_KOSMICKRISP) return i;
+    }
+    return 0;
+}
+
 AllocatedBuffer upload_buffer(VkDevice device, VmaAllocator allocator,
                               VkCommandPool cmd_pool, VkQueue queue,
                               const void* data, VkDeviceSize size,
