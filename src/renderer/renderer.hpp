@@ -494,14 +494,9 @@ public:
     double refresh_rate() const;
     /// The primary display's modes (width, height, refresh), as it lists them.
     std::vector<std::array<u32, 3>> display_modes() const;
-    /// The window's place and size while windowed (Moho's Windows.Main.*);
-    /// nothing while full screen or without a window.
-    struct WindowGeometry {
-        i32 x = 0, y = 0;
-        u32 width = 0, height = 0;
-        bool maximized = false;
-    };
-    std::optional<WindowGeometry> windowed_geometry() const;
+    /// The window's place and size while windowed; nothing while full screen
+    /// or without a window.
+    std::optional<core::WindowGeometry> windowed_geometry() const;
     /// vsync: FIFO; off, MAILBOX (IMMEDIATE where there's none). The
     /// swapchain is rebuilt before the next frame.
     void set_vsync(bool on);

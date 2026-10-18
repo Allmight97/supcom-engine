@@ -4,9 +4,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "app/window_commands.hpp"
 #include "app/window_mode.hpp"
 #include "core/cursor.hpp"
 #include "core/fullscreen.hpp"
+#include "core/preferences.hpp"
+#include "support/temp_path.hpp"
 
 #include <array>
 #include <string>
@@ -208,4 +211,35 @@ TEST_CASE("Full screen goes to the display holding the last window, else the mai
     CHECK(display_at(displays, DisplayArea{-300, 800, 1024, 768}) == 0);
     CHECK(display_at(displays, DisplayArea{-900, 800, 1024, 768}) == 1);
     CHECK(display_at({}, DisplayArea{0, 0, 1024, 768}) == 0);
+}
+
+TEST_CASE("Full screen goes to the display a maximized window is on, after a relaunch too",
+          "[window]") {
+    using core::display_at;
+    using core::DisplayArea;
+    using core::WindowGeometry;
+    // The Studio Display (main), the MacBook's screen below it
+    const std::array<DisplayArea, 2> displays{DisplayArea{0, 0, 2560, 1440},
+                                              DisplayArea{289, 1440, 2056, 1329}};
+    core::Preferences prefs;
+    save_window_geometry(prefs, WindowGeometry{300, 200, 1600, 900, false});
+    save_window_geometry(prefs, WindowGeometry{289, 1478, 2056, 1291, true});
+    CHECK(display_at(displays, last_window(read_window_prefs(prefs))) == 1);
+
+    const test::TempDir dir("osc_window_prefs");
+    REQUIRE(prefs.save(dir.path() / "Game.prefs"));
+    core::Preferences relaunched;
+    REQUIRE(relaunched.load(dir.path() / "Game.prefs"));
+    const WindowPrefs w = read_window_prefs(relaunched);
+    CHECK(display_at(displays, last_window(w)) == 1);
+    CHECK(w.maximized);
+    CHECK(w.width == 1600u);
+    CHECK(w.height == 900u);
+
+    // Maximized on a portrait display after a size from before twice its width
+    const std::array<DisplayArea, 2> beside{DisplayArea{0, 0, 2560, 1440},
+                                            DisplayArea{2560, 0, 1080, 1920}};
+    save_window_geometry(prefs, WindowGeometry{0, 33, 2560, 1407, false});
+    save_window_geometry(prefs, WindowGeometry{2560, 33, 1080, 1887, true});
+    CHECK(display_at(beside, last_window(read_window_prefs(prefs))) == 1);
 }
