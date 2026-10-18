@@ -1,0 +1,32 @@
+#!/bin/sh
+# Reference screenshots of the original game in the CrossOver bottle, without mouse or keyboard.
+#   tools/ref-shot/capture SET [GAME ARGS...]     (default game args: /map X1MP_006)
+# Starts the game with tools/ref-shot/init-shot.lua. At the first sim tick the hook hides the UI,
+# pauses, and for each shot in tools/ref-shot/shots/SET.lua snaps the camera, waits 3 s, logs
+# REFSHOT|SETTINGS (camera SaveSettings fields) and REFSHOT|READY; this script then saves the
+# unscaled window as work/logs/screens/ref-SET-NAME$REFSHOT_SUFFIX.png. Log: work/traces/ref-SET.log.
+# Logs and images are written under a .partial name and renamed only when complete.
+# Game arg /refshadows N runs the console command shadow_Fidelity N (0 = off, 3 = high) first;
+# /refclean hides range rings, icons, map-border panels, the boundary and deposit icons;
+# /refbare also hides terrain decals and props; the game's /nofog turns fog of war off;
+# /refwait N lets the game run N s before the pause (for example until the ACU has warped in);
+# /reffactions 1,4,1,2 sets the armies' factions (1 UEF, 2 Aeon, 3 Cybran, 4 Seraphim);
+# /refui keeps the game UI visible; a shot's select = 'COMMAND' (or false) sets the selection first.
+# Needs movie.nologo = true in Game.prefs so no key press is needed at the splash.
+set -eu
+# The whole script runs from main, read in full before it starts, so editing it during a run is safe.
+main() {
+cd "$(dirname "$0")/../.."
+. tools/lib/game-run.sh
+set_name=$1; shift
+[ -f "tools/ref-shot/shots/$set_name.lua" ] || { echo "No tools/ref-shot/shots/$set_name.lua" >&2; exit 2; }
+[ $# -gt 0 ] || set -- /map X1MP_006
+game_run_start original tools/ref-shot/init-shot.lua "work/traces/ref-$set_name.log" "$@" /refshots "$set_name"
+shoot() { game_run_shoot_ready "work/logs/screens/ref-$set_name-" "${REFSHOT_SUFFIX:-}"; }
+game_run_wait_marker 'REFSHOT|END' 600 shoot
+shoot
+game_run_finish
+grep 'REFSHOT|SETTINGS' "work/traces/ref-$set_name.log" | sed 's/^info: //'
+[ -z "${GAME_RUN_SHOT_FAILED:-}" ]
+}
+main "$@"

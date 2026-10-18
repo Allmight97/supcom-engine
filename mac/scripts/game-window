@@ -1,0 +1,82 @@
+#!/bin/sh
+# Drive the game window running under Wine: find it, screenshot it, send mouse and keys.
+# GAME_WINDOW_OWNER selects another app's window by process name (ForgedAlliance = FAF's game, FAF = the FAF client app).
+# Needs macOS Screen Recording and Accessibility permission for the app running this shell; no AppleScript.
+#   scripts/game-window shot NAME        -> work/logs/screens/NAME-small.png (800 px wide)
+#   scripts/game-window click X Y [right] (X, Y in pixels of the small screenshot)
+#   scripts/game-window drag X1 Y1 X2 Y2  (small-screenshot pixels)
+#   scripts/game-window scroll X Y LINES (wheel at X, Y; negative LINES scrolls down)
+#   scripts/game-window key KEYCODE      (macOS virtual key code, e.g. 36 = Return, 53 = Escape)
+#   scripts/game-window type TEXT        (lowercase letters, digits, space, hyphen)
+#   scripts/game-window wait [SECONDS]   (wait for the window, press Return past the splash, wait until drawn; needs ImageMagick)
+# Input actions (click, drag, scroll, key, type, wait) take JStar's real mouse and focus, so they run only while
+# ~/.supcom-input-ok exists; JStar creates and removes it. Agents never create it. shot needs no permission.
+set -eu
+case "${1:-}" in click|drag|scroll|key|type|wait)
+    [ -e "$HOME/.supcom-input-ok" ] || { echo "Real input is off. JStar enables it with: touch ~/.supcom-input-ok (remove the file to disable)." >&2; exit 4; } ;;
+esac
+owner=${GAME_WINDOW_OWNER:-SupremeCommander}
+process=$owner; [ "$owner" = SupremeCommander ] && process=SupremeCommander.exe
+
+cd "$(dirname "$0")/.."
+bin="work/game-window"
+mkdir -p "$bin" work/logs/screens
+for tool in winid input; do
+    if [ ! -x "$bin/$tool" ] || [ "agents/game-window/$tool.swift" -nt "$bin/$tool" ]; then
+        swiftc -O "agents/game-window/$tool.swift" -o "$bin/$tool" 2>/dev/null
+    fi
+done
+front() {
+    "$bin/input" activate "$pid" >&2 || { echo "Not sending input: $owner is not in front." >&2; exit 3; }
+    export GUARD_PID="$pid"
+}
+if [ "${1:-}" = wait ]; then
+    deadline=$(( $(date +%s) + ${2:-120} ))
+    until "$bin/winid" "$owner" | grep -q .; do
+        [ "$(date +%s)" -lt "$deadline" ] || { echo "No window." >&2; exit 1; }
+        sleep 1
+    done
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        scripts/game-window key 36 >/dev/null
+        scripts/game-window shot wait >/dev/null
+        if magick work/logs/screens/wait-small.png -alpha off -colorspace gray \
+            -format '%[fx:standard_deviation > 0.05]' info: | grep -q 1; then
+            echo "drawn"; exit 0
+        fi
+        sleep 2
+    done
+    echo "Window still blank." >&2; exit 1
+fi
+window=$("$bin/winid" "$owner" | head -1)
+if [ -z "$window" ] && [ -e "$HOME/.supcom-input-ok" ] && pgrep -q -f "$owner"; then "$bin/input" activate "$process" >&2 || true; window=$("$bin/winid" "$owner" | head -1); fi
+[ -n "$window" ] || { echo "No $owner window." >&2; exit 1; }
+action=${1:-}
+id=$(echo "$window" | awk '{print $1}')
+pid=$(echo "$window" | awk '{print $2}')
+wx=$(echo "$window" | awk '{print $(NF-3)}'); wy=$(echo "$window" | awk '{print $(NF-2)}')
+ww=$(echo "$window" | awk '{print $(NF-1)}'); wh=$(echo "$window" | awk '{print $NF}')
+to_screen() { awk -v x="$1" -v y="$2" -v wx="$wx" -v wy="$wy" -v ww="$ww" -v wh="$wh" \
+    'BEGIN { s = ww / 800; printf "%d %d", wx + x * s, wy + y * s }'; }
+case "$action" in
+    shot)
+        screencapture -x -o -l "$id" "work/logs/screens/$2.png"
+        sips -Z 800 "work/logs/screens/$2.png" --out "work/logs/screens/$2-small.png" >/dev/null
+        rm -f "work/logs/screens/$2.png"
+        echo "work/logs/screens/$2-small.png" ;;
+    click)
+        set -- $(to_screen "$2" "$3") "${4:-}"
+        front; "$bin/input" click "$1" "$2" ${3:+"$3"} ;;
+    drag)
+        from=$(to_screen "$2" "$3"); to=$(to_screen "$4" "$5")
+        front; "$bin/input" drag $from $to ;;
+    scroll)
+        set -- $(to_screen "$2" "$3") "$4"
+        front; "$bin/input" scroll "$1" "$2" "$3" ;;
+    key)
+        code=$2
+        front; "$bin/input" key "$code" ;;
+    type)
+        text=$2
+        front; "$bin/input" type "$text" ;;
+    *) echo "usage: scripts/game-window shot NAME | click X Y [right] | drag X1 Y1 X2 Y2 | scroll X Y LINES | key CODE | type TEXT | wait [SECONDS]" >&2; exit 2 ;;
+esac

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Capture a Lua call trace of the original game in the CrossOver bottle.
+#   tools/lua-trace/capture NAME SECONDS [GAME ARGS...]
+# Launches the game with the tracing init file, waits until the first traced
+# state starts (the sim state when GAME ARGS start a session with /map), lets it
+# run SECONDS more, stops the game and leaves the log in work/traces/NAME.log.
+# The game writes work/traces/NAME.log.partial; it is renamed to NAME.log only after a complete run.
+# /tracemenuskirmish goes main menu -> skirmish lobby (/tracemenuais N easy AIs, default 1) -> Launch with no input; the
+# lobby is saved as work/logs/screens/ref-lobby.png and SECONDS count from the sim's start.
+# /autosave SECONDS NAME and /autoexit SECONDS save or exit at that game time; /autoload NAME loads a
+# save from the main menu (SECONDS then count from the loaded sim's start). With /autoexit, SECONDS is a time
+# limit and the run ends at the game's own exit (tracing slows the game below real time).
+# Needs movie.nologo = true in Game.prefs so no key press is needed at the splash.
+set -eu
+# The whole script runs from main, read in full before it starts, so editing it during a run is safe.
+main() {
+cd "$(dirname "$0")/../.."
+. tools/lib/game-run.sh
+name=$1 seconds=$2; shift 2
+started='TRACE|START|user'
+case " $* " in *" /map "*) started='TRACE|START|sim' ;; esac
+shoot() { game_run_shoot_ready work/logs/screens/ref-; }
+case " $* " in *" /tracemenuskirmish "*|*" /autoload "*) started='TRACE|START|sim' ;; esac
+case " $* " in *" /tracemenuskirmish "*) ;; *) GAME_RUN_WINDOW="640 480" ;; esac
+game_run_start original tools/lua-trace/init-trace.lua "work/traces/$name.log" "$@"
+game_run_wait_marker "$started" 300 shoot
+case " $* " in
+    *" /autoexit "*)
+        echo "$started seen; waiting up to $seconds s for the game's own exit (/autoexit)."
+        game_run_wait_marker 'autorun: exiting' "$seconds"
+        sleep 5 ;;
+    *)
+        echo "$started seen; running $seconds s more."
+        game_run_wait_seconds "$seconds" ;;
+esac
+game_run_finish
+echo "work/traces/$name.log: $(grep -c 'TRACE|' "work/traces/$name.log") trace lines"
+}
+main "$@"

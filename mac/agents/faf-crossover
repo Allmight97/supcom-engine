@@ -1,0 +1,46 @@
+#!/bin/sh
+# Native FAF client and Windows game reference run through CrossOver.
+set -eu
+
+project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+client_root="$project_root/work/downloads/faf-client"
+export CX_BOTTLE="${FAF_BOTTLE:-SupCom}"
+export WINEPREFIX="$HOME/Library/Application Support/CrossOver/Bottles/$CX_BOTTLE"
+export WINE_BIN="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine"
+
+if [ ! -d "$WINEPREFIX" ] || [ ! -x "$WINE_BIN" ]; then
+    printf '%s\n' 'FAF requires the CrossOver bottle and CrossOver Wine.' >&2
+    exit 1
+fi
+
+# FAF writes fa_path.lua as /Users/...; with CrossOver's y: -> $HOME drive the game resolves it on Y: and finds nothing.
+rm -f "$WINEPREFIX/dosdevices/y:"
+
+action=${1:-client}
+if [ "$#" -gt 0 ]; then shift; fi
+case "$action" in
+    client|build)
+        export JAVA_HOME="${FAF_JAVA_HOME:-$(brew --prefix openjdk@25)/libexec/openjdk.jdk/Contents/Home}"
+        if [ ! -x "$JAVA_HOME/bin/java" ]; then
+            printf '%s\n' 'FAF requires an arm64 Java 25 JDK.' >&2
+            exit 1
+        fi
+        if [ "$action" = client ]; then
+            exec "$client_root/scripts/mac/faf-client.sh" "$@"
+        fi
+        cd "$client_root"
+        exec ./gradlew installDist -PjavafxPlatform=mac-aarch64 --no-daemon "$@"
+        ;;
+    original)
+        cd "$WINEPREFIX/drive_c/GOG Games/Supreme Commander Forged Alliance/bin"
+        set -- "$PWD/SupremeCommander.exe" "$@"
+        ;;
+    game) ;;
+    *) printf '%s\n' 'Usage: mac/agents/faf-crossover [client|build|original ARGS ...|game EXE ...]' >&2; exit 2 ;;
+esac
+
+# CrossOver clears WINEDLLOVERRIDES and WINEDEBUG; use its CLI options.
+# Wine's built-in XACT crashed at startup; these Microsoft DLLs are installed
+# in the GOG bottle. Preserve FAF's chosen working directory in the game case.
+exec "$client_root/scripts/mac/faf-run.sh" \
+    --dll 'xactengine2_9,x3daudio1_2=n,b' --debugmsg "${WINEDEBUG:--all}" "$@"

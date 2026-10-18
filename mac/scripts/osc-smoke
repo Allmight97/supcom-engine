@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -uo pipefail
+toolkit=$(cd "$(dirname "$0")/.." && pwd) || exit 1
+osc=${OSC_ROOT:-$toolkit/..}
+cd "$osc" && source "$toolkit/recipe/env.sh" || exit 1
+mkdir -p .local || exit 1
+log="$PWD/.local/mac-smoke.log"
+echo "Smoke log: $log"
+build/play/opensupcom --fa-path "$OSC_FA_PATH" \
+    --map /maps/SCMP_009/SCMP_009_scenario.lua --ai-skirmish --ai-armies 2 \
+    --ticks 3000 --seed 4242 --log "$log"
+code=$?
+if [[ $code != 0 ]] || [[ ! -f "$log" ]] || grep -q '\[error\]' "$log"; then
+    echo SMOKE_FAIL >&2
+    exit 1
+fi
+echo SMOKE_OK

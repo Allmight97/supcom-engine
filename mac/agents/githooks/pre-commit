@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Fork commit guard. mac/scripts/setup copies it to .git/mac-hooks/, so it also runs on branches without mac/.
+# Every commit: refuse game content, screenshots, saves, replays, Windows executables, new files over 1 MiB,
+# anything under mac/work/, and edits or deletions of earlier mac/log/ entries. A commit that touches mac/,
+# AGENTS.md, CLAUDE.md or README.md also needs mac/scripts/check to have passed on exactly the staged content.
+set -euo pipefail
+max_bytes=1048576
+rejected=0
+root=$(git rev-parse --show-toplevel)
+toolkit="$root/mac"
+
+while IFS= read -r -d '' path; do
+    printf 'pre-commit: refusing to edit or delete earlier log %s\n' "$path" >&2
+    rejected=1
+done < <(git diff --cached --name-only --diff-filter=MD -z -- mac/log/)
+
+check_file() { # PATH: refuse game content by name, size or header
+    local path=$1 reason="" size
+    shopt -s nocasematch
+    case "$path" in
+        mac/work/*) reason="local-only directory" ;;
+        *.exe|*.dll|*.bin|*.scd|*.scmap|*.sca|*.scm|*.dds|*.sav|*.scfareplay|*.oscsave|*.oscreplay|*.png|*.jpg|*.jpeg|*.gpr|*.rep|*.gzf)
+            reason="game, analysis, screenshot, save or replay file type" ;;
+    esac
+    shopt -u nocasematch
+    if [[ -z "$reason" ]]; then
+        size=$(git cat-file -s ":$path")
+        if (( size > max_bytes )); then
+            reason="larger than $max_bytes bytes ($size)"
+        elif [[ "$(git cat-file -p ":$path" | head -c 2)" == "MZ" ]]; then
+            reason="Windows executable header"
+        fi
+    fi
+    if [[ -n "$reason" ]]; then
+        printf 'pre-commit: refusing %s: %s\n' "$path" "$reason" >&2
+        rejected=1
+    fi
+}
+# Upstream tracks large files and images; only new ones are checked outside mac/.
+while IFS= read -r -d '' path; do check_file "$path"; done < <(git diff --cached --name-only --diff-filter=AC -z)
+while IFS= read -r -d '' path; do check_file "$path"; done < <(git diff --cached --name-only --diff-filter=MR -z -- mac/)
+
+protected=$(git diff --cached --name-only -- mac/ AGENTS.md CLAUDE.md README.md)
+if [[ -n $protected && -x "$toolkit/scripts/check" ]]; then
+    untracked=$(git diff --cached --name-only --diff-filter=ACMR -- mac/ | xargs -r -n1 dirname | sort -u \
+        | while read -r dir; do git ls-files --others --exclude-standard -- "$dir"; done | sort -u)
+    if [[ -n $untracked && ! -e "$(git rev-parse --git-path MERGE_HEAD)" ]]; then
+        printf 'pre-commit: untracked files sit in mac/ folders this commit touches; git add or ignore them:\n%s\n' "$untracked" >&2
+        rejected=1
+    fi
+    if git diff --cached --name-only | grep -qx mac/STATUS.md; then
+        git show :mac/STATUS.md | "$toolkit/scripts/status-limits" - || rejected=1
+    fi
+    read -r checked result _ < "$toolkit/work/check-last.txt" 2>/dev/null || { checked=0; result=none; }
+    unchecked=$(git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r git --literal-pathspecs ls-files -s -- \
+        | LC_ALL=C sort | LC_ALL=C comm -23 - <(LC_ALL=C sort "$toolkit/work/check-last.manifest" 2>/dev/null))
+    if [[ $result != pass || -n $unchecked ]]; then
+        printf 'pre-commit: mac/scripts/check must pass on exactly the content you commit (mac/work/check-last.txt: %s at %s).\n' "$result" "$checked" >&2
+        if [[ -n $unchecked ]]; then
+            printf 'Changed since the check (git add new files before the check; edit nothing after it):\n%s\n' \
+                "$(printf '%s\n' "$unchecked" | cut -f2 | head -5)" >&2
+        fi
+        rejected=1
+    fi
+fi
+
+if (( rejected )); then
+    printf 'Commit refused (mac/AGENTS.md: game content stays local; mac/scripts/check passes before toolkit commits).\n' >&2
+    exit 1
+fi

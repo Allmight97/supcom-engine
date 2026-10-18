@@ -1,0 +1,47 @@
+#!/bin/sh
+# Scripted FAF game run with no mouse or keyboard: start, play, save, load and exit from arguments.
+#   mac/agents/faf-autorun/run NAME LIMIT_SECONDS [GAME ARGS ...]
+# Log: work/logs/NAME.log (written as NAME.log.partial and renamed once the game has exited),
+# checked by scripts/game-log-check when the game exits or LIMIT_SECONDS passes
+# (then the game is killed and the check fails). The check also requires the log line of each
+# /auto action given and accepts FAF's harmless 'Unable to reset selection sets' on loading a save.
+# Extra game arguments read by the hooks:
+#   /map NAME /faction N   FAF's own command-line skirmish (every other army gets an AI)
+#   /autoai KEY            AI for those armies (for example m28aie; keys in a mod's lua/AI/CustomAIs_v2)
+#   /autoais N             keep only the first N AI armies
+#   /autosave SECONDS NAME save as NAME at that game time
+#   /autoexit SECONDS      exit normally at that game time
+#   /autoload NAME         load save NAME from the main menu (combine with /autoexit)
+# Mods come from active_mods in Game.prefs (scripts/game-prefs mods NAME).
+set -eu
+# The whole script runs from main, read in full before it starts, so editing it during a run is safe.
+main() {
+[ "$#" -ge 2 ] || { sed -n '2,15p' "$0" >&2; exit 2; }
+name=$1 limit=$2; shift 2
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$root"
+. tools/lib/game-run.sh
+game_run_snapshot "$name"
+stub_dir="$GAME_RUN_DIR"
+cat > "$stub_dir/init.lua" <<LUA
+FafBinDir = '$(game_run_winpath "$HOME/.faforever/bin" | tr '\\\\' /)'
+AutorunDir = '$(game_run_winpath "$GAME_RUN_DIR/agents/faf-autorun" | tr '\\\\' /)'
+dofile(AutorunDir .. '/init.lua')
+LUA
+saves= exits= loads=
+case " $* " in *" /autosave "*) saves=1 ;; esac
+case " $* " in *" /autoexit "*) exits=1 ;; esac
+case " $* " in *" /autoload "*) loads=1 ;; esac
+log="work/logs/$name.log"
+game_run_start faf "$stub_dir/init.lua" "$log" "$@"
+game_run_wait_exit "$limit"
+game_run_finish
+grep 'faf-autorun:' "$log" | sed 's/^info: //' || true
+set -- --expect 'faf-autorun: hooks mounted' --expect 'faf-autorun: session started' \
+    --allow 'Unable to reset selection sets'
+[ -z "$saves" ] || set -- "$@" --expect 'faf-autorun: saved'
+[ -z "$exits" ] || set -- "$@" --expect 'faf-autorun: exiting'
+[ -z "$loads" ] || set -- "$@" --expect 'faf-autorun: loading'
+scripts/game-log-check "$log" "$@"
+}
+main "$@"

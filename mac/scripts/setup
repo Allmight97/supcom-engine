@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Set up the checkout this mac/ folder sits in. Idempotent: writes only what differs.
+
+  mac/scripts/setup            set up $OSC_ROOT (default: the checkout holding this script)
+  mac/scripts/setup --check    report what differs and exit 1; write nothing
+
+The guards live outside the tree so they survive branches without mac/: it copies the git hooks to
+.git/mac-hooks/ and points core.hooksPath there, and copies the Claude hooks to .git/mac-hooks/claude/.
+It writes those Claude hooks, Apple's game-porting-skills and the supcom plugin marketplace
+(mac/agents/mods) into .claude/settings.local.json, keeping other settings; adds .local/ and /mac/work/
+to .git/info/exclude; and sets upstream's push URL to DISABLED (origin is JStar's fork).
+"""
+import json
+import os
+import shlex
+import subprocess
+import sys
+
+TOOLKIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXCLUDES = ['.local/', '/mac/work/']
+GIT_HOOKS = ['pre-commit', 'pre-push']
+CLAUDE_HOOKS = ['block-git-bypass.sh', 'block-real-input.sh']
+APPLE_PLUGIN = 'game-porting-skills@game-porting-toolkit'
+APPLE_MARKETPLACE = {'source': {'source': 'github', 'repo': 'apple/game-porting-toolkit'}}
+
+
+def hooks(claude_dir):
+    bypass, real_input = ({'type': 'command', 'command': shlex.quote(os.path.join(claude_dir, name))}
+                          for name in CLAUDE_HOOKS)
+    return {'PreToolUse': [{'matcher': 'Bash', 'hooks': [bypass, real_input]},
+                           {'matcher': 'mcp__computer-use__.*', 'hooks': [real_input]}]}
+
+
+def read(path, mode='r'):
+    try:
+        with open(path, mode) as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def git(osc, *args):
+    return subprocess.run(['git', '-C', osc, *args], capture_output=True, text=True)
+
+
+def copy_change(source, target):
+    """A change that installs SOURCE at TARGET (executable), or None when it is already there."""
+    content = read(source, 'rb')
+    if read(target, 'rb') == content and os.access(target, os.X_OK):
+        return None
+
+    def install():
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, 'wb') as f:
+            f.write(content)
+        os.chmod(target, 0o755)
+    return (target, install)
+
+
+def plan(osc):
+    """Return [(description, apply)] for every target that differs."""
+    git_dir = os.path.join(osc, git(osc, 'rev-parse', '--git-dir').stdout.strip())
+    hooks_dir = os.path.realpath(os.path.join(git_dir, 'mac-hooks'))
+    claude_dir = os.path.join(hooks_dir, 'claude')
+    changes = [c for c in
+               [copy_change(os.path.join(TOOLKIT, 'agents/githooks', name), os.path.join(hooks_dir, name))
+                for name in GIT_HOOKS] +
+               [copy_change(os.path.join(TOOLKIT, 'agents/hooks', name), os.path.join(claude_dir, name))
+                for name in CLAUDE_HOOKS] if c]
+
+    settings_path = os.path.join(osc, '.claude/settings.local.json')
+    text = read(settings_path)
+    settings = json.loads(text) if text else {}
+    desired = {**settings, 'hooks': hooks(claude_dir),
+               'enabledPlugins': {**settings.get('enabledPlugins', {}), APPLE_PLUGIN: True},
+               'extraKnownMarketplaces': {**settings.get('extraKnownMarketplaces', {}),
+                                          'game-porting-toolkit': APPLE_MARKETPLACE,
+                                          'supcom': {'source': {'source': 'directory',
+                                                                'path': os.path.join(TOOLKIT, 'agents/mods')}}}}
+    if settings != desired:
+        def write_settings():
+            os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+            with open(settings_path, 'w') as f:
+                json.dump(desired, f, indent=2)
+                f.write('\n')
+        changes.append(('.claude/settings.local.json hooks, Apple plugin and supcom marketplace', write_settings))
+
+    exclude_path = os.path.join(git_dir, 'info/exclude')
+    current = read(exclude_path) or ''
+    missing = [line for line in EXCLUDES if line not in current.splitlines()]
+    if missing:
+        def write_exclude():
+            os.makedirs(os.path.dirname(exclude_path), exist_ok=True)
+            with open(exclude_path, 'a') as f:
+                f.write(('' if not current or current.endswith('\n') else '\n') + ''.join(m + '\n' for m in missing))
+        changes.append(('.git/info/exclude: ' + ' '.join(missing), write_exclude))
+
+    if git(osc, 'config', 'core.hooksPath').stdout.strip() != hooks_dir:
+        changes.append(('core.hooksPath ' + hooks_dir,
+                        lambda: subprocess.run(['git', '-C', osc, 'config', 'core.hooksPath', hooks_dir], check=True)))
+    if git(osc, 'remote', 'get-url', '--push', '--all', 'upstream').stdout.strip() != 'DISABLED':
+        changes.append(('upstream push URL DISABLED',
+                        lambda: subprocess.run(['git', '-C', osc, 'remote', 'set-url', '--push',
+                                                'upstream', 'DISABLED'], check=True)))
+    return changes
+
+
+def main():
+    args = sys.argv[1:]
+    if args not in ([], ['--check']):
+        sys.exit(__doc__.strip())
+    osc = os.environ.get('OSC_ROOT', os.path.dirname(TOOLKIT))
+    if git(osc, 'rev-parse', '--git-dir').returncode != 0:
+        sys.exit(f'{osc} is not a git checkout (set OSC_ROOT).')
+    changes = plan(osc)
+    if not changes:
+        print(f'{osc}: set up.')
+        return
+    for description, apply in changes:
+        if args:
+            print(f'{osc}: differs: {description}')
+        else:
+            apply()
+            print(f'{osc}: wrote {description}')
+    sys.exit(1 if args else 0)
+
+
+if __name__ == '__main__':
+    main()

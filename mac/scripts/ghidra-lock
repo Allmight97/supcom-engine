@@ -1,0 +1,31 @@
+#!/bin/sh
+# Report which process holds the saved Ghidra project, which allows one writer.
+# Exit 0 when the project is free, or the lock file is stale (no live holder); exit 1 when a live process holds it.
+# GHIDRA_LOCK and GHIDRA_HOLDER_PATTERN override the lock path and the process search (for tests).
+set -eu
+
+cd "$(dirname "$0")/.."
+lock="${GHIDRA_LOCK:-work/ghidra/SupCom.lock}"
+
+list_holders() {
+    pgrep -f "${GHIDRA_HOLDER_PATTERN:-SupCom.gpr|ghidra.Ghidra|pyghidra|work/ghidra}" | while read -r pid; do
+        command=$(ps -o command= -p "$pid")
+        case "$command" in *bash*|*'/sh '*|*pgrep*) continue ;; esac
+        parent=$(ps -o ppid= -p "$pid" | tr -d ' ')
+        printf '  pid %s: %s\n    started by pid %s: %s\n' "$pid" \
+            "$(printf '%s' "$command" | cut -c1-120)" "$parent" "$(ps -o command= -p "$parent" | cut -c1-120)"
+    done
+}
+
+if [ ! -e "$lock" ]; then
+    echo "work/ghidra/SupCom.gpr is free."
+    exit 0
+fi
+holders=$(list_holders || true)
+if [ -z "$holders" ]; then
+    echo "work/ghidra/SupCom.lock is stale (no live holder); Ghidra clears it when it opens the project."
+    exit 0
+fi
+printf 'work/ghidra/SupCom.gpr is locked. Holders:\n%s\n' "$holders"
+echo "Stop the holder (or close its Claude session), then retry."
+exit 1

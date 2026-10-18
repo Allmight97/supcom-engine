@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Report dead repository links in Markdown files.
+
+  mac/scripts/link-check FILE.md...
+
+Checks relative Markdown links `[text](path)` (against the file's folder) and inline-code repository
+paths under mac/ except mac/work/ (against the checkout root). Skips URLs,
+anchors, fenced code blocks, paths after `~/` or another folder, and missing paths with a placeholder
+word such as NAME or YYYY. Prints FILE:LINE: PATH per dead link; exits 1 if there is any.
+"""
+import os
+import re
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LINK = re.compile(r'\]\(([^)\s]+)\)')
+CODE = re.compile(r'`([^`\n]+)`')
+REPO_PATH = re.compile(r'(?<![\w./~$-])(mac/(?!work/)[A-Za-z0-9_./-]*)')
+PLACEHOLDER = re.compile(r'(?<![A-Za-z0-9])(?:NAME|YYYY|MM|DD|TOPIC|SET|N|KIND|TOOL|FILE|PATH)(?![A-Za-z0-9])|[<*…]')
+
+
+def dead(path, base):
+    path = path.rstrip('.,;:')
+    return not os.path.exists(os.path.join(base, path)) and not PLACEHOLDER.search(path)
+
+
+def check(md):
+    found = []
+    fenced = False
+    for number, line in enumerate(open(md, encoding='utf-8'), 1):
+        if line.lstrip().startswith('```'):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        for target in LINK.findall(line):
+            target = target.split('#')[0]
+            if target and '://' not in target and not target.startswith('mailto:') \
+                    and dead(target, os.path.dirname(os.path.abspath(md))):
+                found.append((number, target))
+        for span in CODE.findall(line):
+            for path in REPO_PATH.findall(span):
+                if dead(path, ROOT):
+                    found.append((number, path))
+    return found
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__.strip())
+    failed = False
+    for md in sys.argv[1:]:
+        if not os.path.exists(md):
+            print(f'{md}: missing file')
+            failed = True
+            continue
+        for number, path in check(md):
+            print(f'{md}:{number}: {path}')
+            failed = True
+    sys.exit(1 if failed else 0)
+
+
+main()

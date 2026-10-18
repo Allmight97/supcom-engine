@@ -1,0 +1,413 @@
+#!/usr/bin/env bash
+# Toolkit checks: script syntax, the tools' self-tests, the commit and push guards and Claude hooks, mac/scripts/setup,
+# STATUS.md size and dead links in mac/README.md, AGENTS.md, STATUS.md, roadmap.md and docs/. Engine changes are
+# proven by OpenSupCom's own tests (mac/docs/toolchain.md). Writes the result to mac/work/check-last.txt ("EPOCH pass"
+# or "EPOCH fail COUNT"), and mac/work/check-last.manifest, the content the check started on (mac/scripts/tree-snapshot,
+# paths relative to the checkout root), for the commit hook.
+set -uo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+failures=0
+fail() { printf 'FAIL: %s\n' "$1"; failures=$((failures + 1)); }
+snapshot="$("$root/scripts/tree-snapshot" "$root")"
+write_receipt() { # DIR SNAPSHOT RESULT [COUNT]: record that the content in SNAPSHOT got RESULT
+    mkdir -p "$1/work"
+    printf '%s\n' "$2" > "$1/work/check-last.manifest"
+    echo "$(date +%s) $3${4:+ $4}" > "$1/work/check-last.txt"
+}
+
+for script in "$root"/scripts/rea "$root"/scripts/ghidra-lock "$root"/scripts/game-window "$root"/scripts/status-limits \
+              "$root"/scripts/ghidra-py "$root"/scripts/tree-snapshot "$root"/agents/hooks/block-real-input.sh \
+              "$root"/agents/faf-crossover "$root"/agents/hooks/block-git-bypass.sh "$root"/tools/lua-trace/capture \
+              "$root"/tools/bp-dump/capture "$root"/agents/faf-autorun/run "$root"/tools/ref-shot/capture \
+              "$root"/tools/sim-capture/capture "$root"/tools/lib/game-run.sh "$root"/tools/mouse-probe/run; do
+    sh -n "$script" || fail "shell syntax: $script"
+done
+for script in "$root"/agents/githooks/pre-commit "$root"/agents/githooks/pre-push "$root"/scripts/play \
+              "$root"/scripts/osc-smoke "$root"/scripts/osc-render-check "$root"/recipe/build.sh "$root"/recipe/env.sh; do
+    bash -n "$script" || fail "shell syntax: $script"
+done
+for script in "$root"/scripts/game-prefs "$root"/scripts/game-log-check "$root"/scripts/setup "$root"/scripts/link-check \
+              "$root"/tools/lua-trace/*.py "$root"/tools/bp-dump/*.py "$root"/tools/motion-compare/*.py \
+              "$root"/tools/intel-compare/*.py "$root"/tools/image-compare/*.py "$root"/tools/mouse-probe/live.py "$root"/tools/lib/*.py; do
+    python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$script" || fail "python syntax: $script"
+done
+
+python3 -I "$root/scripts/upstream-news" --self-test >/dev/null || fail "upstream-news self-test"
+python3 -I "$root/tools/lib/capture.py" --self-test >/dev/null || fail "capture.py self-test (python3 -I mac/tools/lib/capture.py --self-test)"
+
+acquire_lock() {
+    local lock=$1 owner
+    until mkdir "$lock" 2>/dev/null; do
+        owner=$(cat "$lock/pid" 2>/dev/null) || owner=
+        if [[ -z $owner ]]; then
+            sleep 1
+            owner=$(cat "$lock/pid" 2>/dev/null) || owner=
+        fi
+        if [[ $owner =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+            echo "Waiting for mac/scripts/check PID $owner in this checkout..." >&2
+            sleep 1
+        else
+            echo "Removing stale mac/scripts/check lock (PID ${owner:-unknown})." >&2
+            rm -f "$lock/pid"
+            rmdir "$lock" 2>/dev/null || return 1
+        fi
+    done
+    echo "$$" > "$lock/pid"
+}
+lock="$root/work/.check-lock"; mkdir -p "$root/work"
+acquire_lock "$lock" || exit 1
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch" "$lock"' EXIT
+mkdir "$scratch/dead-lock"; echo 2147483647 > "$scratch/dead-lock/pid"
+acquire_lock "$scratch/dead-lock" 2> "$scratch/lock.log" || fail "check lock did not recover a dead PID"
+grep -q 'Removing stale' "$scratch/lock.log" || fail "check lock did not report stale recovery"
+[[ $(cat "$scratch/dead-lock/pid") == "$$" ]] || fail "check lock did not record its owner"
+mkdir "$scratch/ownerless-lock"
+acquire_lock "$scratch/ownerless-lock" 2> "$scratch/ownerless.log" || fail "check lock did not recover a missing PID"
+mkdir "$scratch/live-lock"; echo "$$" > "$scratch/live-lock/pid"
+(acquire_lock "$scratch/live-lock" 2> "$scratch/live.log" && touch "$scratch/acquired") &
+waiter=$!
+sleep 0.2
+[[ ! -e "$scratch/acquired" ]] || fail "check lock ignored a live PID"
+rm "$scratch/live-lock/pid"; rmdir "$scratch/live-lock"
+wait "$waiter" || fail "check lock did not acquire after its owner released it"
+[[ -e "$scratch/acquired" ]] || fail "check lock waiter did not finish"
+new_repo() { # DIR HOOKS: a scratch repository whose commits run the hooks in HOOKS
+    git init -q "$1"
+    git -C "$1" config user.email check@localhost
+    git -C "$1" config user.name check
+    [[ -z $2 ]] || git -C "$1" config core.hooksPath "$2"
+}
+expect_commit_in() { # REPO EXPECTED LABEL [COMMIT ARGS]
+    local repo=$1 expected=$2 label=$3 actual
+    shift 3
+    if git -C "$repo" commit -qm "$label" "$@" >/dev/null 2>&1; then actual=allowed; else actual=rejected; fi
+    [[ $actual == "$expected" ]] || fail "pre-commit $label: expected $expected, got $actual"
+    [[ $actual == allowed ]] && git -C "$repo" reset -q --soft HEAD~ 2>/dev/null
+    [[ -e "$(git -C "$repo" rev-parse --absolute-git-dir)/MERGE_HEAD" ]] || git -C "$repo" reset -q
+}
+expect_commit() { expect_commit_in "$scratch" "$@"; }
+
+new_repo "$scratch" ""
+head -c 1100000 /dev/zero > "$scratch/big.dat"; printf 'png' > "$scratch/icon.png"
+mkdir -p "$scratch/mac/log"; echo earlier > "$scratch/mac/log/earlier.md"; echo text > "$scratch/notes.txt"
+git -C "$scratch" add big.dat icon.png notes.txt mac/log/earlier.md; git -C "$scratch" commit -qm baseline
+git -C "$scratch" config core.hooksPath "$root/agents/githooks"
+echo text > "$scratch/plain.txt"; git -C "$scratch" add plain.txt; expect_commit allowed "plain text"; rm "$scratch/plain.txt"
+echo more >> "$scratch/big.dat"; echo more >> "$scratch/icon.png"; git -C "$scratch" add big.dat icon.png
+expect_commit allowed "edit of a tracked large file and image outside mac/"
+git -C "$scratch" checkout -q -- big.dat icon.png
+printf 'MZ\x90\x00' > "$scratch/tool.txt"; git -C "$scratch" add tool.txt; expect_commit rejected "executable header"
+head -c 1100000 /dev/zero > "$scratch/big.txt"; git -C "$scratch" add big.txt; expect_commit rejected "new file over 1 MiB"
+mkdir -p "$scratch/mac/work"; echo x > "$scratch/mac/work/n.txt"; git -C "$scratch" add mac/work; expect_commit rejected "mac/work directory"
+rm -f "$scratch"/tool.txt "$scratch"/big.txt; rm -rf "$scratch/mac/work"
+for name in gamedata.scd shot.PNG LastGame.oscreplay mac/SupCom.gpr; do
+    echo x > "$scratch/$name"; git -C "$scratch" add "$name"; expect_commit rejected "new $name"; rm "$scratch/$name"
+done
+
+echo edit >> "$scratch/mac/log/earlier.md"; git -C "$scratch" add mac/log/earlier.md
+expect_commit rejected "edit of earlier log"
+git -C "$scratch" checkout -q -- mac/log/earlier.md
+rm "$scratch/mac/log/earlier.md"; git -C "$scratch" add -u -- mac/log/earlier.md
+expect_commit rejected "deletion of earlier log"
+git -C "$scratch" checkout -q -- mac/log/earlier.md
+echo new > "$scratch/mac/log/new.md"; git -C "$scratch" add mac/log/new.md
+expect_commit allowed "new session log"
+rm "$scratch/mac/log/new.md"
+
+mkdir -p "$scratch/mac/scripts"; printf '#!/bin/sh\n' > "$scratch/mac/scripts/check"; chmod +x "$scratch/mac/scripts/check"
+echo /work/ > "$scratch/mac/.gitignore"
+receipt() { write_receipt "$scratch/mac" "$("$root/scripts/tree-snapshot" "$scratch/mac")" "$@"; }
+git -C "$scratch" add mac/scripts/check mac/.gitignore; expect_commit rejected "toolkit commit before any check"
+git -C "$scratch" add mac/scripts/check mac/.gitignore; receipt pass
+git -C "$scratch" commit -qm toolkit >/dev/null 2>&1 \
+    || fail "pre-commit nested toolkit: a receipt taken inside mac/ must name paths from the checkout root"
+gate() { git -C "$scratch" add mac/gate.txt; }
+echo text > "$scratch/mac/gate.txt"; gate; receipt pass; git -C "$scratch" commit -qm gate
+gate; receipt pass; echo edited >> "$scratch/mac/gate.txt"; gate; expect_commit rejected "file edited after the check"
+gate; receipt fail 1; expect_commit rejected "failed check"
+gate; receipt pass; expect_commit allowed "fresh passing check"
+gate; receipt pass; echo more >> "$scratch/notes.txt"; expect_commit allowed "unrelated tracked file edited after the check"
+git -C "$scratch" checkout -q -- notes.txt
+gate; receipt pass; echo again >> "$scratch/mac/gate.txt"; expect_commit rejected "path-limited commit of a file edited after the check" -- mac/gate.txt
+gate; receipt pass; expect_commit allowed "path-limited commit of the checked file" -- mac/gate.txt
+git -C "$scratch" checkout -q -b side; echo side > "$scratch/mac/side.txt"; git -C "$scratch" add mac/side.txt; receipt pass
+git -C "$scratch" commit -qm side; git -C "$scratch" checkout -q -; receipt pass
+git -C "$scratch" merge -q --no-ff --no-commit side >/dev/null
+expect_commit rejected "merge commit before any check"; receipt pass; expect_commit allowed "merge commit after the check"
+mkdir -p "$scratch/mac/tool"; echo a > "$scratch/mac/tool/run"; echo b > "$scratch/mac/tool/hook.lua"; git -C "$scratch" add mac/tool/run
+receipt pass; expect_commit rejected "untracked file beside a committed one"
+rm -rf "$scratch/mac/side.txt" "$scratch/mac/tool"
+echo '@AGENTS.md' > "$scratch/CLAUDE.md"; git -C "$scratch" add CLAUDE.md
+receipt fail 1; expect_commit rejected "root CLAUDE.md after a failed check"
+git -C "$scratch" add CLAUDE.md; receipt pass; expect_commit allowed "root CLAUDE.md after a passing check"
+rm "$scratch/CLAUDE.md"
+echo code > "$scratch/engine.cpp"; git -C "$scratch" add engine.cpp
+receipt fail 1; expect_commit allowed "engine commit needs no toolkit check"
+rm "$scratch/engine.cpp"
+
+push="$scratch/push"
+new_repo "$push" ""
+echo a > "$push/engine.cpp"; git -C "$push" add engine.cpp; git -C "$push" commit -qm base
+git -C "$push" update-ref refs/remotes/upstream/main HEAD
+git init -q --bare "$scratch/origin.git"; git -C "$push" config core.hooksPath "$root/agents/githooks"
+expect_push() { # EXPECTED LABEL BRANCH
+    local actual
+    if git -C "$push" push -q "$scratch/origin.git" "$3" >/dev/null 2>&1; then actual=allowed; else actual=rejected; fi
+    [[ $actual == "$1" ]] || fail "pre-push $2: expected $1, got $actual"
+}
+git -C "$push" checkout -q -b up/engine; echo b >> "$push/engine.cpp"; git -C "$push" commit -qam engine
+expect_push allowed "up/ branch with engine commits only" up/engine
+git -C "$push" checkout -q -b up/carries-mac; mkdir "$push/mac"; echo x > "$push/mac/notes.md"
+git -C "$push" add mac; git -C "$push" commit -qm toolkit; git -C "$push" rm -qr mac; git -C "$push" commit -qm "drop toolkit"
+expect_push rejected "up/ branch whose history carries a mac/ commit" up/carries-mac
+git -C "$push" checkout -q -b mac/side; expect_push allowed "fork branch with mac/ commits" mac/side
+git -C "$push" checkout -q -b up/agents up/engine; echo x > "$push/AGENTS.md"; git -C "$push" add AGENTS.md
+git -C "$push" commit -qm agents; expect_push rejected "up/ branch adding AGENTS.md" up/agents
+rm -rf "$push" "$scratch/origin.git"
+
+osc="$scratch/osc"
+git init -q "$osc"; mkdir "$osc/.claude"
+git -C "$osc" config remote.upstream.url https://example.invalid/upstream
+echo '{"permissions": {"allow": ["Bash(ls)"]}, "enabledPlugins": {"other@test": true}, "extraKnownMarketplaces": {"other": {"source": {"source": "github", "repo": "example/other"}}}}' > "$osc/.claude/settings.local.json"
+OSC_ROOT="$osc" "$root/scripts/setup" --check >/dev/null && fail "setup --check passed a checkout that is not set up"
+OSC_ROOT="$osc" "$root/scripts/setup" >/dev/null || fail "setup failed on a fresh checkout"
+OSC_ROOT="$osc" "$root/scripts/setup" --check >/dev/null || fail "setup --check failed right after setup"
+[[ "$(OSC_ROOT="$osc" "$root/scripts/setup")" == *"set up."* ]] || fail "setup wrote again on a set-up checkout"
+grep -q 'Bash(ls)' "$osc/.claude/settings.local.json" || fail "setup dropped other keys of settings.local.json"
+[[ "$(grep -cx '/mac/work/' "$osc/.git/info/exclude")" == 1 ]] || fail "setup exclude lines"
+python3 -I - "$root" "$osc" <<'PY' || fail "setup: hooks outside the tree, Claude settings, push URL"
+import json
+import os
+import pathlib
+import runpy
+import shlex
+import sys
+
+root, osc = map(pathlib.Path, sys.argv[1:])
+module = runpy.run_path(str(root / 'scripts/setup'))
+settings = json.loads((osc / '.claude/settings.local.json').read_text())
+hooks = (osc / '.git/mac-hooks').resolve()
+assert settings['enabledPlugins']['other@test']
+assert settings['enabledPlugins'][module['APPLE_PLUGIN']]
+assert settings['extraKnownMarketplaces']['other']['source']['repo'] == 'example/other'
+assert settings['extraKnownMarketplaces']['supcom']['source']['path'] == str(root / 'agents/mods')
+for entry in settings['hooks']['PreToolUse']:
+    for hook in entry['hooks']:
+        path = pathlib.Path(shlex.split(hook['command'])[0])
+        assert path.parent == hooks / 'claude' and os.access(path, os.X_OK), path
+        assert path.read_bytes() == (root / 'agents/hooks' / path.name).read_bytes(), path
+for name in ('pre-commit', 'pre-push'):
+    assert (hooks / name).read_bytes() == (root / 'agents/githooks' / name).read_bytes(), name
+assert module['git'](str(osc), 'config', 'core.hooksPath').stdout.strip() == str(hooks)
+assert module['git'](str(osc), 'remote', 'get-url', '--push', 'upstream').stdout.strip() == 'DISABLED'
+assert not (osc / 'AGENTS.md').exists() and not (osc / 'CLAUDE.md').exists()
+PY
+echo stale >> "$osc/.git/mac-hooks/pre-commit"
+OSC_ROOT="$osc" "$root/scripts/setup" --check >/dev/null && fail "setup --check missed a stale hook copy"
+rm -rf "$osc"
+"$root/scripts/setup" --check || fail "this checkout is not set up (run mac/scripts/setup)"
+
+mkdir -p "$scratch/build/bin" "$scratch/recipe/osc" "$scratch/smoke/build/play"
+cp "$root/recipe/"{build,env}.sh "$scratch/recipe/osc/"
+printf '#!/bin/sh\n[ "$1" != --build ]\n' > "$scratch/build/bin/cmake"; chmod +x "$scratch/build/bin/cmake"
+OSC_ROOT="$scratch/build" PATH="$scratch/build/bin:$PATH" bash "$scratch/recipe/osc/build.sh" > "$scratch/build-result" 2>&1
+[[ $? == 1 && -d "$scratch/build/.local/tmp" ]] && grep -q BUILD_FAIL "$scratch/build-result" \
+    || fail "build recipe must create temp directories and fail when compilation fails"
+printf '#!/bin/sh\nexit 0\n' > "$scratch/build/bin/cmake"
+OSC_ROOT="$scratch/build" PATH="$scratch/build/bin:$PATH" bash "$scratch/recipe/osc/build.sh" > "$scratch/build-result" 2>&1 \
+    || fail "build recipe rejected a successful stub build"
+for shell in bash zsh; do
+    env -u OSC_FA_PATH "$shell" -c 'source "$1"; [[ $OSC_FA_PATH == "$2/work/game" ]]' test \
+        "$scratch/recipe/osc/env.sh" "$scratch/recipe" || fail "env.sh default path in $shell"
+    OSC_FA_PATH=/explicit/game "$shell" -c 'source "$1"; [[ $OSC_FA_PATH == /explicit/game ]]' test \
+        "$scratch/recipe/osc/env.sh" || fail "env.sh explicit game path in $shell"
+    env -u VULKAN_SDK -u VK_DRIVER_FILES "$shell" -c '
+        source "$1"
+        [[ $VULKAN_SDK == "$2"/work/vulkan-sdk/1.4.363.0/macOS &&
+           $VK_DRIVER_FILES == "$VULKAN_SDK/share/vulkan/icd.d/libkosmickrisp_icd.json" ]]
+    ' test "$scratch/recipe/osc/env.sh" "$scratch/recipe" || fail "env.sh KosmicKrisp default in $shell"
+    env -u VK_DRIVER_FILES VULKAN_SDK="/explicit/sdk path" "$shell" -c '
+        source "$1"
+        [[ $VK_DRIVER_FILES == "/explicit/sdk path/share/vulkan/icd.d/libkosmickrisp_icd.json" ]]
+    ' test "$scratch/recipe/osc/env.sh" || fail "env.sh explicit SDK in $shell"
+    env -u VULKAN_SDK -u VK_DRIVER_FILES "$shell" -c '
+        source "$1"; VULKAN_SDK=/other/sdk; source "$1"
+        [[ $VK_DRIVER_FILES == /other/sdk/share/vulkan/icd.d/libkosmickrisp_icd.json ]]
+    ' test "$scratch/recipe/osc/env.sh" || fail "env.sh driver follows a changed SDK in $shell"
+done
+cat > "$scratch/smoke/build/play/opensupcom" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" > args
+while [ "$1" != --log ]; do shift; done
+printf '%s\n' "${SMOKE_LINE:-[info] clean}" > "$2"
+exit "${SMOKE_EXIT:-0}"
+SH
+chmod +x "$scratch/smoke/build/play/opensupcom"
+OSC_ROOT="$scratch/smoke" "$root/scripts/osc-smoke" > "$scratch/smoke-result" || fail "osc-smoke rejected clean stub output"
+grep -q "$scratch/smoke/.local/mac-smoke.log" "$scratch/smoke-result" || fail "osc-smoke did not print its log path"
+python3 -I - "$scratch/smoke/args" <<'PY' || fail "osc-smoke arguments"
+import pathlib
+import sys
+args = pathlib.Path(sys.argv[1]).read_text().splitlines()
+assert args[2:-2] == ['--map', '/maps/SCMP_009/SCMP_009_scenario.lua', '--ai-skirmish', '--ai-armies', '2', '--ticks', '3000', '--seed', '4242']
+PY
+OSC_ROOT="$scratch/smoke" SMOKE_LINE='[error] injected' "$root/scripts/osc-smoke" >/dev/null 2>&1 \
+    && fail "osc-smoke accepted an error line"
+OSC_ROOT="$scratch/smoke" SMOKE_EXIT=7 "$root/scripts/osc-smoke" >/dev/null 2>&1 \
+    && fail "osc-smoke accepted a non-zero exit"
+
+cat > "$scratch/smoke/build/play/opensupcom" <<'SH'
+#!/bin/sh
+printf '%s\n' "$@" > args
+while [ "$1" != --log ]; do shift; done
+if [ "${RENDER_NO_LOG:-0}" != 1 ]; then
+    printf '%s\n' "${RENDER_LINE:-[info] Vulkan loader 1.4.363, driver KosmicKrisp (Mesa test), driverID 28}" > "$2"
+fi
+exit "${RENDER_EXIT:-0}"
+SH
+OSC_ROOT="$scratch/smoke" "$root/scripts/osc-render-check" > "$scratch/render-result" \
+    || fail "osc-render-check rejected clean KosmicKrisp output"
+grep -q "$scratch/smoke/.local/mac-render-check.log" "$scratch/render-result" \
+    || fail "osc-render-check did not print its log path"
+python3 -I - "$scratch/smoke/args" "$scratch/smoke" <<'PYTEST' || fail "osc-render-check arguments"
+import pathlib
+import sys
+args = pathlib.Path(sys.argv[1]).read_text().splitlines()
+assert args[2:] == ['--map', '/maps/SCMP_009/SCMP_009_scenario.lua',
+                    '--screenshot', sys.argv[2] + '/.local/mac-render-check.png',
+                    '--screenshot-frame', '600', '--log', sys.argv[2] + '/.local/mac-render-check.log']
+PYTEST
+for line in '[info] Vulkan loader 1.4.363, driver MoltenVK (test), driverID 14' \
+            '[info] KosmicKrisp mentioned elsewhere' \
+            $'[info] Vulkan loader 1.4.363, driver KosmicKrisp (test), driverID 28\n[error] injected'; do
+    OSC_ROOT="$scratch/smoke" RENDER_LINE="$line" "$root/scripts/osc-render-check" >/dev/null 2>&1 \
+        && fail "osc-render-check accepted an invalid driver log or error line"
+done
+OSC_ROOT="$scratch/smoke" RENDER_EXIT=7 "$root/scripts/osc-render-check" >/dev/null 2>&1 \
+    && fail "osc-render-check accepted a non-zero exit"
+OSC_ROOT="$scratch/smoke" RENDER_NO_LOG=1 "$root/scripts/osc-render-check" >/dev/null 2>&1 \
+    && fail "osc-render-check accepted a stale or missing log"
+
+check_plugins() {
+    python3 -I - "$1" "$2" <<'PY'
+import json
+import pathlib
+import sys
+
+source, installed = map(pathlib.Path, sys.argv[1:])
+if not installed.exists():
+    print('Skipping the installed-plugin check: installed_plugins.json does not exist.')
+    sys.exit(0)
+gone = [name for name in json.loads(installed.read_text()).get('plugins', {})
+        if name.endswith('@supcom') and not (source / name.removesuffix('@supcom')).is_dir()]
+for name in gone:
+    print(f'Installed but removed from mac/agents/mods: {name} (claude plugin uninstall {name} --scope local)')
+sys.exit(1 if gone else 0)
+PY
+}
+mkdir -p "$scratch/plugins/source/demo"
+printf '{"plugins":{"demo@supcom":[{}]}}\n' > "$scratch/plugins/installed.json"
+check_plugins "$scratch/plugins/source" "$scratch/plugins/absent.json" >/dev/null || fail "plugin check fresh machine"
+check_plugins "$scratch/plugins/source" "$scratch/plugins/installed.json" >/dev/null || fail "plugin check present plugin"
+rm -rf "$scratch/plugins/source/demo"
+check_plugins "$scratch/plugins/source" "$scratch/plugins/installed.json" >/dev/null && fail "plugin check missed removed plugin"
+check_plugins "$root/agents/mods" "$HOME/.claude/plugins/installed_plugins.json" || fail "installed supcom plugins (uninstall the reported plugins)"
+
+expect_hook() {
+    local expected=$1 command=$2 code
+    python3 -I -c 'import json, sys; print(json.dumps({"tool_input": {"command": sys.argv[1]}}))' "$command" \
+        | "$root/agents/hooks/block-git-bypass.sh" 2>/dev/null
+    code=$?
+    [[ $code == "$expected" ]] || fail "bypass hook exit $code, expected $expected: $command"
+}
+bypass_flag="--no""-verify"
+expect_hook 2 "git commit $bypass_flag -m x"
+expect_hook 2 "git commit -nm x"
+expect_hook 2 "git add -f work/game"
+expect_hook 2 "git -c core.hooksPath=/dev/null commit -m x"
+expect_hook 0 'git commit -m "network fix"'
+expect_hook 0 "git add STATUS.md"
+
+expect_hook 2 "git add -A"
+expect_hook 2 "git add --all"
+expect_hook 2 "git add ."
+expect_hook 2 "git add -Av"
+expect_hook 2 "git pull --rebase"
+expect_hook 2 "git pull --rebase=true"
+git init -q -b topic "$scratch/rebase topic"
+expect_hook 2 "git -C '$scratch/rebase topic' rebase main"
+expect_hook 0 "git -C '$scratch/rebase topic' rebase feature"
+git -C "$scratch/rebase topic" symbolic-ref HEAD refs/heads/main
+expect_hook 2 "git -C '$scratch/rebase topic' rebase feature"
+expect_hook 2 "cd '$scratch/rebase topic' && git rebase feature"
+expect_hook 0 "git -C '$scratch/rebase topic' merge feature"
+
+printf "a = {\n    b = 'x}\\\\'{'\n}\nactive_mods = {\n    ['old-uid'] = true\n}\nmovie = { nologo = true }\n" > "$scratch/Game.prefs"
+GAME_PREFS="$scratch/Game.prefs" "$root/scripts/game-prefs" mods >/dev/null || fail "game-prefs mods (clear)"
+[[ "$(grep -c . "$scratch/Game.prefs")" == 5 ]] && grep -q "^active_mods = { }$" "$scratch/Game.prefs" \
+    || fail "game-prefs did not replace a multi-line active_mods table"
+printf "info: x\ninfo: Run time: 0h01m00s\n" > "$scratch/good.log"
+printf "warning: SND: Error initializing 3D audio.\ninfo: Run time: 0h01m00s\n" > "$scratch/bad.log"
+printf "warning: Unable to reset selection sets: call expected but got nil\n         stack traceback:\ninfo: Run time: 0h01m00s\n" > "$scratch/allow.log"
+"$root/scripts/game-log-check" "$scratch/good.log" >/dev/null || fail "game-log-check rejected a clean log"
+"$root/scripts/game-log-check" "$scratch/bad.log" >/dev/null && fail "game-log-check accepted a failing log"
+"$root/scripts/game-log-check" "$scratch/good.log" --expect "absent" >/dev/null && fail "game-log-check ignored --expect"
+"$root/scripts/game-log-check" "$scratch/allow.log" >/dev/null && fail "game-log-check accepted a Lua stack trace"
+"$root/scripts/game-log-check" "$scratch/allow.log" --allow "Unable to reset selection sets" >/dev/null \
+    || fail "game-log-check ignored --allow"
+
+HOME="$scratch" "$root/scripts/game-window" key 36 >/dev/null 2>&1; code=$?
+[[ $code == 4 ]] || fail "game-window sent input without ~/.supcom-input-ok (exit $code, expected 4)"
+
+"$root/scripts/status-limits" "$root/STATUS.md" || fail "STATUS.md limits (mac/scripts/status-limits)"
+printf '## Tracks\n- **A.** 1\n 2\n 3\n 4\n 5\n 6\n' > "$scratch/status.md"
+"$root/scripts/status-limits" "$scratch/status.md" 2>/dev/null && fail "status-limits accepted a 6-line track"
+
+mkdir -p "$scratch/links/docs"
+printf 'See [toolchain](toolchain.md), `mac/scripts/check`, `mac/tools/sim-capture/scripts/NAME.lua`, `mac/work/game` and `~/x/mac/none`.\n```\nmac/none\n```\n' \
+    > "$scratch/links/docs/good.md"
+cp "$root/docs/toolchain.md" "$scratch/links/docs/toolchain.md"
+"$root/scripts/link-check" "$scratch/links/docs/good.md" >/dev/null || fail "link-check rejected live links"
+printf 'See [gone](gone.md).\n' > "$scratch/links/bad1.md"
+printf 'Run `mac/scripts/gone --x`.\n' > "$scratch/links/bad2.md"
+"$root/scripts/link-check" "$scratch/links/bad1.md" >/dev/null && fail "link-check missed a dead Markdown link"
+"$root/scripts/link-check" "$scratch/links/bad2.md" >/dev/null && fail "link-check missed a dead backticked path"
+printf '[readme](docs/README.md) [gpu](docs/GPU-guide.md)\n' > "$scratch/links/uppercase.md"
+"$root/scripts/link-check" "$scratch/links/uppercase.md" > "$scratch/links/uppercase.out"
+[[ $? == 1 ]] && grep -q 'docs/README.md' "$scratch/links/uppercase.out" && grep -q 'docs/GPU-guide.md' "$scratch/links/uppercase.out" \
+    || fail "link-check missed uppercase filenames"
+printf '[template](docs/YYYY-MM-DD-TOPIC.md) [set](docs/SET-N.md)\n' > "$scratch/links/placeholders.md"
+"$root/scripts/link-check" "$scratch/links/placeholders.md" >/dev/null || fail "link-check rejected explicit placeholder tokens"
+"$root/scripts/link-check" "$root/README.md" "$root/AGENTS.md" "$root/STATUS.md" "$root/roadmap.md" "$root"/docs/*.md \
+    || fail "dead links (mac/scripts/link-check)"
+
+mkdir -p "$scratch/ghidra/bin"
+printf '#!/bin/sh\necho ran\n' > "$scratch/ghidra/bin/uv"; chmod +x "$scratch/ghidra/bin/uv"
+: > "$scratch/ghidra/SupCom.lock"
+ghidra_py() { GHIDRA_LOCK="$scratch/ghidra/SupCom.lock" GHIDRA_HOLDER_PATTERN="holder-$$-token" GHIDRA_LOCK_WAIT=0 \
+    PATH="$scratch/ghidra/bin:$PATH" "$root/scripts/ghidra-py" x 2>&1; }
+[[ "$(ghidra_py)" == *ran* ]] || fail "ghidra-py waited on a lock file with no live holder"
+perl -e 'sleep 60' "holder-$$-token" & holder=$!
+sleep 1
+[[ "$(ghidra_py)" == *ran* ]] && fail "ghidra-py ignored a live holder of the lock"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+
+expect_input_hook() {
+    local expected=$1 json=$2 code
+    printf '%s' "$json" | HOME="$scratch" "$root/agents/hooks/block-real-input.sh" 2>/dev/null; code=$?
+    [[ $code == "$expected" ]] || fail "input hook exit $code, expected $expected: $json"
+}
+input_word="osa""script"
+expect_input_hook 2 "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$input_word -e 1\"}}"
+expect_input_hook 2 '{"tool_name":"mcp__computer-use__app_click","tool_input":{}}'
+expect_input_hook 0 '{"tool_name":"Bash","tool_input":{"command":"scripts/game-window shot x"}}'
+
+if (( failures )); then
+    write_receipt "$root" "$snapshot" fail "$failures"
+    printf '%d check(s) failed.\n' "$failures"
+    exit 1
+fi
+write_receipt "$root" "$snapshot" pass
+echo "All checks passed."

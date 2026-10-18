@@ -1,0 +1,13 @@
+#!/bin/sh
+# Print what a checkout contains, as git would commit it: one line "MODE BLOB STAGE<TAB>PATH" per tracked or
+# staged file, using the working-tree content, sorted, with paths relative to the checkout root (DIR may be
+# any folder inside it). mac/scripts/check records this when it starts; the commit hook compares against it.
+# The real index is not touched.
+#   mac/scripts/tree-snapshot [DIR]
+set -eu
+top=$(git -C "${1:-.}" rev-parse --show-toplevel)
+temp=$(mktemp)
+trap 'rm -f "$temp"' EXIT
+cp "$(git -C "$top" rev-parse --absolute-git-dir)/index" "$temp" 2>/dev/null || :
+GIT_INDEX_FILE=$temp git -C "$top" add -u 2>/dev/null
+GIT_INDEX_FILE=$temp git -C "$top" ls-files -s | LC_ALL=C sort

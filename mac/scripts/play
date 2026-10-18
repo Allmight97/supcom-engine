@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Play OpenSupCom on this Mac (the checkout at $OSC_ROOT, default the one this mac/ folder sits in),
+# with the build recipe in mac/recipe/.
+#   mac/scripts/play                 windowed 2560x1440
+#   mac/scripts/play --build         rebuild first (current branch)
+#   mac/scripts/play --full          full screen
+#   mac/scripts/play --size W H      windowed W x H
+#   mac/scripts/play --prefs         no size: the game's own Video options decide
+#   mac/scripts/play --hud           Apple's Metal performance HUD (frame rate, frame time)
+#   mac/scripts/play ... -- ARGS     extra opensupcom arguments
+main() {
+    local recipe; recipe="$(cd "$(dirname "$0")/../recipe" && pwd)" || return 1
+    local osc=${OSC_ROOT:-$recipe/../..} build=0
+    local mode=(--windowed 2560 1440) env=()
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --build) build=1 ;;
+            --hud) env+=(MTL_HUD_ENABLED=1) ;;
+            --full) mode=(--fullscreen 2560 1440) ;;
+            --size) mode=(--windowed "$2" "$3"); shift 2 ;;
+            --prefs) mode=() ;;
+            --) shift; break ;;
+            *) echo "unknown option: $1 (see the top of $0)" >&2; return 2 ;;
+        esac
+        shift
+    done
+    cd "$osc" && source "$recipe/env.sh" || return 1
+    if [ $build = 1 ]; then
+        OSC_ROOT="$osc" bash "$recipe/build.sh" | grep -q BUILD_OK || { echo "build failed: $osc/.local/build.log" >&2; return 1; }
+    fi
+    local behind; behind=$("$recipe/../scripts/upstream-news" --behind 2>/dev/null)
+    [ "${behind:-0}" -gt 0 ] && echo "Note: $behind upstream commits are not in main; see mac/scripts/upstream-news." >&2
+    echo "OpenSupCom $(git rev-parse --short HEAD) on $(git branch --show-current); log: ~/.local/state/opensupcom/logs/opensupcom.log"
+    exec env "${env[@]}" build/play/opensupcom --fa-path "$OSC_FA_PATH" "${mode[@]}" "$@"
+}
+main "$@"

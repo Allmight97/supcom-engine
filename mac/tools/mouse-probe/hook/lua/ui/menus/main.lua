@@ -1,0 +1,1 @@
+doscript '/probe/probe.lua'

@@ -1,0 +1,20 @@
+# Local game files, the reference corpus, installers and analysis output (mac/work/).
+/work/
+
+# Game payloads, dumps and disassembler databases anywhere in the toolkit.
+*.[eE][xX][eE]
+*.[dD][lL][lL]
+*.[bB][iI][nN]
+*.scd
+*.scmap
+*.sav
+*.SCFAReplay
+*.dmp
+*.hop
+*.gpr
+*.rep/
+*.idb
+*.i64
+
+.DS_Store
+__pycache__/

@@ -1,0 +1,13 @@
+{
+  "name": "supcom",
+  "owner": {
+    "name": "JStar"
+  },
+  "plugins": [
+    {
+      "name": "supcom-capture",
+      "source": "./supcom-capture",
+      "description": "/supcom-capture:capture, /supcom-capture:compare and /supcom-capture:game: reference captures of the original in CrossOver, comparisons with OpenSupCom, the game window"
+    }
+  ]
+}

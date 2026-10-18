@@ -1,0 +1,38 @@
+#!/bin/sh
+# Record unit states and brain threat queries from the original's sim (tools/sim-capture/hook/lua/simInit.lua).
+#   tools/sim-capture/capture NAME [GAME ARGS...]     (default game args: /map X1MP_006)
+# Launches the original in the CrossOver bottle, waits for SIMCAP|END (game tick 3000), stops the game.
+# Game args: /nocivilians (leave out the map's civilian armies; implied by /simscript motion-unit, whose test
+# compares entity ids with the delivered work/traces/motion-unit.log), /simbots (every army an AI; /ai KEY, default rush), /simfactions F1,F2,..., /simticks N (end tick),
+# /siminterval N (MOTION every N ticks), /simthreat N, /simecon N, /simintel N (those lines every N ticks),
+# /simcombat (FIRE/DAMAGE/DEATH lines), /simvel (VEL lines), /simscript NAME (scripts/NAME.lua's SimScript()),
+# /simtrace (add tools/lua-trace's call tracer to the same run).
+# The game writes work/traces/NAME.log.partial; it is renamed to NAME.log only after SIMCAP|END.
+# Needs movie.nologo = true in Game.prefs so no key press is needed at the splash.
+set -eu
+# The whole script runs from main, read in full before it starts, so editing it during a run is safe.
+main() {
+cd "$(dirname "$0")/../.."
+. tools/lib/game-run.sh
+name=$1; shift
+[ $# -gt 0 ] || set -- /map X1MP_006
+log="work/traces/$name.log"
+case " $* " in *" /simscript motion-unit "*|*" /simscript gallery "*) set -- "$@" /nocivilians ;; esac
+case " $* " in *" /simscript gallery "*) GAME_RUN_ALLOW="Unable to reset selection sets;script in Entity" ;; esac
+init=tools/sim-capture/init-capture.lua
+case " $* " in *" /simtrace "*) init=tools/sim-capture/init-capture-trace.lua ;; esac
+ticks=3000
+prev=
+for arg in "$@"; do [ "$prev" = /simticks ] && ticks=$arg; prev=$arg; done
+GAME_RUN_CHECKPOINTS=
+case " $* " in *" /simcombat "*) GAME_RUN_CHECKPOINTS="$GAME_RUN_CHECKPOINTS;FIRE @2400" ;; esac
+case " $* " in *" /simintel "*) GAME_RUN_CHECKPOINTS="$GAME_RUN_CHECKPOINTS;INTEL @2400" ;; esac
+case " $* " in *" /simecon "*) GAME_RUN_CHECKPOINTS="$GAME_RUN_CHECKPOINTS;ECON @300" ;; esac
+case " $* " in *" /simscript "*) GAME_RUN_CHECKPOINTS="$GAME_RUN_CHECKPOINTS;SIMSCRIPT @200" ;; esac
+GAME_RUN_WINDOW="640 480"
+game_run_start original "$init" "$log" "$@"
+game_run_wait_marker 'SIMCAP|END' $((ticks / 10 + 900))
+game_run_finish
+echo "$log: $(grep -c 'MOTION ' "$log") MOTION, $(grep -c -E 'THREAT |HIGHEST ' "$log") threat, $(grep -c 'ECON ' "$log") ECON, $(grep -c 'INTEL ' "$log") INTEL, $(grep -c -E 'FIRE |DAMAGE |DEATH ' "$log") combat, $(grep -c 'TRACE|' "$log") trace lines"
+}
+main "$@"
