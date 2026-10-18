@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/types.hpp"
+
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -35,6 +37,13 @@ inline NativeFullscreenStep native_fullscreen_step(std::optional<bool> want, boo
 /// A rectangle in the desktop's screen coordinates.
 struct DisplayArea {
     int x = 0, y = 0, width = 0, height = 0;
+};
+
+/// The window's place and size while windowed (Moho's Windows.Main.*).
+struct WindowGeometry {
+    i32 x = 0, y = 0;
+    u32 width = 0, height = 0;
+    bool maximized = false;
 };
 
 /// The display holding the middle of `area`; the first display (GLFW's

@@ -4041,9 +4041,9 @@ std::vector<std::array<u32, 3>> Renderer::display_modes() const {
     return out;
 }
 
-std::optional<Renderer::WindowGeometry> Renderer::windowed_geometry() const {
+std::optional<core::WindowGeometry> Renderer::windowed_geometry() const {
     if (!window_ || fullscreen()) return std::nullopt;
-    WindowGeometry g;
+    core::WindowGeometry g;
     int w = 0;
     int h = 0;
     glfwGetWindowPos(window_, &g.x, &g.y);

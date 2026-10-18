@@ -471,7 +471,7 @@ std::optional<int> App::Window::finish() {
     save_last_game(); // quitting leaves the game being played
     if (!offscreen_capture) {
         // Where and how big the window was, for the next start (M217h)
-        save_window_geometry(prefs, renderer);
+        save_window_geometry(prefs, renderer.windowed_geometry());
         prefs.save();
     }
     renderer.shutdown();

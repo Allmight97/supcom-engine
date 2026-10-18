@@ -5,8 +5,10 @@
 // runs, and what the options screen is told (the display's modes).
 
 #include "app/window_mode.hpp"
+#include "core/fullscreen.hpp"
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,8 +43,13 @@ WindowMode open_window(renderer::Renderer& r, const std::vector<std::string>& ar
                        const core::Preferences& prefs);
 
 /// Keep the window's place and size while windowed (Windows.Main.*), for
-/// the next start and for SC_PrimaryAdapter "windowed".
-void save_window_geometry(core::Preferences& prefs, const renderer::Renderer& r);
+/// the next start and for SC_PrimaryAdapter "windowed". A maximized window
+/// keeps its place and the size it had before.
+void save_window_geometry(core::Preferences& prefs, std::optional<core::WindowGeometry> g);
+
+/// The windowed place the prefs hold, if they hold one: where full screen
+/// goes (a maximized window's corner, for its size is from before).
+std::optional<core::DisplayArea> last_window(const WindowPrefs& w);
 
 /// The UI's root frame: the framebuffer's size (FA's layouts scale from it).
 void size_root_frame(lua_State* uL, u32 width, u32 height);
