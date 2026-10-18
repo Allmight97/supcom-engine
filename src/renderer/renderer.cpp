@@ -202,6 +202,7 @@ bool Renderer::init(u32 width, u32 height, const std::string& title,
 
 bool Renderer::create_window(u32 width, u32 height, const std::string& title, bool offscreen) {
     // GLFW
+    glfwInitVulkanLoader(vkGetInstanceProcAddr);
     if (!glfwInit()) {
         spdlog::error("Failed to initialize GLFW");
         return false;
@@ -269,14 +270,14 @@ bool Renderer::create_instance(bool offscreen, vkb::Instance& vkb_inst) {
     if (validation) platform::set_env_default("VK_ADD_LAYER_PATH", OSC_VULKAN_LAYER_PATH);
 #endif
     if (validation) {
-        auto sys = vkb::SystemInfo::get_system_info();
+        auto sys = vkb::SystemInfo::get_system_info(vkGetInstanceProcAddr);
         if (!sys || !sys.value().validation_layers_available) {
             spdlog::warn("Vulkan validation requested but VK_LAYER_KHRONOS_validation "
                          "is not installed; running without it");
             validation = false;
         }
     }
-    vkb::InstanceBuilder inst_builder;
+    vkb::InstanceBuilder inst_builder(vkGetInstanceProcAddr);
     inst_builder.set_app_name("OpenSupCom")
         .request_validation_layers(validation)
         .require_api_version(1, 0, 0);
