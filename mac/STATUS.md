@@ -11,13 +11,13 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   `upstream` = bwiemz (push disabled). Deferred Mac work: [fork issue #1](https://github.com/Allmight97/supcom-engine/issues/1).
 - Fork `main` (2026-10-18): upstream `d98ad203` plus the Mac branches for UI scale,
   the SDK loader, bundled drivers, full screen on the main display and an FPS cap
-  (work/logs/overnight-2026-10-18.md), and this toolkit in `mac/`. Built arm64
+  (merges `1e4af415`, `a416dc0d`, `dde2665a`, `da8ff2ba`, `7d39ac25`), and this toolkit in `mac/`. Built arm64
   RelWithDebInfo with `mac/recipe/build.sh`; ships the loader and both drivers in `build/play`.
   After the move (2026-10-18): unit tests pass, `ctest -L mp` 4/4, `ctest -L gate` 269/269,
   smoke and render check pass ([consolidation log](log/2026-10-18-consolidation.md)).
 - Mac driver: KosmicKrisp, SDK 1.4.363.0 installed locally in
-  `mac/work/vulkan-sdk/1.4.363.0/`, selected by `mac/recipe/env.sh`. The game loads
-  `libvulkan_kosmickrisp.dylib` (loader debug, `mac/work/logs/metal4/driver-proof.stderr`).
+  `mac/work/vulkan-sdk/1.4.363.0/`; `mac/recipe/env.sh` sets only `VULKAN_SDK`. The game
+  prefers KosmicKrisp and loads `libvulkan_kosmickrisp.dylib` (loader debug, `mac/work/logs/archive-pre-2026-10-18/metal4/driver-proof.stderr`).
   Hidden menu and SCMP_009 smoke captures render with validation on: zero errors,
   unused shader-output/attribute warnings. Not yet compared with the original or
   measured for frame time. Evidence: [Metal 4 switch](log/2026-10-17-metal4-kosmickrisp.md).
@@ -28,10 +28,9 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   (not measured by the engine). Audio perfect (JStar). Loads much faster than CrossOver.
 - Display: Studio Display XDR, 5120x2880 panel, 120 Hz maximum, set to "looks like"
   2880x1620 at 2x backing; built-in display also 120 Hz.
-- Defects seen: interface draws very small on 5K (OSC lays out in framebuffer
-  pixels; no UI scale); anti-aliasing option greyed, Lua warning
-  `options.lua:481 aaoptions` (OSC's `GetAntiAliasingOptions` likely returns
-  nothing); team colour on moving units fades from solid to dim pink (JStar).
+- Defects still open (2026-10-17 play test, [notes](notes/play-test-2026-10-17.md)):
+  anti-aliasing unavailable (single-sample renderer); nuclear explosion renders wrongly
+  (#3); one Lua warning, `terranunits.lua:517` (#4).
 - OSC's game-folder search order is command line, `OSC_FA_PATH`, FAF, Steam, chosen
   folder; GOG is never searched. Without `OSC_FA_PATH` it picks FAF's files.
 - The original (GOG 1.5.3599) runs only in CrossOver 26.3 under Rosetta; the dev Mac
@@ -73,23 +72,33 @@ apart, so FAF addresses never apply directly.
   (JStar is its only author); Allmight97/SupCom is archived after the move.
 - Goal beyond the build: a faithful copy of the original that also runs FAF and its
   improvements; adapting FAF's open code is fine.
-- First fixes: interface scale, then anti-aliasing options.
 
 ## Open questions
 
 - Where the second copy of the reference corpus goes (`mac/work/corpus-manifest.txt`
   lists it; about 1.6 GB that cannot be recaptured after Rosetta ends).
 - Best Mac display setup for the game: "looks like" 2880x1620, 2560x1440 or native.
-- Cause of the team-colour fade; JStar will screenshot it.
 
 ## Next actions
 
-1. JStar checks by eye: the overnight changes (bundled drivers, full screen, FPS cap;
-   work/logs/overnight-2026-10-18.md) and `mac/scripts/play --hud` after the move.
-2. Fork issue #1: the rest of the packaging, then the M1 8 GB play test.
-3. Play-test findings (notes/play-test-2026-10-17.md): Game Mode through the `.app`,
-   the nuke effect, the `terranunits.lua:517` warning.
-4. The Mac build contribution: macOS preset, vcpkg fixes, CI job (`mac/roadmap.md`).
+1. JStar checks the overnight changes by eye:
+   - Bundled drivers, no setup script: in a shell that has not sourced `mac/recipe/env.sh`,
+     run `build/play/opensupcom --fa-path ~/Projects/OpenSupCom/mac/work/game`. Expect
+     `driver KosmicKrisp` in `~/.local/state/opensupcom/logs/opensupcom.log` and normal play.
+   - Full screen on the main display (Studio Display main, MacBook screen on). Start
+     `mac/scripts/play --full` from WezTerm on the MacBook screen: expect the Studio Display.
+     In the options go to Windowed, drag the window to the MacBook screen, go back to
+     Full Screen: expect the MacBook screen, and again after a relaunch. Drag it back to
+     the Studio Display and repeat: expect the Studio Display. A window maximized on one
+     display, then Full Screen: expect that display.
+   - FPS cap -2: `mac/scripts/play --full --hud`, then the same with `-- --fps-cap 0` and
+     `-- --fps-cap 60`. Look for stutter that alternates between one and two refresh
+     intervals at 118.
+2. Play-test findings still open (notes/play-test-2026-10-17.md): Game Mode through the
+   `.app`, the nuke effect (#3), the `terranunits.lua:517` warning (#4), the play
+   recorder (#2).
+3. The Mac build contribution: macOS preset, vcpkg fixes, CI job (`mac/roadmap.md`);
+   fork issue #1 holds the rest of the packaging.
 
 ## Tracks
 

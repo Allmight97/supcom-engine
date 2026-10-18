@@ -3,7 +3,7 @@
 -- and each AI brain's threat queries every /simthreat N ticks (default 600), then "SIMCAP|END|<tick>" at the end tick
 -- (ScenarioInfo.Options.SimCaptureEndTick from /simticks, default 3000).
 --   MOTION tick entity blueprint army x y z heading layer moving     (heading = Entity:GetHeading(), moving 0/1;
---                                                                    the format of sim_probe --motion-log)
+--                                                                    the format OpenSupCom's MOTION log will write: none yet)
 --   THREAT tick army threatType (x,z,threat),(x,z,threat),...       (GetThreatsAroundPosition(start, 16, true, type); every key)
 --   HIGHEST tick army (x,y,z) threat                                  (GetHighestThreatPosition(16, true, 'Overall'))
 --   ECON tick army mass income requested stored ratio energy income requested stored ratio units bp=n,...  (/simecon N)

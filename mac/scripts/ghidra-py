@@ -2,7 +2,7 @@
 # Run a pyghidra script against the saved project with the Ghidra environment set, waiting up to
 # GHIDRA_LOCK_WAIT seconds (default 300) for a live holder to release the one-writer lock. A lock file with
 # no live holder is stale: the project opens and Ghidra clears it.
-#   scripts/ghidra-py scripts/dossier.py Unit:GetHealth
+#   mac/scripts/ghidra-py SCRIPT.py [ARGS ...]
 set -eu
 cd "$(dirname "$0")/.."
 export GHIDRA_INSTALL_DIR="${GHIDRA_INSTALL_DIR:-$HOME/Applications/ghidra_12.1.4_PUBLIC}"

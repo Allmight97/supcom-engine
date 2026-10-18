@@ -3,8 +3,8 @@
 
 Usage: motion_compare.py ORIGINAL.log OURS.log [--max-drift ID=LIMIT]... > report.md
 
-Both logs hold `MOTION tick id blueprint army x y z heading layer moving` lines (tools/sim-capture for the
-original, `sim_probe --motion-log` for ours; other lines and a leading "info: " are ignored). Units are matched by
+Both logs hold `MOTION tick id blueprint army x y z heading layer moving` lines (mac/tools/sim-capture for the
+original, an OpenSupCom log in the same format for ours, none yet; other lines and a leading "info: " are ignored). Units are matched by
 entity id and blueprint (the original reuses ids). The report gives, per blueprint, the speed, acceleration and turn rate each run shows, and per unit how
 far its path drifts from the original's. AI choices make the games diverge after a while, so the per-blueprint
 movement figures are the main comparison. Each --max-drift fails the run (exit 1) when the unit with that entity id

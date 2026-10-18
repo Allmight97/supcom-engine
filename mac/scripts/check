@@ -225,17 +225,12 @@ for shell in bash zsh; do
         "$scratch/recipe/osc/env.sh" || fail "env.sh explicit game path in $shell"
     env -u VULKAN_SDK -u VK_DRIVER_FILES "$shell" -c '
         source "$1"
-        [[ $VULKAN_SDK == "$2"/work/vulkan-sdk/1.4.363.0/macOS &&
-           $VK_DRIVER_FILES == "$VULKAN_SDK/share/vulkan/icd.d/libkosmickrisp_icd.json" ]]
-    ' test "$scratch/recipe/osc/env.sh" "$scratch/recipe" || fail "env.sh KosmicKrisp default in $shell"
+        [[ $VULKAN_SDK == "$2"/work/vulkan-sdk/1.4.363.0/macOS && -z ${VK_DRIVER_FILES+x} ]]
+    ' test "$scratch/recipe/osc/env.sh" "$scratch/recipe" || fail "env.sh SDK default in $shell"
     env -u VK_DRIVER_FILES VULKAN_SDK="/explicit/sdk path" "$shell" -c '
         source "$1"
-        [[ $VK_DRIVER_FILES == "/explicit/sdk path/share/vulkan/icd.d/libkosmickrisp_icd.json" ]]
+        [[ $VULKAN_SDK == "/explicit/sdk path" && -z ${VK_DRIVER_FILES+x} ]]
     ' test "$scratch/recipe/osc/env.sh" || fail "env.sh explicit SDK in $shell"
-    env -u VULKAN_SDK -u VK_DRIVER_FILES "$shell" -c '
-        source "$1"; VULKAN_SDK=/other/sdk; source "$1"
-        [[ $VK_DRIVER_FILES == /other/sdk/share/vulkan/icd.d/libkosmickrisp_icd.json ]]
-    ' test "$scratch/recipe/osc/env.sh" || fail "env.sh driver follows a changed SDK in $shell"
 done
 cat > "$scratch/smoke/build/play/opensupcom" <<'SH'
 #!/bin/sh
@@ -391,7 +386,7 @@ printf '[readme](docs/README.md) [gpu](docs/GPU-guide.md)\n' > "$scratch/links/u
     || fail "link-check missed uppercase filenames"
 printf '[template](docs/YYYY-MM-DD-TOPIC.md) [set](docs/SET-N.md)\n' > "$scratch/links/placeholders.md"
 "$root/scripts/link-check" "$scratch/links/placeholders.md" >/dev/null || fail "link-check rejected explicit placeholder tokens"
-"$root/scripts/link-check" "$root/README.md" "$root/AGENTS.md" "$root/STATUS.md" "$root/roadmap.md" "$root"/docs/*.md \
+"$root/scripts/link-check" "$root/README.md" "$root/AGENTS.md" "$root/STATUS.md" "$root/roadmap.md" "$root"/docs/*.md "$root"/notes/*.md \
     || fail "dead links (mac/scripts/link-check)"
 
 mkdir -p "$scratch/ghidra/bin"

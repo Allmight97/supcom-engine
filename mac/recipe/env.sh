@@ -9,4 +9,3 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.local/cache/clang"
 export PYTHONDONTWRITEBYTECODE=1
 export OSC_FA_PATH="${OSC_FA_PATH:-$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)/work/game}"
 export VULKAN_SDK="${VULKAN_SDK:-$(cd "$(dirname "${BASH_SOURCE[0]:-${(%):-%x}}")/.." && pwd)/work/vulkan-sdk/1.4.363.0/macOS}"
-export VK_DRIVER_FILES="$VULKAN_SDK/share/vulkan/icd.d/libkosmickrisp_icd.json"

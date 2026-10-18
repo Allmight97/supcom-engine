@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check a GOG or FAF game log (/log FILE) for known failures; exit 1 if any is found.
 
-  scripts/game-log-check LOG [--expect TEXT ...] [--allow TEXT ...]
+  mac/scripts/game-log-check LOG [--expect TEXT ...] [--allow TEXT ...]
 
 Prints one line per finding and the run time. A log without "Run time" means the
 game did not exit normally (crash, kill, or still running). Each --expect TEXT must

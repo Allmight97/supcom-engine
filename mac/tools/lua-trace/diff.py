@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Compare the engine calls of two Lua call traces (tools/lua-trace logs).
+"""Compare the engine calls of two Lua call traces (mac/tools/lua-trace logs).
 
-Usage: diff.py ORIGINAL.log OURS.log [--bindings work/lua-bindings.json] [--kind user]
+Usage: diff.py ORIGINAL.log OURS.log [--bindings mac/work/lua-bindings.json] [--kind user]
 
-ORIGINAL is a trace of the original game (tools/lua-trace/capture); OURS is the
-boot probe's output with --trace tools/lua-trace. Reports the functions only the
+ORIGINAL is a trace of the original game (mac/tools/lua-trace/capture); OURS is a
+trace in the same format (OpenSupCom has no producer yet). Reports the functions only the
 original called, the functions only we called, the first point where the
 first-call order differs, and the call counts side by side. Counts depend on how
 long each run lasted, so compare them as orders of magnitude.

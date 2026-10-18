@@ -12,7 +12,7 @@ upstream can take it. The toolkit came from Allmight97/SupCom, archived after th
 
 ## Status (October 2026)
 
-- Playable: skirmishes against the AI at 5K and 120 fps on an M4 Max, with audio,
+- Playable: skirmishes against the AI at 5K on an M4 Max, 120 fps in the Metal HUD, with audio,
   saves and a correctly sized interface on Retina displays.
 - Graphics: Vulkan on Metal 4 through **KosmicKrisp** (LunarG's conformant driver) on
   Apple Silicon with macOS 26+. Intel Macs and older macOS will use the bundled
@@ -46,9 +46,8 @@ The game's log is `~/.local/state/opensupcom/logs/opensupcom.log`.
 
 ## Known issues
 
-- The build ships the Vulkan loader and both drivers beside the game, but the toolkit's
-  `mac/recipe/env.sh` still narrows the drivers to KosmicKrisp from the SDK; the
-  remaining packaging work is
+- The build ships the Vulkan loader and both drivers beside the game; the remaining
+  packaging work (the `.app`) is
   [fork issue #1](https://github.com/Allmight97/supcom-engine/issues/1).
 - Full screen on the main display (or the one last used) is merged but not yet
   checked by eye.

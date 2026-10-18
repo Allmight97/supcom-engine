@@ -5,8 +5,8 @@
 Supreme Commander: Forged Alliance runs natively on JStar's Mac through
 OpenSupCom (OSC, [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine),
 MIT, C++20, Vulkan through KosmicKrisp on Metal 4), faithful to the original,
-with FAF and its improvements. JStar is OSC's macOS developer; Mac work goes upstream
-as pull requests.
+with FAF and its improvements. JStar is OSC's macOS developer; Mac work lands on the
+fork's main first and is offered upstream as pull requests where upstream can take it.
 
 One checkout, `~/Projects/OpenSupCom`, JStar's fork
 ([Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine)):
@@ -102,7 +102,9 @@ fixes, what is open. Never edit an earlier log.
 - Main session: Opus at medium; judgement and adjudication stay there with JStar.
   Delegate bounded labour to Haiku at high, judgement-heavy subtasks to Opus at
   medium, and coding tasks or second opinions to GPT 6.1 Sol at high through
-  `codex exec` (stdin closed: `</dev/null`).
+  `codex exec` (stdin closed: `</dev/null`). Give Codex a narrow brief that names the files to touch. Stop a
+  run that has edited no file after 20 minutes. Prefer Codex for review over open-ended
+  implementation.
 - Commit with `git commit -m … -- <paths>`; one logical change per commit, as
   CONTRIBUTING.md asks; merge branches into `main` with a merge commit; push at
   milestones and pauses. Git command restrictions are enforced by

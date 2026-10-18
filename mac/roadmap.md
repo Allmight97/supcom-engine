@@ -20,11 +20,14 @@ when the check passed and the result is recorded in STATUS.md or a log.
 
 | Deliverable | Check |
 | --- | --- |
-| Interface scale on Retina displays | JStar's play test at three display modes; offscreen screenshots at 1x and 2x |
-| Anti-aliasing options work (no Lua error; real MSAA only if JStar wants it) | Options menu without warnings |
+| Interface scale on Retina displays | Done 2026-10-17 (merge `1e4af415`): right size and sharp in JStar's play test ([notes](notes/play-test-2026-10-17.md)) |
+| Anti-aliasing options work (no Lua error; real MSAA only if JStar wants it) | Done 2026-10-17 (merge `1e4af415`): no Lua warning; the option reads Off |
 | KosmicKrisp drives the arm64 build through Metal 4 | Done 2026-10-17: loader debug shows `libvulkan_kosmickrisp.dylib`; hidden captures, zero validation errors |
-| vk-bootstrap gets OSC's own loader (`vkb::InstanceBuilder(vkGetInstanceProcAddr)`, `src/renderer/renderer.cpp:238`), so it never opens `libMoltenVK.dylib` by name | Loader debug shows one loader and KosmicKrisp |
-| KosmicKrisp and MoltenVK ship beside the executable (`vulkan/icd.d` next to it, later inside the `.app`); the game prefers the KosmicKrisp device; a clear message when no device is found | Fresh clone runs with no environment variables and logs KosmicKrisp; with the KosmicKrisp manifest removed it logs MoltenVK |
+| OSC links the Vulkan SDK loader, and vk-bootstrap uses it (`vkb::InstanceBuilder(vkGetInstanceProcAddr)`, `src/renderer/renderer.cpp`), so it never opens `libMoltenVK.dylib` by name | Done 2026-10-17 (merge `a416dc0d`): loader debug shows one loader and KosmicKrisp |
+| KosmicKrisp and MoltenVK ship beside the executable (`vulkan/icd.d` next to it); the game prefers the KosmicKrisp device | Done 2026-10-18 (merge `dde2665a`): a run with no environment variables logs KosmicKrisp; with the KosmicKrisp manifest removed it logs MoltenVK |
+| The same drivers inside the `.app`; a clear message when no device is found | Fresh `.app` runs with no environment variables |
+| Full screen on the main display, or the one last used | Done 2026-10-18 (merge `da8ff2ba`); JStar's check by eye is open (STATUS.md) |
+| A frame-rate cap, absolute or below the display's refresh rate (`--fps-cap`) | Done 2026-10-18 (merge `7d39ac25`); JStar's check by eye is open (STATUS.md) |
 | Low-end Modern Mac: JStar's M1 with 8 GB plays a skirmish on default settings | JStar's play notes and the engine's frame log |
 | `macos-arm64` CMake preset; the zlib and minizip vcpkg fixes (today in `mac/recipe/overlays/`) | Fresh clone, preset, build |
 | macOS arm64 CI job (`macos-26`) running what CI runs elsewhere (`ctest -LE data`; needs no Vulkan driver) | Green on the PR |
@@ -49,7 +52,7 @@ when the check passed and the result is recorded in STATUS.md or a log.
 | --- | --- |
 | The capture hooks run through OSC's `--init <file.lua>` (blueprint dump with 4-byte float rounding, Lua call trace with an equal-count proof, `motion-unit`) | Each proof's result written down |
 | An OSC-side runner writing the same logs and `.setup` manifests; `/supcom-capture:compare` on both sides | One command compares OSC with the original |
-| Every human observation reproducible: a replay plus a screenshot at a tick (first case: the team-colour fade) | The colour test fails before the fix, passes after |
+| Every human observation reproducible: a replay plus a screenshot at a tick (first case: the nuclear explosion, #3) | The test fails before the fix, passes after |
 | Look comparison at fixed cameras with thresholds JStar sets | Scores within threshold, or on JStar's exception list |
 
 ## M4 Automated play

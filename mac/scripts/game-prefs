@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Read and change the bottle's Game.prefs safely (shared by the GOG and FAF games).
 
-  scripts/game-prefs show                 print primary_adapter and active_mods
-  scripts/game-prefs adapter              set primary_adapter to the macOS main display (points, 60 Hz)
-  scripts/game-prefs mods [NAME ...]      set active_mods to these vault mods by name; no NAME clears it
+  mac/scripts/game-prefs show                 print primary_adapter and active_mods
+  mac/scripts/game-prefs adapter              set primary_adapter to the macOS main display (points, 60 Hz)
+  mac/scripts/game-prefs mods [NAME ...]      set active_mods to these vault mods by name; no NAME clears it
 GAME_PREFS=FILE selects another file (tests).
 
 Changes refuse to run while a game is open (it rewrites the file on exit), back up the

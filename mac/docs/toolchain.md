@@ -14,11 +14,10 @@ selects another). The Mac build recipe is in `mac/recipe/`:
 
 - `mac/recipe/env.sh`: sourced from the checkout root. Points vcpkg, temp files
   and caches at the checkout's ignored `.local/`, the game at `mac/work/game`
-  (`OSC_FA_PATH`), and Vulkan at the local SDK's KosmicKrisp driver
-  (Metal 4, Apple Silicon, macOS 26+). `VULKAN_SDK` selects a different SDK;
-  the driver always follows it. `VK_LOADER_DEBUG=driver` prints the driver the
-  game loads. A shell that sourced it before `mac/work/` moved keeps the old
-  paths: open a new shell or unset `OSC_FA_PATH`, `VULKAN_SDK` and `VK_DRIVER_FILES`.
+  (`OSC_FA_PATH`), and `VULKAN_SDK` at the local SDK (used to configure the build;
+  set `VULKAN_SDK` first to use another SDK). It does not choose a driver: the build
+  ships both and the game prefers KosmicKrisp (Metal 4, Apple Silicon, macOS 26+).
+  `VK_LOADER_DEBUG=driver` prints the driver the game loads.
 - `mac/scripts/upstream-news`: fetches upstream, lists what landed since the fork's `main`
   (Mac-area items marked `MAC`) and open upstream PRs in Mac areas, and prints the merge
   command. Run it before starting any Mac change. `mac/scripts/play` prints a one-line note
@@ -97,8 +96,8 @@ QT_QPA_PLATFORM=offscreen mac/work/downloads/vulkan-sdk-1.4.363.0/vulkansdk-macO
 
 The SDK archive is 396,088,200 bytes, SHA-256
 `163431e0203c8215286a17cf393643ce6b951f77d1b4f74ab30821a1f0beb09b`.
-The installer also supplies MoltenVK; the launch environment selects only
-KosmicKrisp by default. There is no automatic driver fallback.
+The installer also supplies MoltenVK. The game build ships both drivers and prefers
+KosmicKrisp; it uses MoltenVK only when no KosmicKrisp device is found.
 
 Identify the selected driver:
 
@@ -109,8 +108,8 @@ DYLD_LIBRARY_PATH="$VULKAN_SDK/lib" "$VULKAN_SDK/bin/vulkaninfo" --summary
 
 Expect `driverID = DRIVER_ID_MESA_KOSMICKRISP`. The SDK tool needs its library
 path because this is a local installation. The build copies the SDK's loader and both
-drivers beside the game (`build/play/vulkan/icd.d`); `mac/recipe/env.sh` still points the
-loader at the SDK's KosmicKrisp for toolkit runs (fork issue #1 tracks the rest). A graphics
+drivers beside the game (`build/play/vulkan/icd.d`); fork issue #1 tracks the rest of the
+packaging. A graphics
 check must render, as the headless smoke does not exercise the driver. For example:
 
 ```sh
@@ -143,7 +142,7 @@ Intel Macs and older macOS (Compatibility level).
 | CrossOver | 26.3, bottle `SupCom` | Reference runs of the original game |
 | Command Line Tools | 27.0, Apple clang 21.0.0, macOS SDK 27.0 | Not selected |
 | Xcode-beta | 27.0 (27A5218g), `/Applications/Xcode-beta.app` | Selected (`xcode-select -p`); builds OpenSupCom |
-| Vulkan SDK / KosmicKrisp | SDK 1.4.363.0, Mesa 26.2.99 (`269a955c89`), `mac/work/vulkan-sdk/1.4.363.0/macOS` | Vulkan on Metal 4 for Apple Silicon; toolkit default |
+| Vulkan SDK / KosmicKrisp | SDK 1.4.363.0, Mesa 26.2.99 (`269a955c89`), `mac/work/vulkan-sdk/1.4.363.0/macOS` | Vulkan on Metal 4 for Apple Silicon; the SDK the build uses |
 
 Ghidra archive `mac/work/downloads/ghidra_12.1.4_PUBLIC_20260921.zip` (569,649,598
 bytes) matched the official release digest
@@ -193,8 +192,9 @@ scripts through `mac/scripts/ghidra-py`, which sets the Ghidra environment and
 waits up to `GHIDRA_LOCK_WAIT` seconds (default 300) for the lock. The
 rebuild scripts (FAF and faf-re name ports, C++ class recovery, Lua binding
 names) and the per-binding dossier generator were retired with the native
-engine; the tag `native-engine-final` keeps them and their procedure
-(`git show native-engine-final:docs/toolchain.md`). Their outputs stay in
+engine; the tag `native-engine-final` in the archived repository Allmight97/SupCom keeps
+them and their procedure (`docs/toolchain.md` at tag `native-engine-final` in the archived repo Allmight97/SupCom, or in `~/Projects/SupCom-archive-2026-10-16.tar.gz`).
+Their outputs stay in
 `mac/work/`: `mac/work/lua-bindings.json`, `mac/work/dossiers/`, `mac/work/game-analysis.json`.
 
 ## Querying the project
@@ -206,24 +206,6 @@ engine; the tag `native-engine-final` keeps them and their procedure
   Long commands need `REA_GHIDRA_STARTUP_TIMEOUT_MS=900000`; bound output with
   `--token-limit`. REA's reconstruction ledger builds obligations only from
   application graphs and process captures, not from native function lists.
-
-## Apple developer tools (Xcode 27 beta, macOS 27)
-
-Xcode-beta 27.0 is selected: `xcode-select -p` returns
-`/Applications/Xcode-beta.app/Contents/Developer`.
-
-- Apple's built-in agent skills (A3): exported 2026-10-14 to
-  `mac/work/apple-skills/` with Xcode-beta running and an absolute path
-  (`xcrun mcpbridge run-agent skills export --output-dir
-  /Users/jstar/Projects/OpenSupCom/mac/work/apple-skills`; a relative path resolves
-  against Xcode's working directory, `/`). They are SwiftUI and UIKit skills,
-  plus `adopt-c-bounds-safety`; for Metal, AppKit and Core Audio API facts
-  use Context7 or Apple's documentation.
-- LLDB for agents (A2): `lldb-mcp` needs LLDB's own Swift compiler libraries, so the
-  project-local registration sets `DYLD_FALLBACK_LIBRARY_PATH=/Applications/
-  Xcode-beta.app/Contents/SharedFrameworks/LLDB.framework/Versions/A/
-  Libraries/usr/lib/swift/host/compiler`; `claude mcp list` shows it
-  connected. Re-register after an Xcode update if the path changes.
 
 ## Maintenance
 
@@ -259,13 +241,14 @@ Classify the failure before changing tools:
 `mac/agents/faf-crossover` launches the FAF client (`client`), rebuilds it
 (`build`, from `mac/work/downloads/faf-client`), runs the GOG game from its `bin`
 directory (`original args…`), or runs any game executable in the bottle
-(`game EXE args…`). FAF's settings use it as the game command
+(`game EXE args…`). The client and its rebuild need an arm64 Java 25 JDK
+(`brew install openjdk@25`, or `FAF_JAVA_HOME`). FAF's settings use it as the game command
 (`~/Projects/OpenSupCom/mac/agents/faf-crossover game %s`, set in the client's
 settings, `~/.faforever/client.prefs`). Bottle setup,
 preferences, fullscreen and FAF workarounds are owned by
 [the CrossOver recipe](crossover-recipe.md).
 
-Launch a 1680×1050 window (the largest size checked with the 3D mouse):
+Launch a 1680×1050 window:
 
 ```sh
 mac/agents/faf-crossover original /nomovie /windowed 1680 1050 \

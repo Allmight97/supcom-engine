@@ -1,3 +1,5 @@
+Superseded by `mac/STATUS.md` and `mac/roadmap.md` (2026-10-18); kept as history.
+
 # OpenSupCom on this Mac: trial results (2026-10-14)
 
 OpenSupCom ([bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine),

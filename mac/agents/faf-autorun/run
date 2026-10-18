@@ -1,8 +1,8 @@
 #!/bin/sh
 # Scripted FAF game run with no mouse or keyboard: start, play, save, load and exit from arguments.
 #   mac/agents/faf-autorun/run NAME LIMIT_SECONDS [GAME ARGS ...]
-# Log: work/logs/NAME.log (written as NAME.log.partial and renamed once the game has exited),
-# checked by scripts/game-log-check when the game exits or LIMIT_SECONDS passes
+# Log: mac/work/logs/NAME.log (written as NAME.log.partial and renamed once the game has exited),
+# checked by mac/scripts/game-log-check when the game exits or LIMIT_SECONDS passes
 # (then the game is killed and the check fails). The check also requires the log line of each
 # /auto action given and accepts FAF's harmless 'Unable to reset selection sets' on loading a save.
 # Extra game arguments read by the hooks:
@@ -12,7 +12,7 @@
 #   /autosave SECONDS NAME save as NAME at that game time
 #   /autoexit SECONDS      exit normally at that game time
 #   /autoload NAME         load save NAME from the main menu (combine with /autoexit)
-# Mods come from active_mods in Game.prefs (scripts/game-prefs mods NAME).
+# Mods come from active_mods in Game.prefs (mac/scripts/game-prefs mods NAME).
 set -eu
 # The whole script runs from main, read in full before it starts, so editing it during a run is safe.
 main() {

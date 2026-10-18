@@ -9,7 +9,7 @@ Arguments: `$ARGUMENTS`
 Read `${CLAUDE_PLUGIN_ROOT}/skills/capture-practice/SKILL.md` first (when a capture earns its cost, how to choose arguments).
 
 1. Map the first argument to its script and run the rest unchanged, in the background for runs over about 5 minutes,
-   with a watcher that posts phase changes, errors and a 5-minute heartbeat with elapsed time, CPU and memory:
+   with a watcher that posts phase changes, errors and a 10-minute heartbeat with elapsed time, CPU and memory:
    `ref-shot` → `mac/tools/ref-shot/capture`, `lua-trace` → `mac/tools/lua-trace/capture`,
    `sim-capture` → `mac/tools/sim-capture/capture`, `bp-dump` → `mac/tools/bp-dump/capture`,
    `faf-autorun` → `mac/agents/faf-autorun/run`. Anything else: reply with the usage. Run nothing.

@@ -1,5 +1,5 @@
 # Shared launcher for the capture tools: one way to start a game in the CrossOver bottle, wait for it,
-# stop it and publish its log. Source from the repository root (the tools cd there first).
+# stop it and publish its log. Source from mac/ (the tools cd there first).
 #   game_run_start KIND INIT LOG [GAME ARGS...]  KIND original (GOG game, 1680x1050 window) or faf (FAF's
 #                                                game, 1024x768 window; GAME_RUN_WINDOW="W H" overrides);
 #                                                the game logs to LOG.partial
@@ -14,11 +14,11 @@
 #   game_run_prefs FILE                          use FILE as Game.prefs for this run (call before
 #                                                game_run_start); the original is restored on exit
 # A run that fails leaves only LOG.partial, so LOG always means a finished run. game_run_start also:
-#   - takes the bottle lock (work/bottle.lock) before Game.prefs is touched, and an original-game run refuses
+#   - takes the bottle lock (mac/work/bottle.lock) before Game.prefs is touched, and an original-game run refuses
 #     when active_mods names a mod the original would load (its Documents mods folder or gamedata/mods.scd);
-#   - copies tools/ and agents/faf-autorun to work/capture-run/NAME/ and runs the hooks from there, so editing
+#   - copies mac/tools/ and mac/agents/faf-autorun to mac/work/capture-run/NAME/ and runs the hooks from there, so editing
 #     a hook mid-run changes nothing (GAME_RUN_DIR; a tool's generated init may point into it);
-#   - runs tools/lib/capture.py's preflight every 5 s while waiting: stops on the first Lua error or unknown
+#   - runs mac/tools/lib/capture.py's preflight every 5 s while waiting: stops on the first Lua error or unknown
 #     unit type, a loaded hook without HOOKCHECK within 90 s, or a missed checkpoint (GAME_RUN_CHECKPOINTS,
 #     "TEXT@TICK" separated by ";"; GAME_RUN_ALLOW lists tolerated error texts separated by ";").
 # game_run_finish writes LOG's setup manifest, NAME.setup (capture.py setup).
@@ -49,7 +49,7 @@ game_run_lock() {
             rm -rf work/bottle.lock
             continue
         fi
-        [ "$waited" -lt 20 ] || { echo "The bottle is locked by process ${owner:-?} (work/bottle.lock)." >&2; exit 1; }
+        [ "$waited" -lt 20 ] || { echo "The bottle is locked by process ${owner:-?} (mac/work/bottle.lock)." >&2; exit 1; }
         sleep 2; waited=$((waited + 2))
     done
     echo $$ > work/bottle.lock/pid
