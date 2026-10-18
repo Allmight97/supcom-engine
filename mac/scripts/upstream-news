@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""What upstream OpenSupCom did that the fork's main lacks, and open upstream PRs in Mac areas.
+"""What upstream OpenSupCom did that the fork's main lacks, and open upstream PRs that matter to it:
+those in Mac areas (MAC) and those touching an engine file the fork changed (OVERLAP, with the files).
 
-  mac/scripts/upstream-news           fetch upstream, list missing landings and Mac-related open PRs
-  mac/scripts/upstream-news --behind  print only the count of upstream commits missing from main
+  mac/scripts/upstream-news             fetch upstream, list missing landings and those open PRs
+  mac/scripts/upstream-news --brief     only the count behind and those PRs (the session-start hook)
+  mac/scripts/upstream-news --markdown  the same as a GitHub issue body (the fork's daily watch)
+  mac/scripts/upstream-news --behind    print only the count of upstream commits missing from main
   mac/scripts/upstream-news --self-test
 Run before starting any Mac change, so work upstream already did or is doing is found first.
 """
@@ -40,19 +43,60 @@ def landed():
         git('log', '--format=%s', f'{base()}..upstream/main').splitlines()
 
 
+def fork_files():
+    """Engine files the fork's main changed (docs leave out: nearly every PR touches them)."""
+    return set(git('diff', '--name-only', f'upstream/main...{base()}', '--', '.', ':!mac', ':!docs',
+                   ':!AGENTS.md', ':!CLAUDE.md', ':!README.md', ':!.github').splitlines())
+
+
+def classify(pr, ours):
+    """(mac, overlapping files) for one PR."""
+    paths = [f['path'] for f in pr.get('files') or []]
+    return mac_related(pr['title'] + ' ' + ' '.join(paths)), sorted(ours.intersection(paths))
+
+
 def open_prs():
     result = subprocess.run(['gh', 'pr', 'list', '--repo', REPO, '--state', 'open', '--limit', '100',
-                             '--json', 'number,title,author,files'], capture_output=True, text=True)
+                             '--json', 'number,title,author,files,createdAt,isDraft'],
+                            capture_output=True, text=True)
     if result.returncode:
         return None
-    prs = json.loads(result.stdout)
-    return [p for p in prs if mac_related(p['title'] + ' ' + ' '.join(f['path'] for f in p.get('files') or []))]
+    ours = fork_files()
+    out = []
+    for p in json.loads(result.stdout):
+        mac, overlap = classify(p, ours)
+        if mac or overlap:
+            out.append({**p, 'mac': mac, 'overlap': overlap})
+    return out
+
+
+def pr_line(p, markdown=False):
+    tags = ' '.join(t for t, on in (('MAC', p['mac']), ('OVERLAP', p['overlap']), ('draft', p['isDraft'])) if on)
+    files = f" ({', '.join(p['overlap'][:4])}{', …' if len(p['overlap']) > 4 else ''})" if p['overlap'] else ''
+    if markdown:
+        return (f"- `#{p['number']}` **{tags}** "
+                f"{p['author']['login']}, {p['createdAt'][:10]}: {p['title']}{files}")
+    return f"  #{p['number']} {tags} {p['author']['login']}: {p['title'][:90]}{files}"
+
+
+def markdown(prs):
+    print('Open upstream PRs that matter to the fork: MAC (a Mac area) or OVERLAP (touches an engine file '
+          f"the fork's main changed, listed). Written by `mac/scripts/upstream-news --markdown`. PR numbers "
+          f"are upstream's, unlinked so the fork's issue adds no events to their PRs: "
+          f"[open PRs](https://github.com/{REPO}/pulls).\n")
+    print(f'{behind()} upstream commits are not in the fork\'s main.\n')
+    if prs is None:
+        return print('gh could not list PRs this run.')
+    print('\n'.join(pr_line(p, True) for p in prs) or 'None open.')
 
 
 def self_test():
     assert mac_related('renderer: on a HiDPI display FA\'s UI is laid out in points')
     assert mac_related('touches src/platform/native_fullscreen.mm')
     assert not mac_related('sim: a guard helping a silo fights and repairs it')
+    pr = {'title': 'sim: guards', 'files': [{'path': 'src/sim/a.cpp'}, {'path': 'src/renderer/b.cpp'}]}
+    assert classify(pr, {'src/renderer/b.cpp', 'src/app/c.cpp'}) == (False, ['src/renderer/b.cpp'])
+    assert classify(pr, set()) == (False, [])
     print('upstream-news self-test passed')
 
 
@@ -65,6 +109,13 @@ def main():
         print('fetch timed out; using the last fetched upstream', file=sys.stderr)
     if '--behind' in sys.argv:
         return print(behind())
+    if '--markdown' in sys.argv:
+        return markdown(open_prs())
+    if '--brief' in sys.argv:
+        prs = open_prs()
+        print(f'Upstream: {behind()} commits not in main; open PRs that matter to the fork '
+              f'({"gh unavailable" if prs is None else len(prs)}; mac/scripts/upstream-news for detail):')
+        return print('\n'.join(pr_line(p) for p in prs or []))
     items = landed()
     print(f'{behind()} upstream commits not in {base()} ({len(items)} landings):')
     for item in items:
@@ -73,9 +124,9 @@ def main():
     if prs is None:
         print('Open PRs: gh unavailable, skipped.')
     else:
-        print(f'Open upstream PRs in Mac areas ({len(prs)}):')
+        print(f'Open upstream PRs that matter to the fork ({len(prs)}):')
         for p in prs:
-            print(f"  #{p['number']} {p['author']['login']}: {p['title'][:100]}")
+            print(pr_line(p))
     if behind():
         print(f'Sync: cd {OSC} && git switch main && git merge upstream/main')
 

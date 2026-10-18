@@ -18,13 +18,14 @@ One checkout, `~/Projects/OpenSupCom`, JStar's fork
   capture and comparison tools for the original game, guards, status and plans,
   Claude plugins. It came from Allmight97/SupCom (history there and in its tag
   `native-engine-final`).
-- Fork-only files outside `mac/`: `AGENTS.md`, `CLAUDE.md` and the banner at the top
-  of `README.md`.
+- Fork-only files outside `mac/`: `AGENTS.md`, `CLAUDE.md`, the banner at the top
+  of `README.md`, and `.github/workflows/mac-upstream-watch.yml` (rewrites the fork's issue
+  "Upstream Mac watch" daily).
 - Branches: `main` is the fork. Mac engine work goes on `mac/<topic>` branches and
   merges into `main`. An upstream pull request goes on an `up/<topic>` branch cut
   from `upstream/main`, with only the engine commits cherry-picked; it never carries
-  `mac/`, the root `AGENTS.md` or `CLAUDE.md`, or the README banner. The pre-push
-  hook refuses an `up/*` branch whose commits touch the first three.
+  `mac/`, the root `AGENTS.md` or `CLAUDE.md`, the README banner or the fork's workflow. The
+  pre-push hook refuses an `up/*` branch whose commits touch any of them but the banner.
 
 Read [STATUS.md](STATUS.md) when joining or resuming: it owns current facts,
 decisions, open questions and next actions, and nothing else. The plan is

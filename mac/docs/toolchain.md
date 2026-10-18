@@ -19,8 +19,13 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   ships both and the game prefers KosmicKrisp (Metal 4, Apple Silicon, macOS 26+).
   `VK_LOADER_DEBUG=driver` prints the driver the game loads.
 - `mac/scripts/upstream-news`: fetches upstream, lists what landed since the fork's `main`
-  (Mac-area items marked `MAC`) and open upstream PRs in Mac areas, and prints the merge
-  command. Run it before starting any Mac change. `mac/scripts/play` prints a one-line note
+  (Mac-area items marked `MAC`) and the open upstream PRs that matter to the fork: `MAC` (a
+  Mac area) or `OVERLAP` (touches an engine file the fork changed, listed), and prints the
+  merge command. Run it before starting any Mac change. Its `--brief` form runs at every
+  session start (a hook `mac/scripts/setup` writes); its `--markdown` form is the body of the
+  fork's issue "Upstream Mac watch", rewritten daily by `.github/workflows/mac-upstream-watch.yml`.
+  `/supcom-upstream:shape [topic]` has a Sonnet agent map those PRs against our commits before an
+  upstream PR is shaped. `mac/scripts/play` prints a one-line note
   when `main` is behind upstream.
 - `mac/recipe/build.sh`: configures and builds `build/play` (Ninja, RelWithDebInfo,
   arm64, triplet `arm64-osx`) with the vcpkg overlay ports in

@@ -13,6 +13,11 @@
       "name": "supcom-docs",
       "source": "./supcom-docs",
       "description": "/supcom-docs:doc-audit: two-model audit of the docs agents read, adjudicated by the main session"
+    },
+    {
+      "name": "supcom-upstream",
+      "source": "./supcom-upstream",
+      "description": "/supcom-upstream:shape: map open upstream PRs against the fork's work before shaping an upstream PR"
     }
   ]
 }
