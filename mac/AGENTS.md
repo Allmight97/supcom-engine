@@ -86,6 +86,9 @@ fixes, what is open. Never edit an earlier log.
   `ctest -L gate` before every PR), `mac/scripts/osc-smoke` and `mac/scripts/osc-render-check`, as in
   [docs/toolchain.md](docs/toolchain.md); a nontrivial bug fix shows its test failing first.
 - Report checks run, checks not run, failures and deletions.
+- Docs stay true to the current direction: `mac/scripts/check` fails on a term from
+  `mac/agents/dead-terms.txt` in live guidance (add dropped terms there when a direction
+  changes) and notes when STATUS's Decisions changed since the last `/supcom-docs:doc-audit`.
 
 ## Collaboration
 
@@ -97,6 +100,8 @@ fixes, what is open. Never edit an earlier log.
   database or resetting user data. `origin` is JStar's fork
   (Allmight97/supcom-engine) and `upstream` is bwiemz's (push disabled by
   `mac/scripts/setup`). Mac work lands on the fork; a PR to upstream needs JStar's word.
+- Audits: Haiku at high effort for mechanical sweeps (paths, links, consistency);
+  Sonnet at medium or better when the question is what could mislead an agent.
 - One session at a time owns the checkout; STATUS.md "Tracks" names it.
   Another session that needs it asks JStar for a worktree instead of switching branches.
 - Main session: Opus at medium; judgement and adjudication stay there with JStar.

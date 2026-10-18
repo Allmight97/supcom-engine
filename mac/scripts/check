@@ -386,6 +386,9 @@ printf '[readme](docs/README.md) [gpu](docs/GPU-guide.md)\n' > "$scratch/links/u
     || fail "link-check missed uppercase filenames"
 printf '[template](docs/YYYY-MM-DD-TOPIC.md) [set](docs/SET-N.md)\n' > "$scratch/links/placeholders.md"
 "$root/scripts/link-check" "$scratch/links/placeholders.md" >/dev/null || fail "link-check rejected explicit placeholder tokens"
+"$root/scripts/doc-hygiene" --self-test >/dev/null || fail "doc-hygiene self-test"
+"$root/scripts/doc-hygiene" || fail "dead terms in live guidance (mac/agents/dead-terms.txt)"
+"$root/scripts/doc-hygiene" --due
 "$root/scripts/link-check" "$root/README.md" "$root/AGENTS.md" "$root/STATUS.md" "$root/roadmap.md" "$root"/docs/*.md "$root"/notes/*.md \
     || fail "dead links (mac/scripts/link-check)"
 

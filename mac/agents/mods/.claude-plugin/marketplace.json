@@ -8,6 +8,11 @@
       "name": "supcom-capture",
       "source": "./supcom-capture",
       "description": "/supcom-capture:capture, /supcom-capture:compare and /supcom-capture:game: reference captures of the original in CrossOver, comparisons with OpenSupCom, the game window"
+    },
+    {
+      "name": "supcom-docs",
+      "source": "./supcom-docs",
+      "description": "/supcom-docs:doc-audit: two-model audit of the docs agents read, adjudicated by the main session"
     }
   ]
 }

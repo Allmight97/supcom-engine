@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Docs that agents read stay true to the current direction.
+
+  mac/scripts/doc-hygiene            fail on a dead term (mac/agents/dead-terms.txt) in live guidance
+  mac/scripts/doc-hygiene --due      warn when STATUS's Decisions changed since the last /doc-audit
+  mac/scripts/doc-hygiene --record   record the current Decisions as audited (run by /doc-audit)
+  mac/scripts/doc-hygiene --self-test
+"""
+import hashlib
+import pathlib
+import subprocess
+import sys
+
+MAC = pathlib.Path(__file__).resolve().parent.parent
+ROOT = MAC.parent
+LIVE = ['README.md', 'AGENTS.md', 'STATUS.md', 'roadmap.md', 'docs', 'agents', 'scripts', 'tools', 'recipe']
+SKIP = {'agents/dead-terms.txt', 'scripts/check', 'scripts/doc-hygiene'}
+RECORD = MAC / 'work/logs/doc-audit-last.txt'
+
+
+def terms(path):
+    return [t.strip() for t in path.read_text().splitlines() if t.strip() and not t.startswith('#')]
+
+
+def live_files(mac):
+    tracked = subprocess.run(['git', '-C', str(mac), 'ls-files', *LIVE], capture_output=True, text=True).stdout.split()
+    return [mac / f for f in tracked if f not in SKIP] + [mac.parent / n for n in ('AGENTS.md', 'CLAUDE.md') if (mac.parent / n).exists()]
+
+
+def hits(files, dead):
+    found = []
+    for f in files:
+        try:
+            text = f.read_text(errors='ignore')
+        except (IsADirectoryError, FileNotFoundError):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            found += [f'{f}:{n}: {t}' for t in dead if t in line]
+    return found
+
+
+def decisions(status):
+    text = status.read_text()
+    start = text.find('## Decisions')
+    end = text.find('\n## ', start + 1)
+    return hashlib.sha256(text[start:end if end > 0 else None].encode()).hexdigest()
+
+
+def self_test():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d)
+        (p / 'a.md').write_text('run osc/env.sh first\n')
+        (p / 'b.md').write_text('see mac/recipe/env.sh\n')
+        assert hits([p / 'a.md', p / 'b.md'], ['osc/env.sh']) == [f'{p / "a.md"}:1: osc/env.sh']
+        (p / 'S.md').write_text('## Facts\nx\n## Decisions (JStar)\n- one\n## Open\ny\n')
+        h = decisions(p / 'S.md')
+        (p / 'S.md').write_text('## Facts\nchanged\n## Decisions (JStar)\n- one\n## Open\nz\n')
+        assert decisions(p / 'S.md') == h, 'only the Decisions section counts'
+        (p / 'S.md').write_text('## Facts\nx\n## Decisions (JStar)\n- two\n## Open\ny\n')
+        assert decisions(p / 'S.md') != h
+    print('doc-hygiene self-test passed')
+
+
+def main():
+    if '--self-test' in sys.argv:
+        return self_test()
+    if '--record' in sys.argv:
+        RECORD.parent.mkdir(parents=True, exist_ok=True)
+        RECORD.write_text(decisions(MAC / 'STATUS.md') + '\n')
+        return print(f'recorded the audited Decisions in {RECORD}')
+    if '--due' in sys.argv:
+        last = RECORD.read_text().strip() if RECORD.exists() else ''
+        if last != decisions(MAC / 'STATUS.md'):
+            print('Note: STATUS.md Decisions changed since the last /supcom-docs:doc-audit; run it before this thread retires.')
+        return
+    found = hits(live_files(MAC), terms(MAC / 'agents/dead-terms.txt'))
+    for line in found:
+        print(f'dead term: {line}')
+    sys.exit(1 if found else 0)
+
+
+main()
