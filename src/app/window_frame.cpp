@@ -66,7 +66,34 @@ bool App::Window::frame() {
     return true;
 }
 
+void App::Window::pace_frame() {
+    if (!frame_cap) return;
+    if (frame_cap->update(frame_cap->relative() ? renderer.refresh_rate() : 0)) {
+        frame_limiter.set_fps(frame_cap->fps());
+        const std::string cap =
+            frame_cap->fps() > 0 ? fmt::format("{:.1f}", frame_cap->fps()) : "none";
+        if (frame_cap->relative()) {
+            spdlog::info("Frame cap {} (display {:g} Hz - {:g})", cap, frame_cap->refresh_hz(),
+                         -frame_cap->setting());
+        } else if (frame_cap->fps() > 0) {
+            spdlog::info("Frame cap {}", cap);
+        } else {
+            spdlog::info("Frame cap none (setting {:g}, lowest {:g})", frame_cap->setting(),
+                         osc::core::FrameCap::kMinFps);
+        }
+    }
+    using Clock = osc::core::FrameLimiter::Clock;
+    osc::core::wait_until(frame_limiter.next(Clock::now()));
+    const auto start = Clock::now();
+    if (frame_start) {
+        frame_intervals.add(
+            std::chrono::duration<double, std::milli>(start - *frame_start).count());
+    }
+    frame_start = start;
+}
+
 double App::Window::begin_frame() {
+    pace_frame();
     osc::Profiler::instance().begin_frame();
     // A resized window: the UI's root frame follows it (M217h)
     if (renderer.take_resized()) {

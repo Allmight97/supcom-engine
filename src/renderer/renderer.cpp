@@ -13,6 +13,7 @@ extern "C" {
 #include "vfs/virtual_file_system.hpp"
 #include "renderer/dds_parser.hpp"
 #include "platform/native_fullscreen.hpp"
+#include "platform/screen_refresh.hpp"
 #include "platform/paths.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pipeline_builder.hpp"
@@ -3887,11 +3888,9 @@ void Renderer::refresh_ui_scale() {
     ui_scale_ = core::content_scale(ww, fw) * ui_zoom_;
 }
 
-void Renderer::set_fullscreen(u32 width, u32 height, u32 rate,
-                              std::optional<core::DisplayArea> last_window) {
-    if (!window_) return;
-    int count = 0;
-    GLFWmonitor** monitors = glfwGetMonitors(&count);
+namespace {
+
+std::vector<core::DisplayArea> display_areas(GLFWmonitor** monitors, int count) {
     std::vector<core::DisplayArea> displays(static_cast<size_t>(count));
     for (int i = 0; i < count; ++i) {
         core::DisplayArea& d = displays[static_cast<size_t>(i)];
@@ -3901,7 +3900,37 @@ void Renderer::set_fullscreen(u32 width, u32 height, u32 rate,
             d.height = mode->height;
         }
     }
-    const size_t target = core::display_at(displays, last_window);
+    return displays;
+}
+
+} // namespace
+
+double Renderer::refresh_rate() const {
+    if (!window_) return 0;
+#ifdef __APPLE__
+    // GLFW rounds the rate; AppKit has the screen's own
+    return platform::screen_refresh_rate(window_);
+#else
+    // shortcut: Wayland reports no window position, so this is the primary
+    // display's rate there; ask the window's output when a Wayland player needs it
+    int count = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&count);
+    if (count == 0) return 0;
+    core::DisplayArea window;
+    glfwGetWindowPos(window_, &window.x, &window.y);
+    glfwGetWindowSize(window_, &window.width, &window.height);
+    const GLFWvidmode* mode =
+        glfwGetVideoMode(monitors[core::display_at(display_areas(monitors, count), window)]);
+    return mode ? mode->refreshRate : 0;
+#endif
+}
+
+void Renderer::set_fullscreen(u32 width, u32 height, u32 rate,
+                              std::optional<core::DisplayArea> last_window) {
+    if (!window_) return;
+    int count = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&count);
+    const size_t target = core::display_at(display_areas(monitors, count), last_window);
     if constexpr (core::kNativeFullscreen) {
         // macOS fills the screen holding most of the window: unless it lies
         // inside the target, fit it there first

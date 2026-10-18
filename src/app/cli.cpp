@@ -10,6 +10,7 @@
 #include "platform/game_install.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -61,6 +62,9 @@ void print_usage() {
               << "                     at the capture's size, its pixels s times it\n"
               << "  --ui-scale <f>     Zoom FA's UI by f (0.5 to 4) on top of the display's\n"
               << "                     scale; FAF's own UI Scale does the same, so use one\n"
+              << "  --fps-cap <n>      Cap the frame rate at n per second; negative: that many\n"
+              << "                     below the display's refresh rate (-2 on 120 Hz: 118);\n"
+              << "                     0 none. Default: the fps_cap option in Game.prefs\n"
               << "  --legacy-hud       Draw the C++ HUD placeholders over FA's game interface\n"
               << "  --prefs <path>     Game.prefs to use (default: the user's config dir;\n"
               << "                     tests and captures keep preferences in memory)\n"
@@ -304,6 +308,17 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
         std::strtoul(parse_string_arg(argc, argv, "--render-frames", "600").c_str(), nullptr, 10));
     o.render_warmup = static_cast<u32>(
         std::strtoul(parse_string_arg(argc, argv, "--render-warmup", "120").c_str(), nullptr, 10));
+    if (const auto cap = parse_string_arg(argc, argv, "--fps-cap", ""); !cap.empty()) {
+        char* end = nullptr;
+        const double v = std::strtod(cap.c_str(), &end);
+        if (end == cap.c_str() || *end != '\0' || !std::isfinite(v)) {
+            spdlog::error("--fps-cap {}: give frames per second, or a negative number for that "
+                          "many below the display's refresh rate",
+                          cap);
+            return std::nullopt;
+        }
+        o.fps_cap = v;
+    }
     // Scripted runs of the windowed loop: offscreen, silent, fixed clock.
     // --watch <file>: open a replay in the game, as the replay dialog does.
     // --replay-flow-test: the dialog's own path (the first replay

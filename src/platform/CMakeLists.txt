@@ -28,7 +28,7 @@ target_include_directories(osc_platform SYSTEM PRIVATE ${OSC_PFD_INCLUDE_DIR})
 
 if(APPLE)
     enable_language(OBJCXX)
-    target_sources(osc_platform PRIVATE native_fullscreen.mm)
+    target_sources(osc_platform PRIVATE native_fullscreen.mm screen_refresh.mm)
     target_link_libraries(osc_platform PRIVATE glfw "-framework AppKit")
 endif()
 

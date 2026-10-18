@@ -15,6 +15,7 @@
 #include "app/ui_clicks.hpp"
 #include "app/window_mode.hpp"
 #include "app/world_sounds.hpp"
+#include "core/frame_limiter.hpp"
 #include "core/frame_times.hpp"
 #include "lua/factory_queue.hpp"
 #include "renderer/input_handler.hpp"
@@ -66,6 +67,7 @@ private:
     /// The profiler's frame, a resized root frame, and this frame's time.
     double begin_frame();
     bool fixed_step() const;
+    void pace_frame();
     /// The camera as the sound's listener.
     void update_audio(double dt);
     /// The world's sounds for this frame: the ticks' one-shots and the
@@ -199,6 +201,13 @@ private:
     osc::renderer::CommandMode current_command_mode;
     bool ghost_from_mode = false;
     std::chrono::high_resolution_clock::time_point prev_time;
+    /// --fps-cap or the fps_cap option, when either sets one: each frame
+    /// starts no sooner than the cap allows (pace_frame), and the frames'
+    /// intervals are logged at the end.
+    std::optional<osc::core::FrameCap> frame_cap;
+    osc::core::FrameLimiter frame_limiter;
+    osc::core::FrameIntervals frame_intervals;
+    std::optional<osc::core::FrameLimiter::Clock::time_point> frame_start;
     double title_update_timer = 0.0;
     double fps_accum = 0.0;
     int fps_frames = 0;
