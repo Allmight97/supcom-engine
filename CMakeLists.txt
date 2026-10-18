@@ -56,6 +56,35 @@ target_link_libraries(opensupcom PRIVATE osc::warnings osc::app)
 # Export symbols from the executable so crash backtraces show function names.
 set_target_properties(opensupcom PROPERTIES ENABLE_EXPORTS ON)
 
+# macOS: the SDK's Vulkan loader beside the game and both of its drivers in
+# vulkan/icd.d/, the loader's first search place (the executable's folder), so
+# the game runs with no Vulkan environment
+if(APPLE)
+    get_filename_component(_osc_vulkan_loader_file "$ENV{VULKAN_SDK}/lib/libvulkan.1.dylib"
+                           REALPATH)
+    set(OSC_VULKAN_DRIVERS
+        "$ENV{VULKAN_SDK}/lib/libvulkan_kosmickrisp.dylib"
+        "$ENV{VULKAN_SDK}/lib/libMoltenVK.dylib"
+        "${CMAKE_SOURCE_DIR}/packaging/macos/icd.d/libkosmickrisp_icd.json"
+        "${CMAKE_SOURCE_DIR}/packaging/macos/icd.d/MoltenVK_icd.json")
+    set(_osc_vulkan_copies "${CMAKE_BINARY_DIR}/libvulkan.1.dylib")
+    add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/libvulkan.1.dylib"
+        COMMAND ${CMAKE_COMMAND} -E copy "${_osc_vulkan_loader_file}"
+                "${CMAKE_BINARY_DIR}/libvulkan.1.dylib"
+        DEPENDS "${_osc_vulkan_loader_file}" VERBATIM)
+    foreach(_osc_file IN LISTS OSC_VULKAN_DRIVERS)
+        get_filename_component(_osc_name "${_osc_file}" NAME)
+        set(_osc_copy "${CMAKE_BINARY_DIR}/vulkan/icd.d/${_osc_name}")
+        add_custom_command(OUTPUT "${_osc_copy}"
+            COMMAND ${CMAKE_COMMAND} -E copy "${_osc_file}" "${_osc_copy}"
+            DEPENDS "${_osc_file}" VERBATIM)
+        list(APPEND _osc_vulkan_copies "${_osc_copy}")
+    endforeach()
+    add_custom_target(opensupcom_vulkan_runtime ALL DEPENDS ${_osc_vulkan_copies})
+    add_dependencies(opensupcom opensupcom_vulkan_runtime)
+    set_target_properties(opensupcom PROPERTIES BUILD_RPATH "@loader_path")
+endif()
+
 # A self-contained game for the Linux packages (M227b): the C++ runtime
 # linked in, so a player's system needs only glibc and the Vulkan loader.
 # (Windows ships the Visual C++ runtime's DLLs beside the game instead.)
@@ -92,6 +121,7 @@ if(APPLE)
             PRE_EXCLUDE_REGEXES "^/usr/lib/" "^/System/"
             POST_EXCLUDE_REGEXES "^/usr/lib/" "^/System/"
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(FILES ${OSC_VULKAN_DRIVERS} DESTINATION ${OSC_INSTALL_BINDIR}/vulkan/icd.d)
 endif()
 if(COMMAND x_vcpkg_install_local_dependencies) # the vcpkg toolchain's; Windows only
     x_vcpkg_install_local_dependencies(TARGETS opensupcom DESTINATION ${OSC_INSTALL_BINDIR})
