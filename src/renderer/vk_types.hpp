@@ -5,8 +5,12 @@
 
 #include <deque>
 #include <functional>
+#include <string>
 
 namespace osc::renderer {
+
+std::string vulkan_runtime_description(uint32_t loader_version,
+                                       const VkPhysicalDeviceDriverProperties& driver);
 
 struct AllocatedBuffer {
     VkBuffer buffer = VK_NULL_HANDLE;

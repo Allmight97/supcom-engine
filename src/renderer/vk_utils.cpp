@@ -6,6 +6,16 @@
 
 namespace osc::renderer {
 
+std::string vulkan_runtime_description(uint32_t loader_version,
+                                       const VkPhysicalDeviceDriverProperties& driver) {
+    return fmt::format("Vulkan loader {}.{}.{}, driver {} ({}), driverID {}",
+                       VK_API_VERSION_MAJOR(loader_version), VK_API_VERSION_MINOR(loader_version),
+                       VK_API_VERSION_PATCH(loader_version),
+                       driver.driverName[0] ? driver.driverName : "unavailable",
+                       driver.driverInfo[0] ? driver.driverInfo : "unavailable",
+                       static_cast<int>(driver.driverID));
+}
+
 AllocatedBuffer upload_buffer(VkDevice device, VmaAllocator allocator,
                               VkCommandPool cmd_pool, VkQueue queue,
                               const void* data, VkDeviceSize size,

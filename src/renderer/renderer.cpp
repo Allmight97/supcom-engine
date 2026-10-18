@@ -352,6 +352,31 @@ bool Renderer::create_logical_device(const vkb::Instance& vkb_inst) {
     spdlog::info("Vulkan GPU: {}", vkb_phys.name);
     device_name_ = vkb_phys.name;
 
+    uint32_t loader_version = VK_API_VERSION_1_0;
+    auto enumerate_version = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
+    if (enumerate_version && enumerate_version(&loader_version) != VK_SUCCESS) {
+        spdlog::error("Failed to query Vulkan loader version");
+        return false;
+    }
+    VkPhysicalDeviceDriverProperties driver{};
+    driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+    VkPhysicalDeviceProperties2 properties{};
+    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    properties.pNext = &driver;
+    // vk-bootstrap enables properties2 on our Vulkan 1.0 instance when available.
+    // Keep older drivers working even when they cannot report driver properties.
+    auto get_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2KHR>(
+        vkGetInstanceProcAddr(instance_, "vkGetPhysicalDeviceProperties2KHR"));
+    const auto extensions = vkb_phys.get_available_extensions();
+    if (get_properties &&
+        (vkb_phys.properties.apiVersion >= VK_API_VERSION_1_2 ||
+         std::find(extensions.begin(), extensions.end(), VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME) !=
+             extensions.end())) {
+        get_properties(physical_device_, &properties);
+    }
+    spdlog::info("{}", vulkan_runtime_description(loader_version, driver));
+
     // Pipeline statistics, where the device has them: the render benchmark's
     // primitive and shader counts (M223b).
     VkPhysicalDeviceFeatures optional_features{};

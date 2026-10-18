@@ -7,6 +7,7 @@ add_executable(osc_tests
     test_first_run.cpp
     test_scripted_mouse.cpp
     test_logs.cpp
+    test_vulkan_runtime.cpp
     test_bench.cpp
     test_render_bench.cpp
     test_lua_gc.cpp
