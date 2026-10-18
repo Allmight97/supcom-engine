@@ -13,6 +13,8 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   the SDK loader, bundled drivers, full screen on the main display and an FPS cap
   (work/logs/overnight-2026-10-18.md), and this toolkit in `mac/`. Built arm64
   RelWithDebInfo with `mac/recipe/build.sh`; ships the loader and both drivers in `build/play`.
+  After the move (2026-10-18): unit tests pass, `ctest -L mp` 4/4, `ctest -L gate` 269/269,
+  smoke and render check pass ([consolidation log](log/2026-10-18-consolidation.md)).
 - Mac driver: KosmicKrisp, SDK 1.4.363.0 installed locally in
   `mac/work/vulkan-sdk/1.4.363.0/`, selected by `mac/recipe/env.sh`. The game loads
   `libvulkan_kosmickrisp.dylib` (loader debug, `mac/work/logs/metal4/driver-proof.stderr`).
@@ -93,5 +95,4 @@ apart, so FAF addresses never apply directly.
 
 Track detail goes in the session's log.
 
-- **consolidation** (owns the checkout, 2026-10-18): moves the toolkit into `mac/`;
-  ends when the toolkit branch is merged into main and pushed.
+None: the checkout is free.
