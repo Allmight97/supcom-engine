@@ -10,6 +10,17 @@ find_package(ZLIB REQUIRED)
 find_package(unofficial-minizip CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
+if(APPLE)
+    if("$ENV{VULKAN_SDK}" STREQUAL "")
+        message(FATAL_ERROR "macOS requires VULKAN_SDK pointing to the LunarG Vulkan SDK")
+    endif()
+    set(_osc_vulkan_loader "$ENV{VULKAN_SDK}/lib/libvulkan.dylib")
+    if(NOT EXISTS "${_osc_vulkan_loader}")
+        message(FATAL_ERROR "VULKAN_SDK lacks the Vulkan loader: ${_osc_vulkan_loader}")
+    endif()
+    # Pin the linked loader even when reconfiguring a former vcpkg build.
+    set(Vulkan_LIBRARY "${_osc_vulkan_loader}" CACHE FILEPATH "Vulkan loader" FORCE)
+endif()
 find_package(Vulkan REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
@@ -67,7 +78,7 @@ else()
 endif()
 # (ENABLE_EXPORTS gives the game an import library on Windows: not shipped)
 if(APPLE)
-    # vcpkg's dylibs (the Vulkan loader) go into lib/, where the installed game
+    # Linked dylibs (including the SDK's Vulkan loader) go into lib/, where the installed game
     # looks for them by @rpath
     set(OSC_RUNTIME_DEPENDENCIES RUNTIME_DEPENDENCY_SET opensupcom_dylibs)
     set_target_properties(opensupcom PROPERTIES

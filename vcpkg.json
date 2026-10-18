@@ -12,6 +12,7 @@
     "vulkan-headers",
     {
       "name": "vulkan-loader",
+      "platform": "!osx",
       "features": [
         {
           "name": "xlib",
@@ -41,7 +42,10 @@
     "vulkan-validation": {
       "description": "Khronos Vulkan validation layer for debug builds (loaded via VK_ADD_LAYER_PATH)",
       "dependencies": [
-        "vulkan-validationlayers"
+        {
+          "name": "vulkan-validationlayers",
+          "platform": "!osx"
+        }
       ]
     }
   }
