@@ -59,6 +59,7 @@ add_executable(osc_tests
     test_entity_health.cpp
     test_entity_lifetime.cpp
     test_fixed_step.cpp
+    test_frame_limiter.cpp
     test_frame_times.cpp
     test_interpolation.cpp
     test_ordered_iteration.cpp

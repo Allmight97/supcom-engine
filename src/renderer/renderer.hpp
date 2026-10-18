@@ -490,6 +490,8 @@ public:
     void set_windowed(u32 width, u32 height, std::optional<std::array<i32, 2>> position,
                       bool maximized);
     bool fullscreen() const;
+    /// The refresh rate of the display the window is on, in Hz; 0 unknown.
+    double refresh_rate() const;
     /// The primary display's modes (width, height, refresh), as it lists them.
     std::vector<std::array<u32, 3>> display_modes() const;
     /// The window's place and size while windowed (Moho's Windows.Main.*);

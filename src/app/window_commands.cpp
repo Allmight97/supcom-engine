@@ -114,6 +114,11 @@ bool vsync_option(const core::Preferences& prefs) {
     return key.empty() || prefs.get_int(key, 1) == 1;
 }
 
+double fps_cap_option(const core::Preferences& prefs) {
+    const std::string key = option_key(prefs, "fps_cap");
+    return key.empty() ? 0.0 : prefs.get_float(key, 0.0f);
+}
+
 WindowMode open_window(renderer::Renderer& r, const std::vector<std::string>& args,
                        const core::Preferences& prefs) {
     const WindowPrefs w = read_window_prefs(prefs);

@@ -81,6 +81,9 @@ struct Options {
     std::string render_scene = "battle";
     u32 render_frames = 600;
     u32 render_warmup = 120;
+    /// --fps-cap <n>: frames per second, or (negative) that far below the
+    /// display's refresh rate; 0 none. Unset: the fps_cap option.
+    std::optional<double> fps_cap;
     std::string watch_path; ///< --watch
     bool replay_flow_test = false;
     bool load_flow_test = false;

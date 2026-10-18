@@ -32,6 +32,9 @@ WindowPrefs read_window_prefs(const core::Preferences& prefs);
 /// The vsync option (the current profile's, else on).
 bool vsync_option(const core::Preferences& prefs);
 
+/// The fps_cap option (the current profile's, else none: 0), as --fps-cap.
+double fps_cap_option(const core::Preferences& prefs);
+
 /// Open `r`'s window as CScApp does (the command line, else the options),
 /// with the vsync option. Returns the mode it chose.
 WindowMode open_window(renderer::Renderer& r, const std::vector<std::string>& args,
