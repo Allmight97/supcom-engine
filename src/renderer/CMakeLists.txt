@@ -85,13 +85,14 @@ target_link_libraries(osc_renderer
 
 target_link_libraries(osc_renderer PRIVATE osc::warnings)
 
-# Debug builds point the Vulkan loader at the vcpkg-built validation layer
-# (manifest feature "vulkan-validation"), so validation works without a
-# system-wide SDK. Absent the feature, a system-installed layer is used.
-if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+# Debug builds use the SDK's validation layer on macOS and vcpkg's optional
+# "vulkan-validation" feature elsewhere, then try system-installed layers.
+if(APPLE)
+    set(_osc_vvl_dir "$ENV{VULKAN_SDK}/share/vulkan/explicit_layer.d")
+elseif(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
     set(_osc_vvl_dir "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/vulkan/explicit_layer.d")
-    if(EXISTS "${_osc_vvl_dir}/VkLayer_khronos_validation.json")
-        target_compile_definitions(osc_renderer PRIVATE
-            OSC_VULKAN_LAYER_PATH="${_osc_vvl_dir}")
-    endif()
+endif()
+if(EXISTS "${_osc_vvl_dir}/VkLayer_khronos_validation.json")
+    target_compile_definitions(osc_renderer PRIVATE
+        OSC_VULKAN_LAYER_PATH="${_osc_vvl_dir}")
 endif()
