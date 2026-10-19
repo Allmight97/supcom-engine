@@ -630,6 +630,10 @@ void test_effect_meshes(TestContext& ctx) {
             dome_draws += r.mesh_draws(MeshTechnique::NukeUEF);
             if (dump) write_png(fmt::format("{}_nuke_t{}.png", dump, i), image);
         }
+        // Close in on its side: its centre is out of view, its surface fills it.
+        const ImageRGBA8 side = frame(dome_x + 25.0f, dome_z, map::ScmapLighting{}, 30.0f);
+        const u32 side_draws = r.mesh_draws(MeshTechnique::NukeUEF);
+        if (dump) write_png(fmt::format("{}_nuke_side.png", dump), side);
         const MeshTechnique seen =
             dome_bp.empty() ? MeshTechnique::Unit : r.mesh_technique(dome_bp, ctx.L);
         t.check(seen == MeshTechnique::NukeUEF && dome_draws > 0,
@@ -641,6 +645,10 @@ void test_effect_meshes(TestContext& ctx) {
         t.check(std::abs(growth - 0.3f) < 0.01f,
                 fmt::format("Test 12: the dome grows {} UniformScale a second (0.3 expected)",
                             growth));
+        t.check(side_draws > 0,
+                fmt::format(
+                    "Test 12: seen from close by its side, the dome draws ({} NukeUEF draws)",
+                    side_draws));
     }
 
     spdlog::info("Effect mesh test: {}/{} passed", t.pass, t.pass + t.fail);
