@@ -34,7 +34,7 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
 - Defects still open (2026-10-17 play test, [notes](notes/play-test-2026-10-17.md)):
   anti-aliasing unavailable (single-sample renderer); one Lua warning, `terranunits.lua:517`
   (#4: cause traced, not fixed). The nuke's opaque sphere (#3) is fixed offscreen
-  (`--effect-mesh-test`); its look against the original is unchecked. Seven mesh shader
+  (`--effect-mesh-test`); against the original it differs: a white-hot dome in the original, an orange banded fireball in OSC ([nuke reference log](log/2026-10-18-nuke-reference.md)). Seven mesh shader
   names still draw as opaque units (`docs/current-state.md`, M211o).
 - Agent soaks (2026-10-18, headless, 8 AIs): 0 Lua errors; late-game sim 93 ms per tick of
   100; unverified: script threads 7,614 to 24,929 from minute 30 to 60, no unit gains

@@ -479,10 +479,11 @@ before the snap; a shot without `pos` keeps the game's current camera.
 `shots/ui.lua` frames the bottom bar and the selected ACU with its build bar,
 `shots/hud.lua` uses the default camera, `shots/faction-acu.lua` frames army
 1's ACU. SETTINGS lines end with the user-side `GameTime` in seconds. A shot's
-`sim = { action = 'move'|'build', dx, dz, blueprint }` orders army 1's ACU
-through `SimCallback` (a `SimCallbacks.lua` hook), and `resume = S` runs the
+`sim = { action = 'move'|'build'|'kill', dx, dz, blueprint }` orders army 1's ACU
+through `SimCallback` (a `SimCallbacks.lua` hook; `kill` kills it at once), and `resume = S` runs the
 game S seconds before the shot (`shots/hud-move.lua`,
-`shots/build-progress.lua`). The sim hook logs each ACU's pose and
+`shots/build-progress.lua`, `shots/nuke.lua`: the UEF ACU's death nuke, captured with
+`GAME_RUN_WINDOW="1600 900"` to match OSC). The sim hook logs each ACU's pose and
 `REFSHOT|BUILD|tick|army|entity|blueprint|fraction` every tick. `/refclean` hides the
 overlays `HideGameUI` leaves: range rings (`ren_Ranges false`), icons
 (`ui_RenderIcons false`), the faction map-border panels (`ren_MapBorderClear`),
@@ -496,6 +497,16 @@ top-level `RefConsole` list and per-shot `console` lists of console commands,
 run in order and kept for later shots. No mouse or keyboard; the
 window may sit on another Space (`winid --all` finds it). Log:
 `mac/work/traces/ref-SET.log`.
+
+`mac/tools/ref-shot/osc-shot SET NAME FRAME MAP [REF ARGS]` renders the same shot
+in OSC: an init file mounts the same hooks, OSC runs `--map` offscreen at
+1600x900 and saves frame FRAME as `mac/work/logs/screens/osc-SET-NAME.png` (log
+`mac/work/traces/osc-SET-NAME.log`). The hook's waits run on OSC's fixed frame
+clock, so a shot keeps its frame; the script fails unless the log puts the frame
+after `REFSHOT|READY|NAME` and before the next shot. It runs
+`build/play/opensupcom` from `OSC_ROOT` (default the checkout above `mac/`). In
+OSC, `HideGameUI` leaves the HUD up and `/refclean` leaves some icons: compare with
+`--region`. `shots/nuke.lua` lists its frames.
 
 ### Unit motion and threat capture of the original
 
