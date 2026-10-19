@@ -2,13 +2,15 @@
 """Compare unit motion of our sim with a capture of the original.
 
 Usage: motion_compare.py ORIGINAL.log OURS.log [--max-drift ID=LIMIT]... > report.md
+       motion_compare.py --self-test
 
 Both logs hold `MOTION tick id blueprint army x y z heading layer moving` lines (mac/tools/sim-capture for the
 original, an OpenSupCom log in the same format for ours, none yet; other lines and a leading "info: " are ignored). Units are matched by
 entity id and blueprint (the original reuses ids). The report gives, per blueprint, the speed, acceleration and turn rate each run shows, and per unit how
 far its path drifts from the original's. AI choices make the games diverge after a while, so the per-blueprint
 movement figures are the main comparison. Each --max-drift fails the run (exit 1) when the unit with that entity id
-is missing from either log or its worst drift exceeds LIMIT world units.
+is missing from either log or its worst drift exceeds LIMIT world units. The run also fails when the two logs
+share no unit sample.
 """
 import collections
 import math
@@ -69,6 +71,8 @@ def summary(values, moving_only=False):
 
 def main():
     arguments = sys.argv[1:]
+    if arguments == ['--self-test']:
+        return self_test()
     limits = {}
     while '--max-drift' in arguments:
         at = arguments.index('--max-drift')
@@ -78,6 +82,8 @@ def main():
     if len(arguments) != 2:
         sys.exit(__doc__)
     original, ours = load(arguments[0]), load(arguments[1])  # keyed by id/blueprint: the original reuses ids
+    if not any(set(original[e]) & set(ours[e]) for e in set(original) & set(ours)):
+        sys.exit('FAIL no unit has samples in both logs; nothing to compare')
     print('# Unit motion: original vs ours\n')
     shared = sorted(set(original) & set(ours), key=lambda e: (int(e.split('/')[0]), e))
     print(f'- Units: original {len(original)}, ours {len(ours)}, same id in both {len(shared)}')
@@ -132,6 +138,29 @@ def main():
         print(f'FAIL {line}', file=sys.stderr)
     if failed:
         sys.exit(1)
+
+
+M1 = "MOTION 5 1 uel0001 1 0 0 0 0 Land 1\n"
+M2 = "MOTION 5 2 uel0002 1 0 0 0 0 Land 1\n"
+
+
+def self_test():
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        def run(a, b):
+            for name, text in (('a.log', a), ('b.log', b)):
+                with open(f'{tmp}/{name}', 'w') as f:
+                    f.write(text)
+            return subprocess.run([sys.executable, '-I', __file__, f'{tmp}/a.log', f'{tmp}/b.log'],
+                                  capture_output=True, text=True)
+        empty = run('', '')
+        assert empty.returncode == 1 and len(empty.stderr.splitlines()) == 1, empty
+        disjoint = run(M1, M2)
+        assert disjoint.returncode == 1 and len(disjoint.stderr.splitlines()) == 1, disjoint
+        same = run(M1, M1)
+        assert same.returncode == 0, same
+    print('motion_compare self-test ok')
 
 
 if __name__ == '__main__':

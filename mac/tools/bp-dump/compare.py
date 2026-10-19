@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Compare two blueprint dumps (tools/bp-dump): the original's and our engine's.
 
-Usage: compare.py ORIGINAL.log OURS.log [--paths]
+Usage: compare.py ORIGINAL.log OURS.log
+       compare.py --self-test
 
 Reports blueprints only one side has, and per field path (list indices shown as [*]) how often the original has
 a value we lack ("added"), we have a value the original lacks ("removed"), or the values differ ("changed"), with
-the most common original values. The original merges its C++ blueprint defaults into every spec, so "added"
+the most common original values. Fails when the dumps share no blueprint. The original merges its C++ blueprint defaults into every spec, so "added"
 fields with one constant value are those defaults.
 """
 import argparse
@@ -118,6 +119,8 @@ def kind(key):
 
 
 def main():
+    if sys.argv[1:] == ['--self-test']:
+        return self_test()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('original')
     parser.add_argument('ours')
@@ -125,6 +128,8 @@ def main():
     original, ours = entries(args.original), entries(args.ours)
     only_original = sorted(set(original) - set(ours))
     only_ours = sorted(set(ours) - set(original))
+    if not set(original) & set(ours):
+        sys.exit('FAIL no blueprint is in both dumps; nothing to compare')
     print(f'# Blueprint dump comparison\n\n- Original: {len(original)} blueprints; ours: {len(ours)}')
     print(f'- Only the original: {len(only_original)} {only_original[:10]}')
     by_kind = collections.Counter(kind(k) for k in only_ours)
@@ -170,6 +175,29 @@ def main():
         if e['changed']:
             total = sum(e['changed'].values())
             print(f'- `{p}`: {total}, e.g. {e["changed"].most_common(2)}')
+
+
+B1 = "BPDUMP|uel0001|{a=1}\n"
+B2 = "BPDUMP|uel0002|{a=1}\n"
+
+
+def self_test():
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        def run(a, b):
+            for name, text in (('a.log', a), ('b.log', b)):
+                with open(f'{tmp}/{name}', 'w') as f:
+                    f.write(text)
+            return subprocess.run([sys.executable, '-I', __file__, f'{tmp}/a.log', f'{tmp}/b.log'],
+                                  capture_output=True, text=True)
+        empty = run('', '')
+        assert empty.returncode == 1 and len(empty.stderr.splitlines()) == 1, empty
+        disjoint = run(B1, B2)
+        assert disjoint.returncode == 1 and len(disjoint.stderr.splitlines()) == 1, disjoint
+        same = run(B1, B1)
+        assert same.returncode == 0, same
+    print('compare.py self-test ok')
 
 
 if __name__ == '__main__':

@@ -13,7 +13,9 @@
 #                                                sets GAME_RUN_SHOT_FAILED on a failed capture
 #   game_run_prefs FILE                          use FILE as Game.prefs for this run (call before
 #                                                game_run_start); the original is restored on exit
-# A run that fails leaves only LOG.partial, so LOG always means a finished run. game_run_start also:
+# A run that fails leaves only LOG.partial, so LOG always means a finished run. game_run_start refuses to
+# start when LOG exists (a capture of the original cannot be redone: pick a new name); it replaces a leftover
+# LOG.partial. It also:
 #   - takes the bottle lock (mac/work/bottle.lock) before Game.prefs is touched, and an original-game run refuses
 #     when active_mods names a mod the original would load (its Documents mods folder or gamedata/mods.scd);
 #   - copies mac/tools/ and mac/agents/faf-autorun to mac/work/capture-run/NAME/ and runs the hooks from there, so editing
@@ -22,8 +24,24 @@
 #     unit type, a loaded hook without HOOKCHECK within 90 s, or a missed checkpoint (GAME_RUN_CHECKPOINTS,
 #     "TEXT@TICK" separated by ";"; GAME_RUN_ALLOW lists tolerated error texts separated by ";").
 # game_run_finish writes LOG's setup manifest, NAME.setup (capture.py setup).
+# Progress goes to stderr: "game-run: PHASE" when a wait step starts, and every 10 minutes of waiting a line with
+# the elapsed time and the game's CPU percent and resident memory.
 
 GAME_RUN_PREFS="$HOME/Library/Application Support/CrossOver/Bottles/${FAF_BOTTLE:-SupCom}/drive_c/users/crossover/AppData/Local/Gas Powered Games/Supreme Commander Forged Alliance/Game.prefs"
+
+game_run_phase() {
+    echo "game-run: $1" >&2
+    GAME_RUN_BEAT_AT=$(date +%s)
+}
+
+game_run_beat() {
+    now=$(date +%s)
+    [ $((now - GAME_RUN_BEAT_AT)) -ge 600 ] || return 0
+    GAME_RUN_BEAT_AT=$now
+    pid=$(pgrep -f "$GAME_RUN_PATTERN" | head -1)
+    stats=$(ps -o %cpu=,rss= -p "${pid:-0}" 2>/dev/null | awk '{printf "CPU %s%%, memory %d MB", $1, $2 / 1024}')
+    echo "game-run: still waiting, $(( (now - GAME_RUN_T0) / 60 )) min elapsed${stats:+, $stats}" >&2
+}
 
 game_run_winpath() {
     case "$1" in /*) set -- "$1" ;; *) set -- "$PWD/$1" ;; esac
@@ -88,9 +106,11 @@ game_run_cleanup() {
 game_run_start() {
     kind=$1 init=$2 GAME_RUN_LOG=$3
     shift 3
+    [ ! -e "$GAME_RUN_LOG" ] || { echo "game-run: $GAME_RUN_LOG already exists; a capture is never overwritten. Use a new name." >&2; exit 1; }
     GAME_RUN_PARTIAL="$GAME_RUN_LOG.partial"
     GAME_RUN_PATTERN="(SupremeCommander|ForgedAlliance)[.]exe.*[\\\\]$(basename "$GAME_RUN_PARTIAL" | sed 's/[.]/[.]/g')"
-    GAME_RUN_ARGS="$*" GAME_RUN_END=marker
+    GAME_RUN_ARGS="$*" GAME_RUN_END=marker GAME_RUN_T0=$(date +%s)
+    game_run_phase "starting $(basename "$GAME_RUN_LOG")"
     game_run_lock
     waited=0
     while pgrep -f '(SupremeCommander|ForgedAlliance)[.]exe' >/dev/null; do
@@ -107,7 +127,7 @@ game_run_start() {
     game_run_snapshot "$(basename "$GAME_RUN_LOG" .log)"
     case "$init" in /*) ;; *) init="$GAME_RUN_DIR/$init" ;; esac
     mkdir -p "$(dirname "$GAME_RUN_LOG")"
-    rm -f "$GAME_RUN_LOG" "$GAME_RUN_PARTIAL" "$GAME_RUN_DIR/preflight.json"
+    rm -f "$GAME_RUN_PARTIAL" "$GAME_RUN_DIR/preflight.json"
     root=$PWD
     case "$kind" in
         original)
@@ -124,8 +144,10 @@ game_run_start() {
 game_run_wait_marker() {
     text=$1 deadline=$(( $(date +%s) + $2 )) hook=${3:-}
     polls=0
+    game_run_phase "waiting for '$text'"
     until grep -qF "$text" "$GAME_RUN_PARTIAL" 2>/dev/null; do
         [ "$(date +%s)" -lt "$deadline" ] || { echo "No '$text' line after $2 s." >&2; exit 1; }
+        game_run_beat
         [ -z "$hook" ] || "$hook"
         polls=$((polls + 1))
         [ $((polls % 10)) -ne 0 ] || [ ! -f "$GAME_RUN_PARTIAL" ] || game_run_preflight
@@ -135,7 +157,9 @@ game_run_wait_marker() {
 
 game_run_wait_seconds() {
     deadline=$(( $(date +%s) + $1 ))
+    game_run_phase "running for $1 s"
     while [ "$(date +%s)" -lt "$deadline" ]; do
+        game_run_beat
         game_run_preflight
         sleep 5
     done
@@ -143,9 +167,11 @@ game_run_wait_seconds() {
 
 game_run_wait_exit() {
     deadline=$(( $(date +%s) + $1 ))
+    game_run_phase "waiting for the game to exit (limit $1 s)"
     sleep 5
     GAME_RUN_END=exit
     while pgrep -f "$GAME_RUN_PATTERN" >/dev/null; do
+        game_run_beat
         [ ! -f "$GAME_RUN_PARTIAL" ] || game_run_preflight
         if [ "$(date +%s)" -ge "$deadline" ]; then
             echo "game-run: still running after $1 s; stopping it" >&2
@@ -157,6 +183,7 @@ game_run_wait_exit() {
 }
 
 game_run_finish() {
+    game_run_phase "finishing"
     game_run_stop
     python3 -I tools/lib/capture.py setup "$GAME_RUN_PARTIAL" "$GAME_RUN_DIR" "$GAME_RUN_END" -- $GAME_RUN_ARGS >/dev/null
     mv "$GAME_RUN_PARTIAL" "$GAME_RUN_LOG"
