@@ -117,6 +117,9 @@ apart, so FAF addresses never apply directly.
   (JStar is its only author); Allmight97/SupCom is archived after the move.
 - Goal beyond the build: a faithful copy of the original that also runs FAF and its
   improvements; adapting FAF's open code is fine.
+- Design bugs away (2026-10-19): fix a bug's class at its source (a deep module, an enforced
+  boundary, a ratchet test) where it earns its keep; a plain patch only when unavoidable.
+- FAF is tracked apart from the engine roadmap, in fork issue #9.
 - Play (2026-10-18): JStar sets the frame rate in the game's Video options, not on the command line.
   `mac/scripts/play` passes no window or cap, keeps the Metal HUD on, and on macOS full screen at a
   60 Hz mode caps at 60 (merge a364666d). Video settings at the game's highest (Fidelity,
