@@ -81,6 +81,7 @@ void test_bloom(TestContext& ctx) {
     write_dds(dir / "albedo_10.dds", 1, flat(10, 10, 10, 255));
     write_dds(dir / "albedo_50.dds", 1, flat(50, 50, 50, 255));
     write_dds(dir / "albedo_128.dds", 1, flat(128, 128, 128, 255));
+    write_dds(dir / "albedo_255.dds", 1, flat(255, 255, 255, 255));
     write_dds(dir / "glow_full.dds", 1, flat(0, 0, 255, 0));
     write_dds(dir / "glow_fifth.dds", 1, flat(0, 0, 51, 0));
     write_dds(dir / "glow_none.dds", 1, flat(0, 0, 0, 0));
@@ -108,6 +109,9 @@ void test_bloom(TestContext& ctx) {
     // A build slice (AlphaFade, M211g), whole and just made.
     stand_plate(ctx, kRoot, "ueb0201", plate("albedo_10.dds", "glow_none.dds", "AlphaFade"), 250,
                 100, ground_y);
+    // White, glowing fully: twice its albedo.
+    stand_plate(ctx, kRoot, "ueb1101", plate("albedo_255.dds", "glow_full.dds"), 340, 100,
+                ground_y);
     // Half built, with the build shaders (M211f).
     for (const auto& [bp, shader, x] : {std::tuple{"ueb3101", "SeraphimBuild", 190.0f},
                                         std::tuple{"ueb3201", "UEFBuild", 220.0f}}) {
@@ -266,6 +270,30 @@ void test_bloom(TestContext& ctx) {
                 fmt::format("Test 7: under a light particle the bloom brightens a plate that "
                             "doesn't glow {:.2f} times ({:.2f} without the light)",
                             after, before));
+    }
+
+    // Test 8: FA's frame and bloom targets are 8-bit (A8R8G8B8: the GOG
+    // exe's CBloomRenderer::Init at 0x007F4D10 asks for GAL format 2, and its
+    // format table at 0x00D41E84 has no float format), so colour saturates at
+    // 1 at every write and the bloom reads nothing brighter. The frame holds
+    // nothing above 1: not a white plate glowing fully (twice its albedo), nor
+    // the light particle over the dull plate.
+    {
+        const auto brightest = [&](f32 x) {
+            (void)frame(x, 100.0f, 0.0f, 0.0f, false, true);
+            renderer::Renderer::SceneImage image;
+            r.request_scene_capture(
+                [&](renderer::Renderer::SceneImage captured) { image = std::move(captured); });
+            shots.redraw();
+            return image.rgba.empty() ? -1.0f
+                                      : *std::max_element(image.rgba.begin(), image.rgba.end());
+        };
+        const f32 plate = brightest(340.0f);
+        const f32 light = brightest(160.0f);
+        t.check(plate >= 0.99f && plate <= 1.0f && light >= 0.0f && light <= 1.0f,
+                fmt::format("Test 8: the frame's brightest value is {:.3f} at a white plate "
+                            "glowing fully, {:.3f} under the light particle (1 at most)",
+                            plate, light));
     }
 
     r.set_bloom_enabled(false);
