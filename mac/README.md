@@ -7,7 +7,7 @@ mac/scripts/play --build             # rebuild the current branch first
 mac/scripts/play --full              # force full screen 2560x1440 (overrides the Video option)
 mac/scripts/play --no-hud            # without Apple's Metal HUD (fps and frame times)
 mac/scripts/play -- --fps-cap -2     # extra game args after --; a cap (-2 = refresh - 2, 0 = none)
-grep -m1 driver ~/.local/state/opensupcom/logs/opensupcom.log   # confirm: "driver KosmicKrisp"
+grep -m1 driver ~/Library/Application\ Support/opensupcom/logs/opensupcom.log   # confirm: "driver KosmicKrisp"
 # Nuke test: skirmish as UEF, victory "Sandbox", select your ACU, Ctrl-K.
 ```
 
@@ -52,7 +52,7 @@ checkout root (`~/Projects/OpenSupCom`).
 | `mac/scripts/check` | The toolkit's own checks (required before every commit that touches `mac/`) |
 | `mac/scripts/setup` | Install the commit and push guards and the Claude settings (after a clone or a hook change) |
 
-The game's log is `~/.local/state/opensupcom/logs/opensupcom.log`.
+The game's log is `~/Library/Application Support/opensupcom/logs/opensupcom.log` (settings stay in `~/.config/opensupcom` when that folder exists).
 
 ## Known issues
 

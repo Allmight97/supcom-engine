@@ -29,7 +29,7 @@ main() {
     fi
     local behind; behind=$("$recipe/../scripts/upstream-news" --behind 2>/dev/null)
     [ "${behind:-0}" -gt 0 ] && echo "Note: $behind upstream commits are not in main; see mac/scripts/upstream-news." >&2
-    echo "OpenSupCom $(git rev-parse --short HEAD) on $(git branch --show-current); log: ~/.local/state/opensupcom/logs/opensupcom.log"
+    echo "OpenSupCom $(git rev-parse --short HEAD) on $(git branch --show-current); log: ~/Library/Application Support/opensupcom/logs/opensupcom.log"
     exec env "${env[@]}" build/play/opensupcom --fa-path "$OSC_FA_PATH" "${mode[@]}" "$@"
 }
 main "$@"

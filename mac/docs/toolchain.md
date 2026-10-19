@@ -25,7 +25,14 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   session start (a hook `mac/scripts/setup` writes); its `--markdown` form is the body of the
   fork's issue "Upstream Mac watch", rewritten daily by `.github/workflows/mac-upstream-watch.yml`.
   `/supcom-upstream:shape [topic]` has a Sonnet agent map those PRs against our commits before an
-  upstream PR is shaped. `mac/scripts/play` prints a one-line note
+  upstream PR is shaped.
+- `mac/scripts/sync-upstream`: merges upstream main into the fork on a sync branch (named in the script),
+  resolves conflicts in `docs/current-state.md`'s metric lines itself, stops on any other conflict
+  (resolve keeping both sides' intent, then `--resume`), builds, recomputes the metrics, runs the
+  unit tests, `ctest -L mp` and `-L gate` (rerunning failures once: network tests flake under load),
+  the smoke, the render check and the format ratchet, and prints the merge into main. It never pushes.
+  A sync that changes the sim stops older replays and saves from playing back: replay what you need
+  before syncing. `mac/scripts/play` prints a one-line note
   when `main` is behind upstream.
 - `mac/recipe/build.sh`: configures and builds `build/play` (Ninja, RelWithDebInfo,
   arm64, triplet `arm64-osx`) with the vcpkg overlay ports in
@@ -40,7 +47,7 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   macOS a full-screen mode's refresh below the display's (60 on a 120 Hz panel) caps the frame rate.
   The Metal HUD is on (`--no-hud` turns it off). `--full`/`--size` override the Video option, which
   then shows "Command Line Override"; `-- --fps-cap N` sets a cap (`-2`: 2 below the refresh rate).
-  The game log is `~/.local/state/opensupcom/logs/opensupcom.log`.
+  The game log is `~/Library/Application Support/opensupcom/logs/opensupcom.log` (upstream #746; settings stay in `~/.config/opensupcom` when it exists).
 - `mac/scripts/setup` (idempotent; `--check` reports differences and writes
   nothing) installs the guards outside the tree, so they also run on branches
   without `mac/`: it copies `mac/agents/githooks/` (`pre-commit`, `pre-push`) to
