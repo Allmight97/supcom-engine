@@ -5,6 +5,7 @@ These files decide what agents may run, so a silent mistake here disables a guar
   edit (`check` fails until then).
 - Every deny or ask pattern gets a refused case and an allowed lookalike in `mac/scripts/check`.
 - A hook fails closed: a payload it cannot read is refused.
-- After editing a plugin, bump its `plugin.json` version and run `claude plugin update NAME@supcom --scope local`;
+- After editing a plugin, bump its `plugin.json` version, then from this checkout uninstall and reinstall it
+  (`claude plugin uninstall|install NAME@supcom --scope local`; `update` can pick another worktree's install).
   `check` compares the installed copy with the source.
 - A command or skill holds judgement and names the script to run; a fixed sequence belongs in a script.

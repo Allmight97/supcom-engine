@@ -429,8 +429,8 @@ each plugin for this checkout from its root:
 `claude plugin marketplace add "$PWD/mac/agents/mods"`, then
 `claude plugin install supcom-capture@supcom --scope local`. Installed plugins
 run from a cache copy keyed by version. After editing a
-plugin, bump `version` in its `plugin.json` and run
-`claude plugin update NAME@supcom --scope local`; after removing one, run
+plugin, bump `version` in its `plugin.json`, then uninstall and reinstall it from this checkout
+(`update` can pick another worktree's install); after removing one, run
 `claude plugin uninstall NAME@supcom --scope local`. `mac/scripts/check` fails
 while an installed supcom plugin differs from its source in version or content.
 

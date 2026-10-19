@@ -4,4 +4,4 @@ upstream/main. JStar's fork checkout is ~/Projects/OpenSupCom; read its mac/AGEN
 - No agent or model names and no local paths in commit messages or PR text; pre-push and the gh guard refuse them.
 - Keep the PR current with ~/Projects/OpenSupCom/mac/scripts/up-refresh BRANCH (merges upstream main; never rebase).
 - Prove it with ~/Projects/OpenSupCom/mac/scripts/prove --root <this tree>; its Tested block goes in the PR text.
-- Any write to upstream (push, PR, comment) needs JStar's word; PRs open as drafts.
+- Any write to upstream (push, PR, comment) needs JStar's word. Shape and prove locally; PRs open ready.

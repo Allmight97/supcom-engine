@@ -334,7 +334,8 @@ for plugin in sorted(d for d in source.iterdir() if (d / '.claude-plugin/plugin.
              and not ((cache / f.relative_to(plugin)).is_file() and (cache / f.relative_to(plugin)).read_bytes() == f.read_bytes())]
     if mine[0].get('version') != version or stale:
         problems.append(f'{name} {mine[0].get("version")} differs from mac/agents/mods ({version}; {", ".join(stale[:3]) or "version"}): '
-                        f'bump its plugin.json version if files changed, then claude plugin update {name} --scope local')
+                        f'bump its plugin.json version if files changed, then from this checkout: claude plugin uninstall {name} --scope local '
+                        f'&& claude plugin install {name} --scope local (update can pick another worktree\'s install)')
 print('\n'.join(problems))
 sys.exit(1 if problems else 0)
 PY

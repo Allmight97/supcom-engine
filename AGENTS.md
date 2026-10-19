@@ -7,8 +7,8 @@ Outside `mac/` it holds upstream's engine plus Mac engine changes, under upstrea
 
 Rules for every agent here (guards named in brackets refuse the fixed patterns):
 - Mac engine work goes on `mac/<topic>` branches into `main` with a merge commit. An upstream PR is an `up/<topic>`
-  branch cut from `upstream/main` with engine commits only, no fork files and no agent names [pre-push]; it opens
-  as a draft. Any write to upstream (PR, comment, push) needs JStar's word [guard-shell].
+  branch cut from `upstream/main` with engine commits only, no fork files and no agent names [pre-push]. Shape and
+  prove it locally, then open it ready, as upstream lands them. Any write to upstream needs JStar's word [guard-shell].
 - Never commit game files, captures, game screenshots, saves or replays [pre-commit]. `mac/work/` (ignored) holds
   them, including the only captures of the original; never delete there without JStar [guard-shell].
 - JStar's mouse, keyboard and windows are his: no real input unless he granted it [guard-input].

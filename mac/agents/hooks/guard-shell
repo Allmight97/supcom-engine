@@ -3,7 +3,7 @@
 
 Deny: skipping or removing a git guard, broad staging, rebasing main, squash merges, cleaning ignored
 files (mac/work holds the only captures of the original), a gh write without --repo, an upstream PR that
-is not a draft from an up/* branch, agent names or local paths in upstream text, and linked upstream refs
+is a draft or not from an up/* branch, agent names or local paths in upstream text, and linked upstream refs
 in fork text. Ask JStar: commands that discard work or history, worktrees, tags and releases, deleting
 under mac/work, auto-merge, and every other GitHub write to upstream. Bypass mode skips a hook's ask, so
 there the command is refused until JStar agrees in chat and the agent reruns it as JSTAR_SAID_YES=1 <command>.
@@ -176,8 +176,8 @@ def check_gh(args, cwd):
         deny('upstream text names no agent or model and no local path')
     if group == 'pr' and action == 'create':
         head = option(rest, '--head', '-H') or ''
-        if '--draft' not in rest and 'd' not in shorts(rest):
-            deny('upstream PRs open as drafts (JStar decides when one is ready)')
+        if '--draft' in rest or 'd' in shorts(rest):
+            deny('upstream PRs open ready: upstream lands ready PRs, so shape and prove it locally first')
         if not re.match(r'(Allmight97:)?up/', head):
             deny('an upstream PR comes from an up/* branch (--head Allmight97:up/<topic>)')
     ask(f'gh {group} {action} writes to upstream; it needs JStar\'s word')

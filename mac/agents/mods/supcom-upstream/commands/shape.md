@@ -17,4 +17,4 @@ Topic: $ARGUMENTS (empty: every fork engine change not yet upstream). The upstre
    PR; and the commit grouping (coherent vertical slices) for it. Under 30 lines; label inferences.
 3. Check the agent's claims you will act on against the diffs, then give JStar the recommendation
    and the one decision it needs. Never comment on, open or edit an upstream PR without his word;
-   an upstream PR is a draft, cut as `up/<topic>` from `upstream/main` (root AGENTS.md).
+   an upstream PR opens ready once shaped and proved locally, cut as `up/<topic>` from `upstream/main` (root AGENTS.md).

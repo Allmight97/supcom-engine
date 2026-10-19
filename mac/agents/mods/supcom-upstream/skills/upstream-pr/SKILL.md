@@ -19,8 +19,8 @@ Outcome: a PR the upstream owner can review and land without asking for changes.
   keep each current as the one below it lands.
 - Upstream moves several times a day. Keep a PR current with `mac/scripts/up-refresh up/<topic>`: it merges
   upstream main (never a rebase), builds and proves the tree.
-- Upstream PRs open as drafts and JStar decides when one is ready: his standing rule for upstream, which
-  overrides the general "a PR opens ready" default.
+- Upstream lands ready PRs; none of its landed PRs was a draft (checked 2026-10-19). Shape and prove a PR
+  locally until it is ready, then open it ready with JStar's word, so upstream sees and can adopt it.
 
 ## Shape it
 
