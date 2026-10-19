@@ -34,6 +34,7 @@ for script in "$root"/scripts/game-prefs "$root"/scripts/game-log-check "$root"/
 done
 
 python3 -I "$root/scripts/upstream-news" --self-test >/dev/null || fail "upstream-news self-test"
+python3 -I "$root/scripts/sync-upstream" --self-test >/dev/null || fail "sync-upstream self-test"
 python3 -I "$root/tools/lib/capture.py" --self-test >/dev/null || fail "capture.py self-test (python3 -I mac/tools/lib/capture.py --self-test)"
 
 acquire_lock() {

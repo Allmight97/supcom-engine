@@ -133,20 +133,21 @@ apart, so FAF addresses never apply directly.
 
 ## Next actions
 
-Roadmap of 2026-10-19 ([log](log/2026-10-19-issue-audit.md)); each step eases the next.
-1. Sync fork main with upstream main (merge commit): drop upstream's installed-SDK driver
+Roadmap of 2026-10-19 ([log](log/2026-10-19-issue-audit.md)): steps in order, each easing the next;
+the codes in brackets are the `mac/roadmap.md` rows each serves.
+1. [M1 #745 row] Sync fork main with upstream main (`mac/scripts/sync-upstream`): drop upstream's installed-SDK driver
    discovery, keep the 8-bit targets, the loader and the KosmicKrisp preference; keep
    `mac/recipe/build.sh`. Full checks, a play by JStar (with the 10-18 full-screen display steps:
    maximize on the MacBook, then Full Screen, then relaunch), his powermetrics baseline at 60 Hz, a
    build without `mac/recipe/overlays/` (delete them if it passes).
-2. The focus-army desync (#10): prove, gate test (record a windowed game, replay it
+2. [M1 lockstep, M7] The focus-army desync (#10): proven 2026-10-19; gate test (record a windowed game, replay it
    headless), fix. Upstream PR.
-3. #4 at its root: one blueprint lookup owner plus a ratchet; the ShaderName vocabulary ratchet.
+3. [M5] #4 at its root: one blueprint lookup owner plus a ratchet; the ShaderName vocabulary ratchet.
    Upstream PRs.
-4. macOS CI job and the provenance line: upstream PRs opened together.
-5. #7, then #8 (the pod auto-assist task, after a capture of the original's pods). Upstream PRs.
-6. #6: per-pass GPU timing, terrain culling; the emitter LOD rule (#11). Upstream PRs.
-7. Fork-only: the capture backend (DXVK/D3DMetal), the .app (#1), the M1 8 GB check, the Mac in
+4. [M1 CI, provenance] macOS CI job and the provenance line: upstream PRs opened together.
+5. [M5] #7, then #8 (the pod auto-assist task, after a capture of the original's pods). Upstream PRs.
+6. [M2, M5] #6: per-pass GPU timing, terrain culling; the emitter LOD rule (#11). Upstream PRs.
+7. [REF, M1 .app and M1 8 GB, M6, M7] Fork-only: the capture backend (DXVK/D3DMetal), the .app (#1), the M1 8 GB check, the Mac in
    the cross-OS lockstep check, #2 when needed. FAF: #9.
 Keep bwiemz #750 current with upstream main until it lands.
 

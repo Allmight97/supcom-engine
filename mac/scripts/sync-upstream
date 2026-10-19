@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Merge upstream OpenSupCom's main into the fork on a branch, build, and run every check.
+
+  mac/scripts/sync-upstream            sync: branch mac/upstream-sync from main, merge upstream/main
+  mac/scripts/sync-upstream --resume   after resolving conflicts by hand: commit the merge, then build
+                                       and check
+  mac/scripts/sync-upstream --self-test
+
+Conflicts only in docs/current-state.md's metric lines resolve themselves (status_metrics.py
+recomputes them after the build); any other conflict stops the script with the list, for a person or
+agent to resolve keeping both sides' intent, then `--resume`. When every check passes it prints the
+command that merges the branch into main. It never pushes. Phases print as `sync: <phase>` lines.
+"""
+import os
+import re
+import subprocess
+import sys
+
+OSC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BRANCH = 'mac/upstream-sync'
+METRIC = re.compile(r'<!-- metric:\w+ -->')
+
+
+def run(*args, check=True, capture=False, env=None):
+    result = subprocess.run(args, cwd=OSC, text=True, capture_output=capture, env=env)
+    if check and result.returncode:
+        sys.exit(f'sync: failed: {" ".join(args)}')
+    return result
+
+
+def git(*args, check=True):
+    return run('git', *args, check=check, capture=True).stdout.strip()
+
+
+def resolve_metric_conflicts(text):
+    """Take upstream's side of conflicts whose lines are all metric lines; None if another remains."""
+    out, block, side = [], {'o': [], 'b': [], 't': []}, None
+    for line in text.split('\n'):
+        if line.startswith('<<<<<<< '):
+            side, block = 'o', {'o': [], 'b': [], 't': []}
+        elif side and line.startswith('||||||| '):
+            side = 'b'
+        elif side and line == '=======':
+            side = 't'
+        elif side and line.startswith('>>>>>>> '):
+            lines = block['o'] + block['t']
+            if not lines or not all(METRIC.search(x) for x in lines):
+                return None
+            out.extend(block['t'])
+            side = None
+        elif side:
+            block[side].append(line)
+        else:
+            out.append(line)
+    return '\n'.join(out)
+
+
+def check_env():
+    env = dict(os.environ)
+    sdk = subprocess.run(['bash', '-c', f'source "{OSC}/mac/recipe/env.sh" && echo "$VULKAN_SDK"'],
+                         text=True, capture_output=True).stdout.strip()
+    env['VULKAN_SDK'] = sdk
+    return env
+
+
+def build_and_check():
+    env = check_env()
+    print('sync: build', flush=True)
+    out = run('bash', 'mac/recipe/build.sh', capture=True, check=False, env={**env, 'OSC_ROOT': OSC}).stdout
+    if 'BUILD_OK' not in out:
+        sys.exit('sync: build failed: .local/build.log')
+    run('python3', 'tools/status_metrics.py', 'update', '--build-dir', 'build/play')
+    if git('status', '--porcelain', 'docs/current-state.md'):
+        git('add', 'docs/current-state.md')
+        git('commit', '-q', '-m', 'docs: status metrics after merging upstream main', '--', 'docs/current-state.md')
+    failed = []
+    steps = [('unit', ['build/play/tests/osc_tests']),
+             ('mp', ['ctest', '--test-dir', 'build/play', '-L', 'mp']),
+             ('gate', ['ctest', '--test-dir', 'build/play', '-L', 'gate', '-j', '4']),
+             ('smoke', ['mac/scripts/osc-smoke']),
+             ('render', ['mac/scripts/osc-render-check']),
+             ('format', ['mac/scripts/format'])]
+    for name, cmd in steps:
+        print(f'sync: check {name}', flush=True)
+        ok = run(*cmd, check=False, capture=True, env=env).returncode == 0
+        if not ok and name in ('mp', 'gate'):
+            print(f'sync: check {name}: rerunning failures alone (network tests flake under load)', flush=True)
+            ok = run('ctest', '--test-dir', 'build/play', '--rerun-failed', check=False, capture=True,
+                     env=env).returncode == 0
+        print(f'sync: check {name}: {"pass" if ok else "FAIL"}', flush=True)
+        if not ok:
+            failed.append(name)
+    if failed:
+        sys.exit(f'sync: checks failed: {", ".join(failed)}; the branch {BRANCH} is left for a look')
+    print(f'sync: all checks pass. Merge: git switch main && git merge --no-ff {BRANCH} && git branch -d {BRANCH}')
+
+
+def self_test():
+    ok = '\n'.join(['a', '<<<<<<< HEAD', '| x | <!-- metric:a -->1<!-- /metric --> |', '||||||| b',
+                    '| x | <!-- metric:a -->0<!-- /metric --> |', '=======',
+                    '| x | <!-- metric:a -->2<!-- /metric --> |', '>>>>>>> u', 'z'])
+    assert resolve_metric_conflicts(ok) == 'a\n| x | <!-- metric:a -->2<!-- /metric --> |\nz'
+    prose = ok.replace('| x | <!-- metric:a -->1<!-- /metric --> |', 'our prose')
+    assert resolve_metric_conflicts(prose) is None
+    print('sync-upstream self-test passed')
+
+
+def main():
+    if '--self-test' in sys.argv:
+        return self_test()
+    if '--resume' in sys.argv:
+        if git('diff', '--name-only', '--diff-filter=U'):
+            sys.exit('sync: conflicts remain: ' + git('diff', '--name-only', '--diff-filter=U'))
+        if os.path.exists(os.path.join(OSC, '.git', 'MERGE_HEAD')):
+            git('commit', '-q', '--no-edit')
+        return build_and_check()
+    if git('status', '--porcelain', '--untracked-files=no'):
+        sys.exit('sync: the checkout has uncommitted changes')
+    print('sync: fetch', flush=True)
+    git('fetch', '-q', 'upstream')
+    behind = int(git('rev-list', '--count', 'main..upstream/main'))
+    if behind == 0:
+        return print('sync: main already has upstream main')
+    print(f'sync: merge {behind} upstream commits on {BRANCH}', flush=True)
+    git('switch', '-q', '-C', BRANCH, 'main')
+    merged = run('git', 'merge', '--no-ff', '-m', 'Merge upstream main', 'upstream/main', check=False,
+                 capture=True).returncode == 0
+    if not merged:
+        conflicts = git('diff', '--name-only', '--diff-filter=U').split('\n')
+        if 'docs/current-state.md' in conflicts:
+            path = os.path.join(OSC, 'docs/current-state.md')
+            fixed = resolve_metric_conflicts(open(path).read())
+            if fixed is not None:
+                open(path, 'w').write(fixed)
+                git('add', 'docs/current-state.md')
+                conflicts.remove('docs/current-state.md')
+        if conflicts:
+            sys.exit('sync: resolve these keeping both sides, then run --resume: ' + ' '.join(conflicts))
+        git('commit', '-q', '--no-edit')
+    build_and_check()
+
+
+main()
