@@ -42,7 +42,11 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
 - New play-test bugs (2026-10-18, replay `mac/work/playtests/2026-10-18-jstar/assist-beam-and-drones.oscreplay`):
   an ACU assisting a factory keeps its build beam on the factory after other orders, until a
   second queued build; engineering drones (UEF engineering station, ACU) hover without building
-  and show no beam. Not yet filed.
+  and show no beam. Filed as fork issues #7 and #8.
+- Build sparks (2026-10-18 check): OSC creates and draws them as retail's rules say; they are 1-3 px
+  at zoom 30-60, vanish past zoom ~115 (LODCutoff 100), and a build ordered while zoomed out never
+  gets them (CreateIfVisible). Retail's emitter LOD rule (GOG exe CanSeeCam 0x0065C3A0: the view's
+  width at depth times a per-fidelity scale) differs slightly from OSC's eye distance.
 - Reference captures of the original in CrossOver draw no emitter particles (smoke, sparks,
   emitted glows): six probe emitters, including a control, drew nothing; Wine logs about 28,900
   "Map box is invalid" (a zero-size buffer lock). Meshes, decals, beams and light particles draw.
@@ -144,9 +148,9 @@ apart, so FAF addresses never apply directly.
    - The nuke: a UEF ACU death or nuke in a skirmish. The dome should be translucent and
      fade, not an opaque sphere; compare with the original as remembered.
    - Frame rate: pick "Full Screen (60 Hz)" or "(120 Hz)" in Video; the Metal HUD and the log line "Frame cap 60.0 (the Video option's 60 Hz ...)" show it took effect.
-2. Upstream PR for the nuke (#3), one draft of vertical slices: the effect techniques (`d53c82f4`,
-   `fc8c39ce`), then the dome's scale, culling, `SetScale` and light-particle bloom (`5ffb307c`,
-   `6d650ff9`, `3a42b963`, `a56410fe`); after JStar's look; `/supcom-upstream:shape` first.
+2. Upstream draft PR bwiemz/supcom-engine#750 (the nuke and the 8-bit frame; branch `up/nuke-effects`
+   in the worktree `~/Projects/OpenSupCom-up`; two read-only audits, all checks on upstream main
+   merged in). Watch its CI and review; rebase or merge upstream main when it moves.
 3. #4: look the pod's id up through `blueprint_name()` in `brain_GetUnitBlueprint`, with a
    failing test first.
 4. Render less per frame on Retina (#6): render scale first, then per-pass GPU timing, terrain
