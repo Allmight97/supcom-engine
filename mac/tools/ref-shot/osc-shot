@@ -1,0 +1,37 @@
+#!/bin/sh
+# The OpenSupCom frame matching one shot of a ref-shot set: OSC runs the same hook (an init file mounting
+# tools/ref-shot/hook and tools/lib/capture-hook) offscreen and saves frame FRAME.
+#   tools/ref-shot/osc-shot SET NAME FRAME MAP [REF ARGS...]
+#   e.g. tools/ref-shot/osc-shot nuke kill-5000ms 2930 X1MP_006 /refwait 20 /nofog /refclean
+# The hook's waits run on OSC's fixed frame clock, so a shot's frame is the same every run; pick one between
+# REFSHOT|READY|NAME and the next shot's lines. The script fails unless the log shows the frame there.
+# Image: work/logs/screens/osc-SET-NAME.png; log: work/traces/osc-SET-NAME.log. Runs build/play/opensupcom in the OSC checkout (OSC_ROOT, default mac/..).
+set -eu
+toolkit=$(cd "$(dirname "$0")/../.." && pwd)
+set_name=$1 shot=$2 frame=$3 map=$4; shift 4
+cd "${OSC_ROOT:-$toolkit/..}"
+. "$toolkit/recipe/env.sh"
+tools=$toolkit/tools
+log=$toolkit/work/traces/osc-$set_name-$shot.log
+png=$toolkit/work/logs/screens/osc-$set_name-$shot.png
+init=$toolkit/work/traces/osc-$set_name-$shot.init.lua
+mkdir -p "$(dirname "$png")" "$(dirname "$log")"
+cat > "$init" <<EOF
+path = {}
+local function mount(dir, mountpoint) table.insert(path, { dir = dir, mountpoint = mountpoint }) end
+mount('$OSC_FA_PATH/maps/*', '/maps')
+mount('$tools/ref-shot', '/ref-shot')
+mount('$tools/ref-shot/hook', '/refshothook')
+mount('$tools/lib/capture-hook', '/capturehook')
+mount('$OSC_FA_PATH/gamedata/*.scd', '/')
+mount('$OSC_FA_PATH', '/')
+hook = { '/capturehook', '/refshothook', '/schook' }
+EOF
+rm -f "$png" "$log"
+build/play/opensupcom --fa-path "$OSC_FA_PATH" --init "$init" --map "/maps/$map/${map}_scenario.lua" \
+    --screenshot "$png" --screenshot-frame "$frame" --log "$log" "$@" /refshots "$set_name" > /dev/null
+after=$(grep -E 'REFSHOT\|(READY|SETTINGS|SIM|END)|\] Screenshot ' "$log" | grep -A1 -F "REFSHOT|READY|$shot" | sed -n 2p)
+case "$after" in
+    *'] Screenshot '*) grep -F "REFSHOT|SETTINGS|$shot|" "$log" | sed 's/^.*REFSHOT/REFSHOT/'; echo "$png" ;;
+    *) echo "Frame $frame is not inside shot $shot (next line: ${after:-none}); see $log" >&2; exit 1 ;;
+esac

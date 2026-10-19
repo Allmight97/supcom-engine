@@ -1,5 +1,6 @@
 -- Sim side of a shot's sim = { action = ... } (sent with SimCallback): orders for army 1's ACU, offsets from it.
 --   { action = 'move', dx = 14, dz = 14 }   { action = 'build', blueprint = 'ueb1101', dx = 10, dz = 0 }
+--   { action = 'kill' }: the ACU dies at once, as Ctrl-K's self-destruct does when its countdown ends
 local RefShotDoCallback = DoCallback
 
 function DoCallback(name, data, units)
@@ -14,6 +15,8 @@ function DoCallback(name, data, units)
         IssueMove({ acu }, target)
     elseif data.action == 'build' then
         IssueBuildMobile({ acu }, target, data.blueprint, {})
+    elseif data.action == 'kill' then
+        acu:Kill()
     end
     LOG(string.format('REFSHOT|SIM|%d|%s|%s|%g,%g', GetGameTick(), data.action, tostring(data.blueprint), x, z))
 end
