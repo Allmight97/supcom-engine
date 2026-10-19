@@ -9,7 +9,8 @@ Rosetta. The engine work lands upstream in OpenSupCom (OSC).
 
 Two support levels (JStar, 2026-10-17, as LunarG advises): Modern, Apple Silicon with
 macOS 26 or later on KosmicKrisp (Metal 4), tuned and tested on every change; and
-Compatibility, Intel Macs and older macOS on the bundled MoltenVK, best effort. One
+Compatibility, Apple Silicon on macOS 14-25 on the bundled MoltenVK, best effort (Intel
+unsupported until someone can build and test it; JStar, 2026-10-19). One
 Vulkan renderer; the game prefers KosmicKrisp whenever it reports a device.
 
 Codes: **M1 … M7** are milestones in order; **REF** is the reference-capture track

@@ -14,6 +14,9 @@ Outcome: a PR the upstream owner can review and land without asking for changes.
   per PR"). Commits inside a PR do not survive: one logical change per PR. Related PRs are opened
   together and named in each other's text; the owner asked related macOS work to be one review
   (bwiemz #735 closing comment).
+- GitHub's stacked PRs need every branch in the same repository, so PRs from the fork cannot
+  stack upstream. Order dependent PRs in their text ("builds on #N"), open them together, and
+  keep each current as the one below it lands.
 - Upstream moves several times a day. Keep a PR current by merging upstream main into its branch
   (`git fetch upstream main`, then merge `FETCH_HEAD`); never rewrite a published branch.
 - Open as a draft. JStar decides when one is ready.

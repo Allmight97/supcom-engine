@@ -43,26 +43,14 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   an ACU assisting a factory keeps its build beam on the factory after other orders, until a
   second queued build; engineering drones (UEF engineering station, ACU) hover without building
   and show no beam. Filed as fork issues #7 and #8.
-- Build sparks (2026-10-18 check): OSC creates and draws them as retail's rules say; they are 1-3 px
-  at zoom 30-60, vanish past zoom ~115 (LODCutoff 100), and a build ordered while zoomed out never
-  gets them (CreateIfVisible). Retail's emitter LOD rule (GOG exe CanSeeCam 0x0065C3A0: the view's
-  width at depth times a per-fidelity scale) differs slightly from OSC's eye distance.
+- Build sparks: no OSC bug; retail's CreateIfVisible and LODCutoff rules hide them (2026-10-18).
 - Reference captures of the original in CrossOver draw no emitter particles (smoke, sparks,
   emitted glows): six probe emitters, including a control, drew nothing; Wine logs about 28,900
   "Map box is invalid" (a zero-size buffer lock). Meshes, decals, beams and light particles draw.
   Particle comparisons need another D3D backend or capture path first.
-- JStar's play, 2026-10-18 evening (full screen 2560x1440, cap 118, KosmicKrisp; replay and log in
-  `mac/work/playtests/2026-10-18-jstar/`): smooth; the nuke looks better than the sphere but not
-  like the original, and clips with zoom; lighting effects show a glow or aura unlike the original
-  (bloom? unverified); the M4 Max's fans spin up at 1440p and 118 fps (unmeasured: M2). The
-  original in CrossOver at `/windowed 2560 1440` looked fuzzy (not sharp); it closed normally.
-- Full screen at "looks like" 2560x1440 renders the 3D scene at 5120x2880 (log: `Frame targets
-  created (5120x2880)`; Retina framebuffer, `renderer.cpp:218`): four RGBA16F targets, full-res
-  reflection and normal passes, redrawn at 118 fps from a 10 Hz sim. Two read-only opinions
-  (Fable 5.1, GPT 6.1 Sol) call it brute force: `mac/work/logs/perf-opinions-2026-10-18.md`.
-  Measured with upstream's `--render-bench` (battle scene, M4 Max): GPU p50 9.59 ms at 5120x2880
-  against 5.35 at 2560x1440, plus about 3.9 ms that no size changes (three whole-map terrain draws,
-  inferred). Plan: [fork issue #6](https://github.com/Allmight97/supcom-engine/issues/6).
+- Full screen at "looks like" 2560x1440 renders the 3D scene at 5120x2880 (Retina framebuffer);
+  battle-scene GPU p50 9.59 ms there against 5.35 ms at 2560x1440, measured before the 8-bit
+  targets. Plan: [fork issue #6](https://github.com/Allmight97/supcom-engine/issues/6).
 - Agent soaks (2026-10-18, headless, 8 AIs): 0 Lua errors; late-game sim 93 ms per tick of
   100; unverified: script threads 7,614 to 24,929 from minute 30 to 60, no unit gains
   veterancy. `test_net_lobby.cpp:356` (LaunchGame) failed once, then passed: a flake.
@@ -71,11 +59,8 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   takes about 30 PRs a day, most by agents; the owner lands outside PRs in batches ("Land #A to
   #B"). Watch: `mac/scripts/upstream-news` (MAC and OVERLAP PRs), at each session start, in the
   fork's daily issue "Upstream Mac watch", and `/supcom-upstream:shape` before an upstream PR.
-- FAF on the Mac (FAForever repos, 2026-10-18): no released Mac client; `develop` has an arm64
-  client (downlords-faf-client #3504, June 2026, one author, quiet since May) that runs
-  `ForgedAlliance.exe` through one old CrossOver Wine build under Rosetta 2, chosen for Rosetta's
-  x87 lockstep precision. It ends with Rosetta in macOS 28. The client launches only
-  `ForgedAlliance.exe` (its command-line format is configurable); FAF has nothing on OpenSupCom.
+- FAF on the Mac: FAF's Mac client runs FA.exe under Rosetta 2, which macOS 28 removes;
+  OSC games through FAF's client are tracked in fork issue #9.
 - OSC's game-folder search order is command line, `OSC_FA_PATH`, FAF, Steam, chosen
   folder; GOG is never searched. Without `OSC_FA_PATH` it picks FAF's files.
 - The original (GOG 1.5.3599) runs only in CrossOver 26.3 under Rosetta; the dev Mac
@@ -102,8 +87,10 @@ apart, so FAF addresses never apply directly.
   lands on JStar's fork; upstream may pull or adopt it later.
 - Two Mac support levels, following LunarG's advice (2026-10-17): Modern (Apple
   Silicon, macOS 26+) runs KosmicKrisp and is tested on every change, including
-  JStar's M1 with 8 GB; Compatibility (Intel Macs, older macOS) runs the bundled
-  MoltenVK, best effort, tested by others (JStar cannot). The game prefers
+  JStar's M1 with 8 GB; Compatibility (Apple Silicon on macOS 14-25) runs the bundled
+  MoltenVK, best effort. Intel Macs are unsupported until someone can build and test an
+  Intel executable (JStar, 2026-10-19: KosmicKrisp is arm64-only; upstream's presets
+  build arm64 for macOS 14). The game prefers
   KosmicKrisp whenever it reports a device; no player picks a driver. Players
   whose Mac runs neither can use the original game in CrossOver
   (docs/crossover-recipe.md). The Vulkan SDK (which carries both drivers) stays pinned and is upgraded only after the new
@@ -117,6 +104,13 @@ apart, so FAF addresses never apply directly.
   (JStar is its only author); Allmight97/SupCom is archived after the move.
 - Goal beyond the build: a faithful copy of the original that also runs FAF and its
   improvements; adapting FAF's open code is fine.
+- Roadmap decisions (2026-10-19, [decision page](https://claude.ai/artifact/SZwjqSDf98x1Rq5YLrj4Mr)):
+  the fork deletes upstream's installed-SDK driver discovery (its bundled drivers are the one
+  path); "without upscaling" stays, render scale only if 120 Hz still misses after per-pass
+  timing and terrain culling; upstream PRs carry one logical change each, related ones opened
+  together (GitHub's stacked PRs do not work across forks); after the sync, try DXVK or
+  D3DMetal on the capture bottle (with a backup) to finish a frozen reference corpus; the
+  focus-army desync: prove first, then leave script threads out of the compared checksum.
 - Design bugs away (2026-10-19): fix a bug's class at its source (a deep module, an enforced
   boundary, a ratchet test) where it earns its keep; a plain patch only when unavoidable.
 - FAF is tracked apart from the engine roadmap, in fork issue #9.
@@ -139,28 +133,23 @@ apart, so FAF addresses never apply directly.
 
 ## Next actions
 
-1. JStar checks by eye (`mac/scripts/play`):
-   - Bundled drivers, no setup script: in a shell that has not sourced `mac/recipe/env.sh`,
-     run `build/play/opensupcom --fa-path ~/Projects/OpenSupCom/mac/work/game`. Expect
-     normal play (agents saw `driver KosmicKrisp` in a hidden run).
-   - Full screen (Studio Display main, MacBook screen on): `mac/scripts/play --full` from the
-     MacBook screen: expect the Studio Display. Windowed, drag to the MacBook, maximize there,
-     Full Screen: expect the MacBook; quit in full screen and relaunch with `--full`: the
-     MacBook; Windowed: maximized on the MacBook; un-maximize: the size from before, at the
-     MacBook's top-left corner. Drag back to the Studio Display and repeat: the Studio.
-   - The nuke: a UEF ACU death or nuke in a skirmish. The dome should be translucent and
-     fade, not an opaque sphere; compare with the original as remembered.
-   - Frame rate: pick "Full Screen (60 Hz)" or "(120 Hz)" in Video; the Metal HUD and the log line "Frame cap 60.0 (the Video option's 60 Hz ...)" show it took effect.
-2. Upstream draft PR bwiemz/supcom-engine#750 (the nuke and the 8-bit frame; branch `up/nuke-effects`
-   in the worktree `~/Projects/OpenSupCom-up`; two read-only audits, all checks on upstream main
-   merged in). Watch its CI and review; rebase or merge upstream main when it moves.
-3. #4: look the pod's id up through `blueprint_name()` in `brain_GetUnitBlueprint`, with a
-   failing test first.
-4. Render less per frame on Retina (#6): render scale first, then per-pass GPU timing, terrain
-   culling.
-5. Play-test findings still open: Game Mode through the `.app`, the play recorder (#2).
-6. Build on upstream #745 (macOS presets) once it lands; drop the fork's own preset work and
-   keep `mac/recipe/` only for what #745 lacks. Fork issue #1 holds the packaging.
+Roadmap of 2026-10-19 ([log](log/2026-10-19-issue-audit.md)); each step eases the next.
+1. Sync fork main with upstream main (merge commit): drop upstream's installed-SDK driver
+   discovery, keep the 8-bit targets, the loader and the KosmicKrisp preference; keep
+   `mac/recipe/build.sh`. Full checks, a play by JStar (with the 10-18 full-screen display steps:
+   maximize on the MacBook, then Full Screen, then relaunch), his powermetrics baseline at 60 Hz, a
+   build without `mac/recipe/overlays/` (delete them if it passes).
+2. The focus-army desync (fork issue, new): prove, gate test (record a windowed game, replay it
+   headless), fix. Upstream PR.
+3. #4 at its root: one blueprint lookup owner plus a ratchet; the ShaderName vocabulary ratchet.
+   Upstream PRs.
+4. macOS CI job and the provenance line: upstream PRs opened together.
+5. #7, then #8 (the pod auto-assist task, after a capture of the original's pods). Upstream PRs.
+6. #6: per-pass GPU timing, terrain culling; the emitter LOD rule. Upstream PRs.
+7. Fork-only: the capture backend (DXVK/D3DMetal), the .app (#1), the M1 8 GB check, the Mac in
+   the cross-OS lockstep check, #2 when needed. FAF: #9.
+Keep bwiemz #750 current with upstream main until it lands.
+
 ## Tracks
 
 Track detail goes in the session's log.
