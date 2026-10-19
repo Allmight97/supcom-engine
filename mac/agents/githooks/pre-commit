@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Fork commit guard. mac/scripts/setup copies it to .git/mac-hooks/, so it also runs on branches without mac/.
 # Every commit: refuse game content, screenshots, saves, replays, Windows executables, new files over 1 MiB,
-# anything under mac/work/, and mac/ code (scripts and .py, .sh,
-# .lua, .swift, .cmake) over 8,000 tokens, so an agent can read any toolkit file whole. A commit that touches mac/,
-# AGENTS.md, CLAUDE.md or README.md also needs mac/scripts/check to have passed on exactly the staged content.
+# anything under mac/work/, and mac/ code (scripts and .py, .sh, .lua, .swift, .cmake) over 8,000 tokens, so an
+# agent can read any toolkit file whole. A commit that touches mac/, AGENTS.md, CLAUDE.md or README.md also needs
+# mac/scripts/check to have passed on exactly the staged content, deletions included.
 set -euo pipefail
 max_bytes=1048576
 rejected=0
@@ -64,6 +64,9 @@ if [[ -n $protected && -x "$toolkit/scripts/check" ]]; then
     read -r checked result _ < "$toolkit/work/check-last.txt" 2>/dev/null || { checked=0; result=none; }
     unchecked=$(git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r git --literal-pathspecs ls-files -s -- \
         | LC_ALL=C sort | LC_ALL=C comm -23 - <(LC_ALL=C sort "$toolkit/work/check-last.manifest" 2>/dev/null))
+    deleted=$(git diff --cached --name-only --diff-filter=D | LC_ALL=C sort \
+        | LC_ALL=C comm -12 - <(cut -f2 "$toolkit/work/check-last.manifest" 2>/dev/null | LC_ALL=C sort))
+    [[ -n $deleted ]] && unchecked=$(printf '%s\n%s' "$unchecked" "$(sed 's/^/deleted\t/' <<< "$deleted")" | sed '/^$/d')
     if [[ $result != pass || -n $unchecked ]]; then
         printf 'pre-commit: mac/scripts/check must pass on exactly the content you commit (mac/work/check-last.txt: %s at %s).\n' "$result" "$checked" >&2
         if [[ -n $unchecked ]]; then

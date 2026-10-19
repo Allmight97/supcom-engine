@@ -10,10 +10,11 @@
 #   mac/scripts/game-window type TEXT        (lowercase letters, digits, space, hyphen)
 #   mac/scripts/game-window wait [SECONDS]   (wait for the window, press Return past the splash, wait until drawn; needs ImageMagick)
 # Input actions (click, drag, scroll, key, type, wait) take JStar's real mouse and focus, so they run only while
-# ~/.supcom-input-ok exists; JStar creates and removes it. Agents never create it. shot needs no permission.
+# JStar's grant (mac/scripts/input-grant MINUTES) has not expired. Agents never grant it. shot needs no permission.
 set -eu
+granted() { [ "$(head -c 12 "$HOME/.supcom-input-ok" 2>/dev/null | tr -cd 0-9)" -gt "$(date +%s)" ] 2>/dev/null; }
 case "${1:-}" in click|drag|scroll|key|type|wait)
-    [ -e "$HOME/.supcom-input-ok" ] || { echo "Real input is off. JStar enables it with: touch ~/.supcom-input-ok (remove the file to disable)." >&2; exit 4; } ;;
+    granted || { echo "Real input is off. JStar grants it with: mac/scripts/input-grant MINUTES" >&2; exit 4; } ;;
 esac
 owner=${GAME_WINDOW_OWNER:-SupremeCommander}
 process=$owner; [ "$owner" = SupremeCommander ] && process=SupremeCommander.exe
@@ -48,7 +49,7 @@ if [ "${1:-}" = wait ]; then
     echo "Window still blank." >&2; exit 1
 fi
 window=$("$bin/winid" "$owner" | head -1)
-if [ -z "$window" ] && [ -e "$HOME/.supcom-input-ok" ] && pgrep -q -f "$owner"; then "$bin/input" activate "$process" >&2 || true; window=$("$bin/winid" "$owner" | head -1); fi
+if [ -z "$window" ] && granted && pgrep -q -f "$owner"; then "$bin/input" activate "$process" >&2 || true; window=$("$bin/winid" "$owner" | head -1); fi
 [ -n "$window" ] || { echo "No $owner window." >&2; exit 1; }
 action=${1:-}
 id=$(echo "$window" | awk '{print $1}')

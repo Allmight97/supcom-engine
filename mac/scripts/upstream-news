@@ -8,6 +8,8 @@ those in Mac areas (MAC) and those touching an engine file the fork changed (OVE
   mac/scripts/upstream-news --behind    print only the count of upstream commits missing from main
   mac/scripts/upstream-news --self-test
 Run before starting any Mac change, so work upstream already did or is doing is found first.
+A failed fetch or git command prints one `upstream-news: ... failed` line and exits 1; it never reports
+a count from a failed command.
 """
 import json
 import os
@@ -25,16 +27,24 @@ def mac_related(text):
     return bool(MAC.search(text))
 
 
-def git(*args):
-    return subprocess.run(['git', '-C', OSC, *args], capture_output=True, text=True).stdout.strip()
+class Fail(Exception):
+    pass
+
+
+def git(*args, soft=False):
+    """Stdout of a git command; a failure raises Fail unless soft (then it gives '')."""
+    result = subprocess.run(['git', '-C', OSC, *args], capture_output=True, text=True)
+    if result.returncode and not soft:
+        raise Fail(f'git {" ".join(args)} failed: {result.stderr.strip() or result.returncode}')
+    return result.stdout.strip()
 
 
 def base():
-    return 'main' if git('rev-parse', '--verify', '--quiet', 'main') else 'HEAD'
+    return 'main' if git('rev-parse', '--verify', '--quiet', 'main', soft=True) else 'HEAD'
 
 
 def behind():
-    return int(git('rev-list', '--count', f'{base()}..upstream/main') or 0)
+    return int(git('rev-list', '--count', f'{base()}..upstream/main'))
 
 
 def landed():
@@ -93,6 +103,12 @@ def markdown(prs):
 def self_test():
     assert mac_related('renderer: on a HiDPI display FA\'s UI is laid out in points')
     assert mac_related('touches src/platform/native_fullscreen.mm')
+    assert git('rev-parse', '--verify', '--quiet', 'no-such-ref-x', soft=True) == ''
+    try:
+        git('rev-parse', '--verify', 'no-such-ref-x')
+        raise AssertionError('a failed git command must raise Fail')
+    except Fail:
+        pass
     assert not mac_related('sim: a guard helping a silo fights and repairs it')
     pr = {'title': 'sim: guards', 'files': [{'path': 'src/sim/a.cpp'}, {'path': 'src/renderer/b.cpp'}]}
     assert classify(pr, {'src/renderer/b.cpp', 'src/app/c.cpp'}) == (False, ['src/renderer/b.cpp'])
@@ -100,13 +116,18 @@ def self_test():
     print('upstream-news self-test passed')
 
 
-def main():
-    if '--self-test' in sys.argv:
-        return self_test()
+def fetch():
     try:
-        subprocess.run(['git', '-C', OSC, 'fetch', '-q', 'upstream'], timeout=15)
+        result = subprocess.run(['git', '-C', OSC, 'fetch', '-q', 'upstream'], capture_output=True, text=True,
+                                timeout=15)
     except subprocess.TimeoutExpired:
-        print('fetch timed out; using the last fetched upstream', file=sys.stderr)
+        return print('fetch timed out; using the last fetched upstream', file=sys.stderr)
+    if result.returncode:
+        raise Fail(f'git fetch upstream failed: {result.stderr.strip() or result.returncode}')
+
+
+def report():
+    fetch()
     if '--behind' in sys.argv:
         return print(behind())
     if '--markdown' in sys.argv:
@@ -128,7 +149,17 @@ def main():
         for p in prs:
             print(pr_line(p))
     if behind():
-        print(f'Sync: cd {OSC} && git switch main && git merge upstream/main')
+        print(f'Sync: cd {OSC} && mac/scripts/sync-upstream')
+
+
+def main():
+    if '--self-test' in sys.argv:
+        return self_test()
+    try:
+        report()
+    except Fail as error:
+        print(f'upstream-news: {error}; no numbers reported')
+        sys.exit(1)
 
 
 main()

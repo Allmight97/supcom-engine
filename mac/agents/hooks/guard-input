@@ -1,0 +1,49 @@
+#!/usr/bin/env -S python3 -I
+"""Claude Code PreToolUse hook (Bash and MCP tools); mac/scripts/setup installs it, mac/scripts/check tests it.
+
+No real mouse, keyboard or window input on JStar's Mac unless he granted it with mac/scripts/input-grant,
+which writes ~/.supcom-input-ok holding an end time. Agents never grant it: any command naming the grant
+is refused. Without a grant, input is refused and opening a window on his display asks him first (in bypass
+mode, which skips a hook's ask: refused until he agrees in chat and the agent reruns it as JSTAR_SAID_YES=1 <command>).
+"""
+import json
+import os
+import re
+import sys
+import time
+
+INPUT = re.compile(r'osascript|cliclick|game-window[^|;&]* (click|drag|scroll|key|type|wait)|game-window/input')
+WINDOW = re.compile(r'scripts/play\b|mouse-probe/run|faf-crossover\s+(original|game|client)|\bopen\s+-a\b')
+INPUT_TOOL = re.compile(r'mcp__(computer-use|cua)')
+
+
+def granted():
+    try:
+        with open(os.path.expanduser('~/.supcom-input-ok')) as f:
+            return int(f.read().split()[0]) > time.time()
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def deny(why):
+    print(f'Blocked: {why} (mac/agents/hooks/guard-input).', file=sys.stderr)
+    sys.exit(2)
+
+
+try:
+    payload = json.load(sys.stdin)
+    tool = payload.get('tool_name', '')
+    command = payload.get('tool_input', {}).get('command', '') if tool == 'Bash' else ''
+except (ValueError, AttributeError):
+    deny('the tool call could not be parsed')
+if re.search(r'supcom-input-ok|input-grant', command):
+    deny('only JStar grants real input, in his own terminal')
+if granted():
+    sys.exit(0)
+if INPUT_TOOL.match(tool) or INPUT.search(command):
+    deny('real input is off; use scripted, hidden validation')
+if WINDOW.search(command):
+    if payload.get('permission_mode') == 'bypassPermissions' and 'JSTAR_SAID_YES=1' not in command:
+        deny('this opens a window on JStar\'s display. Ask JStar; if he agrees, rerun as: JSTAR_SAID_YES=1 <command>')
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
+                                             'permissionDecisionReason': 'this opens a window on JStar\'s display'}}))

@@ -38,10 +38,7 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   `BUILD_FAIL`; logs are `.local/configure.log` and `.local/build.log`. After
   the SDK moves, delete `build/play/CMakeCache.txt` first: CMake
   keeps the old paths.
-- `mac/scripts/play` builds (`--build`) and starts the game: windowed 2560x1440 by
-  default; `--full`, `--size W H`, `--prefs` (the game's Video options decide),
-  `--hud` (Metal performance HUD), `-- ARGS` for extra `opensupcom` arguments.
-  By default it passes no window or frame-cap arguments: the game's Video options decide, and on
+- `mac/scripts/play` builds (`--build`) and starts the game; its header lists the options. By default it passes no window or frame-cap arguments: the game's Video options decide, and on
   macOS a full-screen mode's refresh below the display's (60 on a 120 Hz panel) caps the frame rate.
   The Metal HUD is on (`--no-hud` turns it off). `--full`/`--size` override the Video option, which
   then shows "Command Line Override"; `-- --fps-cap N` sets a cap (`-2`: 2 below the refresh rate).
@@ -87,9 +84,6 @@ It uses `--map /maps/SCMP_009/SCMP_009_scenario.lua --ai-skirmish
 checkout's `.local/mac-smoke.log`. It prints that path and fails on a non-zero
 exit or any `[error]` line. `mac/scripts/check` tests the runner with a stub;
 it does not run the game.
-
-Play tests: each session's game log and replay are copied to
-`mac/work/playtests/YYYY-MM-DD/`.
 
 ### KosmicKrisp setup
 
@@ -198,7 +192,7 @@ apart, so FAF addresses never apply directly.
 
 The project `mac/work/ghidra/SupCom.gpr` holds every name, type and comment for
 the GOG executable and FAF's base executable. Ghidra allows one writer: run
-`mac/scripts/ghidra-lock` first and stop any holder it reports, and run pyghidra
+`mac/scripts/ghidra-lock` first and ask JStar about any holder it reports, and run pyghidra
 scripts through `mac/scripts/ghidra-py`, which sets the Ghidra environment and
 waits up to `GHIDRA_LOCK_WAIT` seconds (default 300) for the lock. The
 rebuild scripts (FAF and faf-re name ports, C++ class recovery, Lua binding
@@ -225,8 +219,8 @@ Their outputs stay in
   `rea update`). After a REA release, run `rea update`, then `rea setup --yes`
   for each client, and restart agent sessions.
 - Ghidra version change: install the candidate beside the current version,
-  verify its digest, build natives, rerun the project rebuild on a copy, and
-  only then update the pins here and in the scripts.
+  verify its digest, build natives, open a copy of the project with a read-only
+  script through `mac/scripts/ghidra-py`, and only then update the pins here and in the scripts.
 - Corpus: `mac/work/corpus-manifest.txt` lists path, size and SHA-256 of the kept
   corpus (`mac/work/traces`, `mac/work/logs`, `mac/work/ghidra`, `mac/work/lua-bindings*.json`,
   `mac/work/dossiers`, `mac/work/playtests`), with paths relative to `mac/`. Verify a copy from
@@ -405,8 +399,8 @@ keys and text (`shot NAME`, `click X Y [right]`, `drag X1 Y1 X2 Y2`,
 `scroll X Y LINES`, `key CODE`, `type TEXT`, `wait [SECONDS]`; coordinates are pixels of the
 800-px-wide screenshot it writes to `mac/work/logs/screens/`).
 Every action except `shot` takes JStar's real mouse and focus, so it runs only
-while `~/.supcom-input-ok` exists (JStar runs `touch ~/.supcom-input-ok`, and
-`rm` it to take control back); otherwise it exits 4. Prefer input-free
+while JStar's grant lasts (he runs `mac/scripts/input-grant MINUTES`, or `input-grant off` to take control
+back; agents never run it); otherwise it exits 4. Prefer input-free
 validation: `mac/agents/faf-autorun/run` for the original and FAF, scripted input
 and OpenSupCom's offscreen test modes.
 `GAME_WINDOW_OWNER` selects another window owner by process name: `ForgedAlliance` for FAF's game, `java` for the FAF client. It needs
@@ -438,12 +432,12 @@ run from a cache copy keyed by version. After editing a
 plugin, bump `version` in its `plugin.json` and run
 `claude plugin update NAME@supcom --scope local`; after removing one, run
 `claude plugin uninstall NAME@supcom --scope local`. `mac/scripts/check` fails
-while installed supcom plugins differ from the source.
+while an installed supcom plugin differs from its source in version or content.
 
 - `supcom-capture` adds `/supcom-capture:capture`, `/supcom-capture:compare` (see "Comparisons")
   and `/supcom-capture:game shot [name] | click X Y | key CODE | wait [SECONDS]` with
   `--owner java|ForgedAlliance`, which runs `mac/scripts/game-window` (input
-  actions need `~/.supcom-input-ok`; exit 3 means the frontmost guard refused).
+  actions need JStar's `mac/scripts/input-grant`; exit 3 means the frontmost guard refused).
 - Apple's `game-porting-skills` (marketplace `game-porting-toolkit`) is enabled
   by `mac/scripts/setup` for Mac renderer work.
 
