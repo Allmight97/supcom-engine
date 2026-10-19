@@ -1,0 +1,43 @@
+---
+name: upstream-pr
+description: Use when preparing, opening, updating or merging into a pull request to upstream OpenSupCom (bwiemz/supcom-engine) from JStar's fork, i.e. any up/* branch. Not for commits or merges on the fork's own main.
+---
+
+# Upstream pull requests
+
+Outcome: a PR the upstream owner can review and land without asking for changes. Fork-only work
+(main, mac/*) needs none of this.
+
+## How upstream works (observed 2026-10)
+
+- The owner lands contributors' PRs in batches, each PR as one commit ("Land #A to #B as one commit
+  per PR"). Commits inside a PR do not survive: one logical change per PR. Related PRs are opened
+  together and named in each other's text; the owner asked related macOS work to be one review
+  (bwiemz #735 closing comment).
+- Upstream moves several times a day. Keep a PR current by merging upstream main into its branch
+  (`git fetch upstream main`, then merge `FETCH_HEAD`); never rewrite a published branch.
+- Open as a draft. JStar decides when one is ready.
+
+## Shape it
+
+1. Run `/supcom-upstream:shape <topic>` first: overlap with open upstream PRs decides build-on,
+   stack or our own.
+2. Cut `up/<topic>` from `upstream/main` in its own worktree (ask JStar first) and cherry-pick
+   engine commits only. The pre-push hook refuses fork-only paths.
+3. Prove it on the upstream base: build, unit tests, the data tests it touches with retail data
+   and with FAF's (OSC prefers FAF's files when `OSC_FA_PATH` is unset), `ctest -L mp`,
+   `ctest -L gate`, the clang-format 22 ratchet (`tools/check_format.sh upstream/main`, as
+   `mac/scripts/format` runs it), `tools/status_metrics.py check --build-dir build/play`. Each
+   commit builds alone.
+4. Before the first push, GPT 6.1 Sol at xhigh audits the branch and the PR text read-only
+   (JStar's rule); fix what it finds, then push.
+
+## The PR text
+
+Write it with `personal-skills:writing-for-agents`, for a human reviewer first:
+- A 4-6 line summary up top: what was wrong, what changes, how it was proven.
+- Then why, what behaviour changed, and the retail evidence (shader source; exe addresses with the
+  SHA-256 from mac/STATUS.md Identities; decompiles are behaviour evidence only, never copied).
+- Tested (exact commands and results) and Left for later, as CONTRIBUTING.md asks.
+- No agent or model names and no JStar-only paths (mac/work, the CrossOver bottle). Fork issues
+  name upstream PRs only as unlinked text, so the fork adds no events to their timelines.

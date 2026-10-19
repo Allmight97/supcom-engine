@@ -4,7 +4,7 @@ argument-hint: "[topic or branch, e.g. effect-shaders]"
 allowed-tools: Read, Bash(mac/scripts/upstream-news:*), Bash(git -C:*), Bash(gh pr view:*), Bash(gh pr diff:*), Agent
 ---
 
-Topic: $ARGUMENTS (empty: every fork engine change not yet upstream).
+Topic: $ARGUMENTS (empty: every fork engine change not yet upstream). The upstream-pr skill holds the rest of the upstream PR process.
 
 1. Run `mac/scripts/upstream-news` (fetches upstream; lists landings, then open PRs tagged MAC or
    OVERLAP with the fork's files).
