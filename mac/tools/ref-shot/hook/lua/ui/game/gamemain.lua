@@ -68,8 +68,10 @@ function RefShotRun()
         if shot.resume then
             SessionResume()
             WaitSeconds(shot.resume)
-            SessionRequestPause()
-            WaitSeconds(0.5)
+            if shot.pause ~= false then
+                SessionRequestPause()
+                WaitSeconds(0.5)
+            end
         end
         for _, command in shot.console or {} do
             ConExecute(command)
@@ -84,6 +86,11 @@ function RefShotRun()
             .. ' MaxZoom=' .. tostring(camera:GetMaxZoom()) .. ' MinZoom=' .. tostring(camera:GetMinZoom())
             .. ' GameTime=' .. tostring(GameTime()))
         LOG('REFSHOT|READY|' .. shot.name)
+        local dump = GetCommandLineArg('/refdump', 1)
+        if dump then
+            ConExecute('dump_Frame ' .. dump[1])
+            LOG('REFSHOT|DUMP|' .. shot.name)
+        end
         WaitSeconds(4)
     end
     LOG('REFSHOT|END')

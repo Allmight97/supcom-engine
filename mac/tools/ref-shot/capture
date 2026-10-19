@@ -11,6 +11,8 @@
 # /refbare also hides terrain decals and props; the game's /nofog turns fog of war off;
 # /refwait N lets the game run N s before the pause (for example until the ACU has warped in);
 # /reffactions 1,4,1,2 sets the armies' factions (1 UEF, 2 Aeon, 3 Cybran, 4 Seraphim);
+# /refdump DIR also saves each shot with the game's own dump_Frame (SCFrame_*.bmp in DIR, a Windows path),
+# which needs no screen capture;
 # /refui keeps the game UI visible; a shot's select = 'COMMAND' (or false) sets the selection first.
 # Needs movie.nologo = true in Game.prefs so no key press is needed at the splash.
 set -eu

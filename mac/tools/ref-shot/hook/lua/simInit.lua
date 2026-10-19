@@ -21,9 +21,27 @@ local function RefShotLogCommanders()
     end
 end
 
+-- /refemitters TEXT: logs each CreateAttachedEmitter whose blueprint path contains TEXT, with the bone's world
+-- position and what the engine returned:  REFSHOT|EMITTER|tick|entity|bone|x,y,z|blueprint|result
+local function RefShotLogEmitters(filter)
+    local create = CreateAttachedEmitter
+    function CreateAttachedEmitter(entity, bone, army, blueprint)
+        local effect = create(entity, bone, army, blueprint)
+        if string.find(blueprint, filter, 1, true) then
+            local p = entity:GetPosition(bone)
+            LOG(string.format('REFSHOT|EMITTER|%d|%s|%s|%.6g,%.6g,%.6g|%s|%s', GetGameTick(), tostring(entity:GetEntityId()),
+                tostring(bone), p[1], p[2], p[3], blueprint, tostring(effect)))
+        end
+        return effect
+    end
+end
+
 local RefShotBeginSession = BeginSession
 function BeginSession()
     RefShotBeginSession()
+    if ScenarioInfo.Options.RefShotEmitters then
+        RefShotLogEmitters(ScenarioInfo.Options.RefShotEmitters)
+    end
     ForkThread(RefShotLogCommanders)
 end
 
