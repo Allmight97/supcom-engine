@@ -1,7 +1,6 @@
 # Terms from abandoned directions. mac/scripts/doc-hygiene fails when one appears in live
-# guidance (README, AGENTS, STATUS, roadmap, mac/docs, mac/agents, mac/scripts, mac/tools,
-# mac/recipe). Dated history (mac/log, mac/notes) may keep them. When a direction changes,
-# add the dropped terms here in the same commit. One fixed string per line.
+# guidance (README, AGENTS, mac/docs, mac/agents, mac/scripts, mac/tools, mac/recipe). When a
+# direction changes, add the dropped terms here in the same commit. One fixed string per line.
 ~/Projects/SupCom/
 Projects/SupCom/.agents
 osc/env.sh
@@ -13,3 +12,8 @@ opt/homebrew/opt/molten-vk
 status-page
 scripts/land
 native engine is current
+STATUS.md
+roadmap.md
+mac/notes/
+mac/log/
+status-limits

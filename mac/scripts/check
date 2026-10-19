@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Toolkit checks: script syntax, the tools' self-tests, the commit and push guards and Claude hooks, mac/scripts/setup,
-# STATUS.md size and dead links in mac/README.md, AGENTS.md, STATUS.md, roadmap.md and docs/. Engine changes are
+# dead terms, and dead links in mac/README.md, AGENTS.md and docs/. Engine changes are
 # proven by OpenSupCom's own tests (mac/docs/toolchain.md). Writes the result to mac/work/check-last.txt ("EPOCH pass"
 # or "EPOCH fail COUNT"), and mac/work/check-last.manifest, the content the check started on (mac/scripts/tree-snapshot,
 # paths relative to the checkout root), for the commit hook.
@@ -16,7 +16,7 @@ write_receipt() { # DIR SNAPSHOT RESULT [COUNT]: record that the content in SNAP
     echo "$(date +%s) $3${4:+ $4}" > "$1/work/check-last.txt"
 }
 
-for script in "$root"/scripts/rea "$root"/scripts/ghidra-lock "$root"/scripts/game-window "$root"/scripts/status-limits \
+for script in "$root"/scripts/rea "$root"/scripts/ghidra-lock "$root"/scripts/game-window \
               "$root"/scripts/ghidra-py "$root"/scripts/tree-snapshot "$root"/agents/hooks/block-real-input.sh \
               "$root"/agents/faf-crossover "$root"/agents/hooks/block-git-bypass.sh "$root"/tools/lua-trace/capture \
               "$root"/tools/bp-dump/capture "$root"/agents/faf-autorun/run "$root"/tools/ref-shot/capture \
@@ -92,8 +92,8 @@ expect_commit() { expect_commit_in "$scratch" "$@"; }
 
 new_repo "$scratch" ""
 head -c 1100000 /dev/zero > "$scratch/big.dat"; printf 'png' > "$scratch/icon.png"
-mkdir -p "$scratch/mac/log"; echo earlier > "$scratch/mac/log/earlier.md"; echo text > "$scratch/notes.txt"
-git -C "$scratch" add big.dat icon.png notes.txt mac/log/earlier.md; git -C "$scratch" commit -qm baseline
+echo text > "$scratch/notes.txt"
+git -C "$scratch" add big.dat icon.png notes.txt; git -C "$scratch" commit -qm baseline
 git -C "$scratch" config core.hooksPath "$root/agents/githooks"
 echo text > "$scratch/plain.txt"; git -C "$scratch" add plain.txt; expect_commit allowed "plain text"; rm "$scratch/plain.txt"
 echo more >> "$scratch/big.dat"; echo more >> "$scratch/icon.png"; git -C "$scratch" add big.dat icon.png
@@ -114,16 +114,6 @@ code_of mac/tools/run '#!/bin/sh' 32001; expect_commit rejected "extensionless s
 code_of mac/tools/notes '' 32001; code_of mac/tools/fix.patch '' 32001; code_of big.py '' 32001
 expect_commit allowed "data, patches and engine files over the toolkit code budget"
 rm -rf "$scratch/mac/tools" "$scratch/big.py"
-
-echo edit >> "$scratch/mac/log/earlier.md"; git -C "$scratch" add mac/log/earlier.md
-expect_commit rejected "edit of earlier log"
-git -C "$scratch" checkout -q -- mac/log/earlier.md
-rm "$scratch/mac/log/earlier.md"; git -C "$scratch" add -u -- mac/log/earlier.md
-expect_commit rejected "deletion of earlier log"
-git -C "$scratch" checkout -q -- mac/log/earlier.md
-echo new > "$scratch/mac/log/new.md"; git -C "$scratch" add mac/log/new.md
-expect_commit allowed "new session log"
-rm "$scratch/mac/log/new.md"
 
 mkdir -p "$scratch/mac/scripts"; printf '#!/bin/sh\n' > "$scratch/mac/scripts/check"; chmod +x "$scratch/mac/scripts/check"
 echo /work/ > "$scratch/mac/.gitignore"
@@ -344,7 +334,7 @@ expect_hook 2 "git commit -nm x"
 expect_hook 2 "git add -f work/game"
 expect_hook 2 "git -c core.hooksPath=/dev/null commit -m x"
 expect_hook 0 'git commit -m "network fix"'
-expect_hook 0 "git add STATUS.md"
+expect_hook 0 "git add README.md"
 
 expect_hook 2 "git add -A"
 expect_hook 2 "git add --all"
@@ -377,9 +367,6 @@ printf "warning: Unable to reset selection sets: call expected but got nil\n    
 HOME="$scratch" "$root/scripts/game-window" key 36 >/dev/null 2>&1; code=$?
 [[ $code == 4 ]] || fail "game-window sent input without ~/.supcom-input-ok (exit $code, expected 4)"
 
-"$root/scripts/status-limits" "$root/STATUS.md" || fail "STATUS.md limits (mac/scripts/status-limits)"
-printf '## Tracks\n- **A.** 1\n 2\n 3\n 4\n 5\n 6\n' > "$scratch/status.md"
-"$root/scripts/status-limits" "$scratch/status.md" 2>/dev/null && fail "status-limits accepted a 6-line track"
 
 mkdir -p "$scratch/links/docs"
 printf 'See [toolchain](toolchain.md), `mac/scripts/check`, `mac/tools/sim-capture/scripts/NAME.lua`, `mac/work/game` and `~/x/mac/none`.\n```\nmac/none\n```\n' \
@@ -398,8 +385,7 @@ printf '[template](docs/YYYY-MM-DD-TOPIC.md) [set](docs/SET-N.md)\n' > "$scratch
 "$root/scripts/link-check" "$scratch/links/placeholders.md" >/dev/null || fail "link-check rejected explicit placeholder tokens"
 "$root/scripts/doc-hygiene" --self-test >/dev/null || fail "doc-hygiene self-test"
 "$root/scripts/doc-hygiene" || fail "dead terms in live guidance (mac/agents/dead-terms.txt)"
-"$root/scripts/doc-hygiene" --due
-"$root/scripts/link-check" "$root/README.md" "$root/AGENTS.md" "$root/STATUS.md" "$root/roadmap.md" "$root"/docs/*.md "$root"/notes/*.md \
+"$root/scripts/link-check" "$root/README.md" "$root/AGENTS.md" "$root"/docs/*.md \
     || fail "dead links (mac/scripts/link-check)"
 
 mkdir -p "$scratch/ghidra/bin"

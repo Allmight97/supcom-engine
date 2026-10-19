@@ -40,7 +40,7 @@ Outcome: a PR the upstream owner can review and land without asking for changes.
 Write it with `personal-skills:writing-for-agents`, for a human reviewer first:
 - A 4-6 line summary up top: what was wrong, what changes, how it was proven.
 - Then why, what behaviour changed, and the retail evidence (shader source; exe addresses with the
-  SHA-256 from mac/STATUS.md Identities; decompiles are behaviour evidence only, never copied).
+  SHA-256 from mac/docs/toolchain.md Identities; decompiles are behaviour evidence only, never copied).
 - Tested (exact commands and results) and Left for later, as CONTRIBUTING.md asks.
 - No agent or model names and no JStar-only paths (mac/work, the CrossOver bottle). Fork issues
   name upstream PRs only as unlinked text, so the fork adds no events to their timelines.

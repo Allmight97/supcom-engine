@@ -2,8 +2,7 @@
 
 Procedures for the Mac-developer toolkit in `mac/`: playing and building OpenSupCom
 (OSC), reference captures of the original, comparisons, and the Ghidra
-project. Read it when a task needs one of these procedures;
-[STATUS.md](../STATUS.md) owns the current state. Run commands from the
+project. Read it when a task needs one of these procedures. Run commands from the
 checkout root (`~/Projects/OpenSupCom`, the fork) unless a step says otherwise.
 
 ## Play and build OpenSupCom
@@ -57,8 +56,7 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   to `.git/info/exclude`, and disables pushes to upstream. Rerun it after a
   hook changes or the checkout moves; `mac/scripts/check` fails until then.
 - The pre-commit hook refuses game files, PNG/JPG images, saves and replays,
-  Windows executables, new files over 1 MiB, anything under `mac/work/`, and
-  edits of earlier `mac/log/` entries. A commit that touches `mac/`, `AGENTS.md`,
+  Windows executables, new files over 1 MiB, and anything under `mac/work/`. A commit that touches `mac/`, `AGENTS.md`,
   `CLAUDE.md` or `README.md` also needs `mac/scripts/check` to have passed on
   exactly the staged content. The pre-push hook refuses an `up/*` branch when any
   commit in `upstream/main..` touches `mac/`, `AGENTS.md` or `CLAUDE.md`.
@@ -141,25 +139,25 @@ then run `mac/scripts/osc-smoke`, `mac/scripts/osc-render-check`, and a play tes
 JStar. Only when all three pass, change the version in `mac/recipe/env.sh` and in the
 `mac/scripts/check` pin, and keep the old folder until the new one has been played.
 On this Mac (Modern level) the game must log KosmicKrisp; MoltenVK serves only
-Intel Macs and older macOS (Compatibility level).
+Apple Silicon on macOS 14-25 (Compatibility level).
 
-## Installed stack (macOS 27.2 arm64)
+## Identities
 
-| Tool | Version and location | Role |
+The originals the toolkit and its findings are tied to. Record new originals here with byte
+size and SHA-256.
+
+| File | Bytes | SHA-256 |
 | --- | --- | --- |
-| Ghidra | 12.1.4, `~/Applications/ghidra_12.1.4_PUBLIC`, Mac natives built locally | Primary decompiler and the saved project |
-| OpenJDK | Homebrew `openjdk@21` 21.0.12.1 | Java for Ghidra |
-| innoextract | Homebrew 1.9_14 (pulls Boost) | Extracts the GOG installer without running setup |
-| uv | `~/.local/bin/uv` | Runs the pinned Python scripts (`pyghidra==3.1.0`, Python 3.12) |
-| REA | `rea-agents`, latest, npm global install (`rea update`); `mac/scripts/rea` runs it | Evidence dossiers; temporary Ghidra imports |
-| CrossOver | 26.3, bottle `SupCom` | Reference runs of the original game |
-| Command Line Tools | 27.0, Apple clang 21.0.0, macOS SDK 27.0 | Not selected |
-| Xcode-beta | 27.0 (27A5218g), `/Applications/Xcode-beta.app` | Selected (`xcode-select -p`); builds OpenSupCom |
-| Vulkan SDK / KosmicKrisp | SDK 1.4.363.0, Mesa 26.2.99 (`269a955c89`), `mac/work/vulkan-sdk/1.4.363.0/macOS` | Vulkan on Metal 4 for Apple Silicon; the SDK the build uses |
+| `setup_supreme_commander_forged_alliance_1.5_(38101).exe` | 1,096,744 | `19812dd0f932d41188ba2e9b8c864acea9a3cb9757312bfc413e6333ce5c56da` |
+| `…(38101)-1.bin` | 4,293,877,758 | `f49948685831f3cb5c82814eea4393f70b5522cc5a2dc005834bde8054793331` |
+| `…(38101)-2.bin` | 973,738,535 | `1b774a72ceb88480d90a3a57a4f35840fbf6bfece6f8c1e05621811ed7c7ab72` |
+| `bin/SupremeCommander.exe` (v1.5.0.1, linked 2008-02-19) | 12,440,832 | `79074e294ea72fb179914cc393525720c523b65d6c9e300f11d31edceccdb887` |
+| `bin/MohoEngine.dll` | 9,827,584 | `3e6e1a698a57d051e8ee6120d81d4af373321b9bf5f10071e291c96c08a7c3b5` |
+| FAF `ForgedAlliance_base.exe` (linked 2009-06-30) | 12,444,928 | `e7ccac34412ee2652efe356bf4613952f22634f418e20e627b54fe256b1046e5` |
+| `ghidra_12.1.4_PUBLIC_20260921.zip` (official release) | 569,649,598 | `ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db` |
 
-Ghidra archive `mac/work/downloads/ghidra_12.1.4_PUBLIC_20260921.zip` (569,649,598
-bytes) matched the official release digest
-`ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db`.
+The GOG and FAF executables are different builds: functions sit 48 to 528 bytes
+apart, so FAF addresses never apply directly.
 
 ## Fresh setup
 
@@ -168,7 +166,7 @@ bytes) matched the official release digest
    add upstream (`git remote add upstream https://github.com/bwiemz/supcom-engine.git`),
    and run `mac/scripts/setup`: it installs the commit and push guards before anything is staged.
 2. Supply your own game: place the three GOG installer parts in `mac/work/downloads/`,
-   compare their SHA-256 with the identities in STATUS.md (`shasum -a 256
+   compare their SHA-256 with [Identities](#identities) (`shasum -a 256
    mac/work/downloads/setup_*`), and extract into an absent directory:
 
    ```sh
@@ -176,7 +174,7 @@ bytes) matched the official release digest
    ```
 
 3. Install `brew install innoextract openjdk@21`, unpack the official Ghidra
-   12.1.4 release into `~/Applications/` (verify the digest above, keep the
+   12.1.4 release into `~/Applications/` (verify its digest in [Identities](#identities), keep the
    execute bits), and build its Mac components:
 
    ```sh

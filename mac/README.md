@@ -17,19 +17,12 @@ game's engine that runs the game's own scripts and data. This folder is the Mac
 developer's toolkit inside JStar's fork of it,
 [Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine) (upstream:
 [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine)): the build recipe, the
-play command, checks, tools that compare against the original game, and the project's
-status and plan. Mac engine work lands on the fork and is offered upstream where
+play command, checks, and tools that compare against the original game. Mac engine work lands on the fork and is offered upstream where
 upstream can take it. The toolkit came from Allmight97/SupCom, archived after the move.
 
-## Status (October 2026)
-
-- Playable: skirmishes against the AI at 5K on an M4 Max, 120 fps in the Metal HUD, with audio,
-  saves and a correctly sized interface on Retina displays.
-- Graphics: Vulkan on Metal 4 through **KosmicKrisp** (LunarG's conformant driver) on
-  Apple Silicon with macOS 26+. Intel Macs and older macOS will use the bundled
-  **MoltenVK** as a best-effort fallback.
-- Current state, decisions and next steps: [STATUS.md](STATUS.md). Plan:
-  [roadmap.md](roadmap.md).
+Graphics run Vulkan on Metal 4 through **KosmicKrisp** (LunarG's conformant driver) on Apple
+Silicon with macOS 26+, and the bundled **MoltenVK** on macOS 14-25. Plan, decisions, known
+issues and work in flight: the [roadmap issue](https://github.com/Allmight97/supcom-engine/issues/12).
 
 ## Use it
 
@@ -53,20 +46,6 @@ checkout root (`~/Projects/OpenSupCom`).
 | `mac/scripts/setup` | Install the commit and push guards and the Claude settings (after a clone or a hook change) |
 
 The game's log is `~/Library/Application Support/opensupcom/logs/opensupcom.log` (settings stay in `~/.config/opensupcom` when that folder exists).
-
-## Known issues
-
-- The build ships the Vulkan loader and both drivers beside the game; the remaining
-  packaging work (the `.app`) is
-  [fork issue #1](https://github.com/Allmight97/supcom-engine/issues/1).
-- Full screen on the main display (or the one last used) is merged but not yet
-  checked by eye.
-- Anti-aliasing is unavailable (the renderer draws single-sample).
-- macOS Game Mode needs a packaged `.app`; the game runs as a bare program today.
-- The nuclear explosion renders wrongly
-  ([#3](https://github.com/Allmight97/supcom-engine/issues/3)); one Lua warning in long
-  games ([#4](https://github.com/Allmight97/supcom-engine/issues/4)).
-- Intel Macs and older macOS are untested.
 
 ## Constraints
 

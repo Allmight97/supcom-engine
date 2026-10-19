@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fork commit guard. mac/scripts/setup copies it to .git/mac-hooks/, so it also runs on branches without mac/.
 # Every commit: refuse game content, screenshots, saves, replays, Windows executables, new files over 1 MiB,
-# anything under mac/work/, edits or deletions of earlier mac/log/ entries, and mac/ code (scripts and .py, .sh,
+# anything under mac/work/, and mac/ code (scripts and .py, .sh,
 # .lua, .swift, .cmake) over 8,000 tokens, so an agent can read any toolkit file whole. A commit that touches mac/,
 # AGENTS.md, CLAUDE.md or README.md also needs mac/scripts/check to have passed on exactly the staged content.
 set -euo pipefail
@@ -9,11 +9,6 @@ max_bytes=1048576
 rejected=0
 root=$(git rev-parse --show-toplevel)
 toolkit="$root/mac"
-
-while IFS= read -r -d '' path; do
-    printf 'pre-commit: refusing to edit or delete earlier log %s\n' "$path" >&2
-    rejected=1
-done < <(git diff --cached --name-only --diff-filter=MD -z -- mac/log/)
 
 check_file() { # PATH: refuse game content by name, size or header
     local path=$1 reason="" size
@@ -65,9 +60,6 @@ if [[ -n $protected && -x "$toolkit/scripts/check" ]]; then
     if [[ -n $untracked && ! -e "$(git rev-parse --git-path MERGE_HEAD)" ]]; then
         printf 'pre-commit: untracked files sit in mac/ folders this commit touches; git add or ignore them:\n%s\n' "$untracked" >&2
         rejected=1
-    fi
-    if git diff --cached --name-only | grep -qx mac/STATUS.md; then
-        git show :mac/STATUS.md | "$toolkit/scripts/status-limits" - || rejected=1
     fi
     read -r checked result _ < "$toolkit/work/check-last.txt" 2>/dev/null || { checked=0; result=none; }
     unchecked=$(git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r git --literal-pathspecs ls-files -s -- \

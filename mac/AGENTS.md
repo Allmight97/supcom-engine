@@ -15,8 +15,7 @@ One checkout, `~/Projects/OpenSupCom`, JStar's fork
   apply there (`CONTRIBUTING.md`, `docs/provenance-and-compatibility.md`); its tests
   prove engine changes.
 - `mac/` (this folder, MIT): everything else. The play command and build recipe,
-  capture and comparison tools for the original game, guards, status and plans,
-  Claude plugins. It came from Allmight97/SupCom (history there and in its tag
+  capture and comparison tools for the original game, guards, Claude plugins. It came from Allmight97/SupCom (history there and in its tag
   `native-engine-final`).
 - Fork-only files outside `mac/`: `AGENTS.md`, `CLAUDE.md`, the banner at the top
   of `README.md`, and `.github/workflows/mac-upstream-watch.yml` (rewrites the fork's issue
@@ -27,21 +26,18 @@ One checkout, `~/Projects/OpenSupCom`, JStar's fork
   `mac/`, the root `AGENTS.md` or `CLAUDE.md`, the README banner or the fork's workflow. The
   pre-push hook refuses an `up/*` branch whose commits touch any of them but the banner.
 
-Read [STATUS.md](STATUS.md) when joining or resuming: it owns current facts,
-decisions, open questions and next actions, and nothing else. The plan is
-[roadmap.md](roadmap.md). Procedures are in
-[docs/toolchain.md](docs/toolchain.md). Unsettled notes go in
-`mac/notes/scratchpad.md` (dated entries). At the end of a session, add one
-`mac/log/YYYY-MM-DD-TOPIC.md`: decisions, what was done, failures with causes and
-fixes, what is open. Never edit an earlier log.
+The plan, its decisions and all work in flight live in GitHub: the
+[roadmap issue](https://github.com/Allmight97/supcom-engine/issues/12) and its sub-issues. Read it when joining or resuming;
+record a decision or a finding in the issue it belongs to, not in a file. Procedures are
+in [docs/toolchain.md](docs/toolchain.md). The repo keeps only docs a reader needs now; history is
+in git, commits and issues. Unsettled agent notes go in `mac/work/notes/` (ignored).
 
 ## How we judge work
 
 - Start from what a player feels and an observed failure: interface scale, frame
   pacing (the worst frames, not the average), input latency, first-use shader
   hitches. Go narrow and deep; widen only when a measurement points somewhere.
-- Measure before tuning: `mac/scripts/play` (Metal HUD on) today; `xctrace` and frame-capture
-  procedures are M2 deliverables (roadmap.md).
+- Measure before tuning: `mac/scripts/play` (Metal HUD on) and upstream's `--render-bench`.
 - Every human observation becomes a command that reproduces it: a replay plus a
   screenshot at a tick, or a capture of the original plus a comparator. Agents then
   check it without a person.
@@ -92,7 +88,7 @@ fixes, what is open. Never edit an earlier log.
 - Report checks run, checks not run, failures and deletions.
 - Docs stay true to the current direction: `mac/scripts/check` fails on a term from
   `mac/agents/dead-terms.txt` in live guidance (add dropped terms there when a direction
-  changes) and notes when STATUS's Decisions changed since the last `/supcom-docs:doc-audit`.
+  changes); run `/supcom-docs:doc-audit` after a decision changes a direction.
 
 ## Collaboration
 
@@ -106,8 +102,8 @@ fixes, what is open. Never edit an earlier log.
   `mac/scripts/setup`). Mac work lands on the fork; a PR to upstream needs JStar's word.
 - Audits: Haiku at high effort for mechanical sweeps (paths, links, consistency);
   Sonnet at medium or better when the question is what could mislead an agent.
-- One session at a time owns the checkout; STATUS.md "Tracks" names it.
-  Another session that needs it asks JStar for a worktree instead of switching branches.
+- One session at a time works in the checkout. Another session that needs it asks JStar for a
+  worktree instead of switching branches.
 - Main session: Opus at medium; judgement and adjudication stay there with JStar.
   Delegate bounded labour and light judgement to Haiku at high or Sonnet at medium,
   judgement-heavy subtasks to Opus at medium. GPT 6.1 Sol at xhigh through `codex exec`
