@@ -1,0 +1,228 @@
+#!/usr/bin/env -S python3 -I
+"""Claude Code PreToolUse hook for Bash; mac/scripts/setup installs it, mac/scripts/check tests it.
+
+Deny: skipping or removing a git guard, broad staging, rebasing main, squash merges, cleaning ignored
+files (mac/work holds the only captures of the original), a gh write without --repo, an upstream PR that
+is not a draft from an up/* branch, agent names or local paths in upstream text, and linked upstream refs
+in fork text. Ask JStar: commands that discard work or history, worktrees, tags and releases, deleting
+under mac/work, auto-merge, and every other GitHub write to upstream. Bypass mode skips a hook's ask, so
+there the command is refused until JStar agrees in chat and the agent reruns it as JSTAR_SAID_YES=1 <command>.
+
+  guard-shell                  read the hook payload on stdin
+  guard-shell --upstream-text  read text on stdin; exit 1 and print the lines upstream must not see
+"""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+
+UPSTREAM = 'bwiemz/supcom-engine'
+AGENT_TEXT = re.compile(r'\b(claude|anthropic|codex|chatgpt|openai|gpt-?\d|sonnet|opus|haiku)\b|mac/work|/Users/', re.I)
+LINKED_UPSTREAM = re.compile(UPSTREAM + r'(#\d|/(pull|issues)/\d)')
+SEPARATORS = ';&|\n()'
+WRAPPERS = {'env', 'command', 'nohup', 'time', 'xargs', 'sudo', 'exec'}
+MODE = ''
+SAID_YES = False
+GH_WRITES = {'create', 'edit', 'comment', 'review', 'close', 'reopen', 'ready', 'merge', 'delete', 'lock'}
+
+
+def deny(why):
+    print(f'Blocked: {why} (mac/agents/hooks/guard-shell).', file=sys.stderr)
+    sys.exit(2)
+
+
+def ask(why):
+    if MODE == 'bypassPermissions' and not SAID_YES:
+        deny(f'{why}. Ask JStar; if he agrees, rerun as: JSTAR_SAID_YES=1 <command>')
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
+                                             'permissionDecisionReason': why}}))
+    sys.exit(0)
+
+
+def without_heredocs(text):
+    """Heredoc bodies are data, not commands; drop them so a commit message's apostrophe parses."""
+    out, end = [], None
+    for line in text.split('\n'):
+        if end is not None:
+            end = None if line.strip() == end else end
+            continue
+        out.append(line)
+        match = re.search(r'<<-?\s*[\'"]?(\w+)[\'"]?', line)
+        end = match.group(1) if match else None
+    return '\n'.join(out)
+
+
+def commands(text):
+    lexer = shlex.shlex(without_heredocs(text), posix=True, punctuation_chars=SEPARATORS)
+    lexer.whitespace = ' \t\r'
+    lexer.whitespace_split = True
+    words = []
+    for token in lexer:
+        if token and all(c in SEPARATORS for c in token):
+            if words:
+                yield words
+            words = []
+        else:
+            words.append(token)
+    if words:
+        yield words
+
+
+def shorts(args):
+    return {c for a in args if re.fullmatch(r'-[a-zA-Z]+', a) for c in a[1:]}
+
+
+def option(args, *names):
+    for i, a in enumerate(args):
+        for n in names:
+            if a == n and i + 1 < len(args):
+                return args[i + 1]
+            if n.startswith('--') and a.startswith(n + '='):
+                return a[len(n) + 1:]
+    return None
+
+
+def check_git(args, cwd):
+    repo = cwd
+    while args and args[0].startswith('-'):
+        o = args.pop(0)
+        if o in ('-C', '-c') and args:
+            value = args.pop(0)
+            if o == '-C':
+                repo = os.path.join(repo, value)
+            elif value.lower().startswith('core.hookspath'):
+                deny('git -c core.hooksPath turns off the commit and push guards')
+        elif o.startswith('-C'):
+            repo = os.path.join(repo, o[2:])
+    if not args:
+        return
+    sub, rest = args[0], args[1:]
+    flags = shorts(rest)
+    if '--no-verify' in rest or (sub == 'commit' and 'n' in flags):
+        deny('skipping the git hooks')
+    if sub == 'add' and ({'f', 'A'} & flags or {'--force', '--all', '.'} & set(rest)):
+        deny('stage files by name (git add -- <paths>)')
+    if sub == 'pull' and ('r' in flags or any(a == '--rebase' or (a.startswith('--rebase=') and a != '--rebase=false') for a in rest)):
+        deny('pull with a merge, never a rebase')
+    if sub == 'config' and any(a.lower() == 'core.hookspath' for a in rest) \
+            and [a for a in rest if a.lower() != 'core.hookspath' and a not in ('--get', '--local', '--show-origin', 'get')]:
+        deny('changing core.hooksPath turns off the commit and push guards')
+    if sub == 'rebase':
+        branch = subprocess.run(['git', '-C', repo, 'branch', '--show-current'], capture_output=True, text=True).stdout.strip()
+        if 'main' in rest or branch == 'main':
+            deny('never rebase main or onto main; merge instead')
+    if sub == 'merge' and '--squash' in rest:
+        deny('merge with a merge commit, never squash')
+    if sub == 'clean' and ({'x', 'X'} & flags):
+        deny('git clean -x deletes ignored files, including mac/work')
+    discards = {
+        'clean': 'f' in flags or '--force' in rest,
+        'reset': '--hard' in rest,
+        'push': 'f' in flags or any(a.startswith(('--force', '+', ':')) or a in ('--mirror', '--delete', '-d') for a in rest),
+        'branch': 'D' in flags,
+        'checkout': '--' in rest or '.' in rest or 'f' in flags,
+        'restore': not ('--staged' in rest and not ({'W'} & flags or '--worktree' in rest)),
+        'stash': bool({'u', 'a'} & flags) or bool({'drop', 'clear', '--include-untracked', '--all'} & set(rest)),
+        'worktree': bool(rest) and rest[0] in ('add', 'remove', 'prune'),
+        'tag': bool(rest) and rest[0] not in ('-l', '--list', '-n', '--contains', '--points-at'),
+        'merge': '--abort' in rest,
+        'filter-branch': True,
+        'update-ref': 'd' in flags,
+    }
+    if discards.get(sub):
+        ask(f'git {sub} {" ".join(rest)} can discard work, rewrite history, or needs JStar (worktrees, tags)')
+
+
+def body_text(args, cwd):
+    text = option(args, '--body', '-b') or ''
+    path = option(args, '--body-file', '-F')
+    if path and path != '-':
+        try:
+            with open(os.path.join(cwd, path)) as f:
+                text += f.read()
+        except OSError:
+            pass
+    return text + ' ' + (option(args, '--title', '-t') or '')
+
+
+def check_gh(args, cwd):
+    if len(args) < 2:
+        return
+    group, action, rest = args[0], args[1], args[2:]
+    if group == 'api':
+        if UPSTREAM in ' '.join(args) and (option(args, '-X', '--method') or 'GET').upper() != 'GET':
+            ask('a GitHub write to upstream needs JStar\'s word')
+        return
+    if group == 'release' and action == 'create':
+        ask('releases need JStar\'s word')
+    if group not in ('pr', 'issue') or action not in GH_WRITES:
+        return
+    if group == 'pr' and action == 'merge':
+        if shorts(rest) & {'s', 'r'} or {'--squash', '--rebase'} & set(rest):
+            deny('merge with a merge commit, never squash or rebase')
+        if '--auto' in rest:
+            ask('auto-merge needs JStar\'s word')
+    repo = option(rest, '--repo', '-R')
+    if repo is None:
+        deny(f'gh {group} {action} needs --repo (a fork checkout may default to upstream)')
+    text = body_text(rest, cwd)
+    if repo != UPSTREAM:
+        if LINKED_UPSTREAM.search(text):
+            deny('fork text names upstream PRs and issues as unlinked text ("upstream PR 750")')
+        return
+    if AGENT_TEXT.search(text):
+        deny('upstream text names no agent or model and no local path')
+    if group == 'pr' and action == 'create':
+        head = option(rest, '--head', '-H') or ''
+        if '--draft' not in rest and 'd' not in shorts(rest):
+            deny('upstream PRs open as drafts (JStar decides when one is ready)')
+        if not re.match(r'(Allmight97:)?up/', head):
+            deny('an upstream PR comes from an up/* branch (--head Allmight97:up/<topic>)')
+    ask(f'gh {group} {action} writes to upstream; it needs JStar\'s word')
+
+
+def check(words, cwd):
+    global SAID_YES
+    while words and (words[0] in WRAPPERS or re.match(r'\w+=', words[0])):
+        SAID_YES = SAID_YES or words[0] == 'JSTAR_SAID_YES=1'
+        if words[0].startswith('GIT_CONFIG'):
+            deny('GIT_CONFIG variables can turn off the git guards')
+        words = words[1:]
+    if not words:
+        return
+    name = os.path.basename(words[0])
+    if name in ('bash', 'sh', 'zsh') and '-c' in words[1:-1]:
+        for inner in commands(words[words.index('-c') + 1]):
+            check(inner, cwd)
+    elif name == 'git':
+        check_git(words[1:], cwd)
+    elif name == 'gh':
+        check_gh(words[1:], cwd)
+    elif name == 'rm' and any(re.search(r'mac/work|Application Support/opensupcom', a) for a in words[1:]):
+        ask('deleting under mac/work or the game\'s data needs JStar\'s word')
+
+
+def main():
+    if '--upstream-text' in sys.argv:
+        bad = [line for line in sys.stdin.read().splitlines() if AGENT_TEXT.search(line)]
+        print('\n'.join(bad))
+        sys.exit(1 if bad else 0)
+    global MODE
+    try:
+        payload = json.load(sys.stdin)
+        MODE = payload.get('permission_mode', '')
+        command = payload.get('tool_input', {}).get('command', '')
+        cwd = payload.get('cwd') or os.getcwd()
+        parts = list(commands(command))
+    except (ValueError, AttributeError):
+        deny('the command could not be parsed')
+    for words in parts:
+        cwd_change = words[1] if words[0] == 'cd' and len(words) > 1 else None
+        if cwd_change:
+            cwd = os.path.join(cwd, cwd_change)
+        check(words, cwd)
+
+
+main()

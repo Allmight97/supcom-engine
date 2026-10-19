@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Run the engine checks an upstream PR needs and print a Markdown "Tested" block for its description.
+
+  mac/scripts/prove [--root DIR] [--base REF]
+  mac/scripts/prove --self-test
+
+From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout; BASE defaults to
+upstream/main) it picks the checks: any change under src/, tests/, cmake/, third_party/, CMake files,
+vcpkg.json or a shader runs unit, mp, gate (failures rerun once), format, metrics and smoke; a change
+under src/renderer or to a shader adds the render check; anything else (docs) runs metrics only.
+It never builds: it stops if DIR/build/play is missing and notes a build older than HEAD. Exit status
+is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
+"""
+import os
+import subprocess
+import sys
+
+TOOLKIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENGINE = ('src/', 'tests/', 'cmake/', 'third_party/')
+ENGINE_FILES = ('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json')
+SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
+ORDER = ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'render']
+
+
+def checks_for(paths):
+    """(checks to run, {skipped check: reason})."""
+    shader = any(p.endswith(SHADERS) for p in paths)
+    engine = shader or any(p.startswith(ENGINE) or os.path.basename(p) in ENGINE_FILES
+                           or p.endswith('.cmake') for p in paths)
+    render = shader or any(p.startswith('src/renderer/') for p in paths)
+    chosen = {'metrics'}
+    if engine:
+        chosen |= {'unit', 'mp', 'gate', 'format', 'smoke'}
+    if render:
+        chosen.add('render')
+    why = 'no engine change' if not engine else 'no change under src/renderer or to a shader'
+    return [c for c in ORDER if c in chosen], {c: why for c in ORDER if c not in chosen}
+
+
+def commands(base):
+    """check name -> argv, run from the tree's root."""
+    ctest = ['ctest', '--test-dir', 'build/play']
+    return {
+        'unit': ['build/play/tests/osc_tests'],
+        'mp': ctest + ['-L', 'mp'],
+        'gate': ctest + ['-L', 'gate', '-j', '4'],
+        'format': ['sh', f'{TOOLKIT}/scripts/format', base],
+        'metrics': ['python3', 'tools/status_metrics.py', 'check', '--build-dir', 'build/play'],
+        'smoke': [f'{TOOLKIT}/scripts/osc-smoke'],
+        'render': [f'{TOOLKIT}/scripts/osc-render-check'],
+    }
+
+
+def sh(root, argv, env=None):
+    return subprocess.run(argv, cwd=root, text=True, capture_output=True, env=env)
+
+
+def run_check(root, name, argv, env):
+    result = sh(root, argv, env)
+    if result.returncode and name in ('mp', 'gate'):
+        print(f'prove: {name}: rerunning failures once (network tests flake under load)', flush=True)
+        result = sh(root, ['ctest', '--test-dir', 'build/play', '--rerun-failed', '--output-on-failure'], env)
+    if result.returncode:
+        print('\n'.join((result.stdout + result.stderr).strip().splitlines()[-20:]), flush=True)
+    return result.returncode == 0
+
+
+def main():
+    args = sys.argv[1:]
+    if '--self-test' in args:
+        return self_test()
+    opt = dict(zip(args[::2], args[1::2]))
+    root = os.path.abspath(opt.get('--root', os.path.dirname(TOOLKIT)))
+    base = opt.get('--base', 'upstream/main')
+    diff = sh(root, ['git', 'diff', '--name-only', f'{base}...HEAD'])
+    if diff.returncode:
+        sys.exit(f'prove: cannot diff {base}...HEAD in {root}: {diff.stderr.strip()}')
+    chosen, skipped = checks_for(diff.stdout.split())
+    print(f'prove: {len(diff.stdout.split())} changed paths; checks: {" ".join(chosen)}', flush=True)
+    cmds = commands(base)
+    env = {**os.environ, 'OSC_ROOT': root}
+    binary = os.path.join(root, 'build/play/opensupcom')
+    notes = []
+    if not os.path.exists(binary):
+        sys.exit(f'prove: {binary} is missing; build the tree first (OSC_ROOT={root} bash mac/recipe/build.sh)')
+    head_time = int(sh(root, ['git', 'log', '-1', '--format=%ct']).stdout.strip() or 0)
+    if os.path.getmtime(binary) < head_time:
+        notes.append('the build in build/play is older than HEAD; the results may not describe HEAD')
+        print(f'prove: warning: {notes[-1]}', flush=True)
+    results = {}
+    for name in chosen:
+        print(f'prove: check {name}', flush=True)
+        results[name] = run_check(root, name, cmds[name], env)
+        print(f'prove: check {name}: {"pass" if results[name] else "FAIL"}', flush=True)
+    print(f'\n### Tested\n\nBase `{base}`, tree `{root}`.\n')
+    for name in chosen:
+        shown = f'mac/scripts/format {base}' if name == 'format' else \
+            ' '.join(cmds[name]).replace(f'{TOOLKIT}/scripts', 'mac/scripts')
+        print(f'- `{shown}`: {"pass" if results[name] else "FAIL"}')
+    for name, why in skipped.items():
+        print(f'- skipped {name}: {why}')
+    for note in notes:
+        print(f'- note: {note}')
+    sys.exit(0 if all(results.values()) else 1)
+
+
+def self_test():
+    assert checks_for(['docs/a.md', 'README.md'])[0] == ['metrics']
+    assert checks_for([])[0] == ['metrics']
+    assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke']
+    assert checks_for(['tests/x.cpp', 'docs/a.md'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke']
+    assert checks_for(['src/renderer/a.cpp'])[0] == ORDER
+    assert checks_for(['src/app/a.cpp'])[1] == {'render': 'no change under src/renderer or to a shader'}
+    assert checks_for(['assets/x.frag'])[0] == ORDER
+    assert checks_for(['CMakeLists.txt'])[0][0] == 'unit' and checks_for(['cmake/x.cmake'])[0][0] == 'unit'
+    assert checks_for(['srcs/a.cpp', 'mac/scripts/x'])[0] == ['metrics']
+    print('prove self-test passed')
+
+
+main()

@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Bring an upstream PR's up/* branch current with upstream/main, the way upstream asks, and prove it.
+
+  mac/scripts/up-refresh up/<topic>
+  mac/scripts/up-refresh --self-test
+
+In the worktree where the branch is checked out (`git worktree list`): fetch upstream, merge
+upstream/main into the branch with a merge commit (never a rebase), build that tree with the fork's
+recipe, run mac/scripts/prove --root on it, and print the push command. On conflict it stops with the
+list and leaves the merge for a person or agent: resolve, commit, then run it again (it resumes at the
+build). It never pushes. Phases print as `up-refresh: <phase>` lines.
+"""
+import os
+import subprocess
+import sys
+
+OSC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def worktree_of(porcelain, branch):
+    """Path of the worktree that has `branch` checked out, from `git worktree list --porcelain`."""
+    path = None
+    for line in porcelain.splitlines():
+        if line.startswith('worktree '):
+            path = line[len('worktree '):]
+        elif line == f'branch refs/heads/{branch}':
+            return path
+
+
+def git(tree, *args, check=True):
+    result = subprocess.run(['git', '-C', tree, *args], text=True, capture_output=True)
+    if check and result.returncode:
+        sys.exit(f'up-refresh: git {" ".join(args)} failed: {result.stderr.strip()}')
+    return result
+
+
+def main():
+    if sys.argv[1:] == ['--self-test']:
+        return self_test()
+    if len(sys.argv) != 2 or not sys.argv[1].startswith('up/'):
+        sys.exit('usage: mac/scripts/up-refresh up/<topic>')
+    branch = sys.argv[1]
+    tree = worktree_of(git(OSC, 'worktree', 'list', '--porcelain').stdout, branch)
+    if not tree:
+        sys.exit(f'up-refresh: no worktree has {branch} checked out (git worktree list)')
+    if os.path.exists(os.path.join(tree, git(tree, 'rev-parse', '--git-dir').stdout.strip(), 'MERGE_HEAD')):
+        sys.exit(f'up-refresh: a merge is unfinished in {tree}: resolve it and commit it, then run again')
+    if git(tree, 'status', '--porcelain', '--untracked-files=no').stdout.strip():
+        sys.exit(f'up-refresh: {tree} has uncommitted changes')
+    print(f'up-refresh: fetch upstream into {tree}', flush=True)
+    git(tree, 'fetch', '-q', 'upstream')
+    if git(tree, 'merge-base', '--is-ancestor', 'upstream/main', 'HEAD', check=False).returncode:
+        print(f'up-refresh: merge upstream/main into {branch}', flush=True)
+        merged = git(tree, 'merge', '--no-ff', '--no-edit', 'upstream/main', check=False)
+        if merged.returncode:
+            conflicts = git(tree, 'diff', '--name-only', '--diff-filter=U').stdout.split()
+            sys.exit('up-refresh: conflicts in: ' + (' '.join(conflicts) or merged.stderr.strip()) +
+                     '\nresolve keeping both sides, commit the merge, then run again')
+    else:
+        print('up-refresh: upstream/main is already merged')
+    print('up-refresh: build', flush=True)
+    build = subprocess.run(['bash', 'mac/recipe/build.sh'], cwd=OSC, text=True, capture_output=True,
+                           env={**os.environ, 'OSC_ROOT': tree})
+    if 'BUILD_OK' not in build.stdout:
+        sys.exit(f'up-refresh: build failed: {tree}/.local/build.log')
+    print('up-refresh: prove', flush=True)
+    if subprocess.run(['python3', f'{OSC}/mac/scripts/prove', '--root', tree]).returncode:
+        sys.exit('up-refresh: checks failed; nothing to push')
+    print(f'up-refresh: all checks pass. Push: git -C {tree} push origin {branch}')
+
+
+def self_test():
+    porcelain = ('worktree /a/main\nHEAD 1\nbranch refs/heads/main\n\n'
+                 'worktree /a/up\nHEAD 2\nbranch refs/heads/up/x\n\n'
+                 'worktree /a/det\nHEAD 3\ndetached\n')
+    assert worktree_of(porcelain, 'up/x') == '/a/up'
+    assert worktree_of(porcelain, 'main') == '/a/main'
+    assert worktree_of(porcelain, 'up/y') is None
+    assert worktree_of(porcelain, 'up') is None
+    print('up-refresh self-test passed')
+
+
+main()

@@ -2,8 +2,9 @@
 # The engine's formatting ratchet with the clang-format CI pins (LLVM 22, from PyPI through uvx);
 # Apple's Xcode clang-format is an older major and formats some lines differently.
 #   mac/scripts/format [--fix] [base]    (arguments as tools/check_format.sh; base defaults to upstream/main)
+# Formats $OSC_ROOT when set (an up/* tree), else the checkout holding this script.
 set -eu
-cd "$(dirname "$0")/../.."
+cd "${OSC_ROOT:-$(dirname "$0")/../..}"
 CLANG_FORMAT=$(uvx -q --from 'clang-format>=22,<23' python -c \
     "import clang_format, os; print(os.path.join(os.path.dirname(clang_format.__file__), 'data', 'bin', 'clang-format'))")
 export CLANG_FORMAT

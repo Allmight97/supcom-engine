@@ -1,0 +1,10 @@
+#!/bin/sh
+# JStar grants agents real mouse, keyboard and window input for a while; agents never run this (guard-input refuses).
+#   mac/scripts/input-grant MINUTES   allow input until MINUTES from now
+#   mac/scripts/input-grant off       end it now
+marker="$HOME/.supcom-input-ok"
+case "${1:-}" in
+    off) rm -f "$marker"; echo "Real input is off." ;;
+    ''|*[!0-9]*) sed -n '3,4s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *) end=$(( $(date +%s) + $1 * 60 )); echo "$end" > "$marker"; echo "Real input is on until $(date -r "$end" +%H:%M)." ;;
+esac

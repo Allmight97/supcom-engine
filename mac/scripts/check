@@ -16,26 +16,25 @@ write_receipt() { # DIR SNAPSHOT RESULT [COUNT]: record that the content in SNAP
     echo "$(date +%s) $3${4:+ $4}" > "$1/work/check-last.txt"
 }
 
-for script in "$root"/scripts/rea "$root"/scripts/ghidra-lock "$root"/scripts/game-window \
-              "$root"/scripts/ghidra-py "$root"/scripts/tree-snapshot "$root"/agents/hooks/block-real-input.sh \
-              "$root"/agents/faf-crossover "$root"/agents/hooks/block-git-bypass.sh "$root"/tools/lua-trace/capture \
-              "$root"/tools/bp-dump/capture "$root"/agents/faf-autorun/run "$root"/tools/ref-shot/capture \
-              "$root"/tools/sim-capture/capture "$root"/tools/lib/game-run.sh "$root"/tools/mouse-probe/run; do
-    sh -n "$script" || fail "shell syntax: $script"
-done
-for script in "$root"/agents/githooks/pre-commit "$root"/agents/githooks/pre-push "$root"/scripts/play \
-              "$root"/scripts/osc-smoke "$root"/scripts/osc-render-check "$root"/recipe/build.sh "$root"/recipe/env.sh; do
-    bash -n "$script" || fail "shell syntax: $script"
-done
-for script in "$root"/scripts/game-prefs "$root"/scripts/game-log-check "$root"/scripts/setup "$root"/scripts/link-check \
-              "$root"/tools/lua-trace/*.py "$root"/tools/bp-dump/*.py "$root"/tools/motion-compare/*.py \
-              "$root"/tools/intel-compare/*.py "$root"/tools/image-compare/*.py "$root"/tools/mouse-probe/live.py "$root"/tools/lib/*.py; do
-    python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$script" || fail "python syntax: $script"
-done
+syntax_checked=0
+while IFS= read -r -d '' path; do
+    script="$root/$path"
+    [[ -f $script ]] || continue
+    case "$path:$(head -c 40 "$script")" in
+        *.py:*|*:'#!'*python3*) python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$script" \
+                                    || fail "python syntax: $script" ;;
+        *:'#!/bin/sh'*) sh -n "$script" || fail "shell syntax: $script" ;;
+        *.sh:*|*:'#!'*bash*) bash -n "$script" || fail "shell syntax: $script" ;;
+        *) continue ;;
+    esac
+    syntax_checked=$((syntax_checked + 1))
+done < <(git -C "$root" ls-files -z --cached --others --exclude-standard -- scripts tools agents recipe)
+(( syntax_checked > 40 )) || fail "syntax check found only $syntax_checked scripts"
 
-python3 -I "$root/scripts/upstream-news" --self-test >/dev/null || fail "upstream-news self-test"
-python3 -I "$root/scripts/sync-upstream" --self-test >/dev/null || fail "sync-upstream self-test"
-python3 -I "$root/tools/lib/capture.py" --self-test >/dev/null || fail "capture.py self-test (python3 -I mac/tools/lib/capture.py --self-test)"
+for tool in scripts/upstream-news scripts/sync-upstream scripts/prove scripts/up-refresh tools/lib/capture.py \
+            tools/motion-compare/motion_compare.py tools/intel-compare/intel_compare.py tools/bp-dump/compare.py; do
+    python3 -I "$root/$tool" --self-test >/dev/null || fail "self-test: python3 -I mac/$tool --self-test"
+done
 
 acquire_lock() {
     local lock=$1 owner
@@ -131,6 +130,9 @@ gate; receipt pass; echo more >> "$scratch/notes.txt"; expect_commit allowed "un
 git -C "$scratch" checkout -q -- notes.txt
 gate; receipt pass; echo again >> "$scratch/mac/gate.txt"; expect_commit rejected "path-limited commit of a file edited after the check" -- mac/gate.txt
 gate; receipt pass; expect_commit allowed "path-limited commit of the checked file" -- mac/gate.txt
+receipt pass; git -C "$scratch" rm -qf mac/gate.txt; expect_commit rejected "deletion after the check"
+git -C "$scratch" add -u mac/gate.txt; receipt pass; expect_commit allowed "deletion the check saw"
+git -C "$scratch" checkout -q HEAD -- mac/gate.txt
 git -C "$scratch" checkout -q -b side; echo side > "$scratch/mac/side.txt"; git -C "$scratch" add mac/side.txt; receipt pass
 git -C "$scratch" commit -qm side; git -C "$scratch" checkout -q -; receipt pass
 git -C "$scratch" merge -q --no-ff --no-commit side >/dev/null
@@ -150,7 +152,9 @@ push="$scratch/push"
 new_repo "$push" ""
 echo a > "$push/engine.cpp"; git -C "$push" add engine.cpp; git -C "$push" commit -qm base
 git -C "$push" update-ref refs/remotes/upstream/main HEAD
-git init -q --bare "$scratch/origin.git"; git -C "$push" config core.hooksPath "$root/agents/githooks"
+git init -q --bare "$scratch/origin.git"; mkdir -p "$scratch/push-hooks/claude"
+cp "$root/agents/githooks/pre-push" "$scratch/push-hooks/"; cp "$root/agents/hooks/guard-shell" "$scratch/push-hooks/claude/"
+git -C "$push" config core.hooksPath "$scratch/push-hooks"
 expect_push() { # EXPECTED LABEL BRANCH
     local actual
     if git -C "$push" push -q "$scratch/origin.git" "$3" >/dev/null 2>&1; then actual=allowed; else actual=rejected; fi
@@ -164,7 +168,16 @@ expect_push rejected "up/ branch whose history carries a mac/ commit" up/carries
 git -C "$push" checkout -q -b mac/side; expect_push allowed "fork branch with mac/ commits" mac/side
 git -C "$push" checkout -q -b up/agents up/engine; echo x > "$push/AGENTS.md"; git -C "$push" add AGENTS.md
 git -C "$push" commit -qm agents; expect_push rejected "up/ branch adding AGENTS.md" up/agents
-rm -rf "$push" "$scratch/origin.git"
+git -C "$push" checkout -q -b up/nested up/engine; mkdir -p "$push/src"; echo x > "$push/src/AGENTS.md"
+git -C "$push" add src; git -C "$push" commit -qm nested; expect_push rejected "up/ branch adding a nested AGENTS.md" up/nested
+expect_push rejected "fork branch pushed to an up/ name" mac/side:up/renamed
+git -C "$push" checkout -q -b up/named up/engine; echo c >> "$push/engine.cpp"
+git -C "$push" commit -qam "engine fix" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+expect_push rejected "up/ commit message naming an agent" up/named
+git -C "$push" push -q --no-verify "$scratch/origin.git" up/named 2>/dev/null
+echo d >> "$push/engine.cpp"; git -C "$push" commit -qam "engine follow-up"
+expect_push allowed "up/ push whose named commit is already on the remote" up/named
+rm -rf "$push" "$scratch/origin.git" "$scratch/push-hooks"
 
 osc="$scratch/osc"
 git init -q "$osc"; mkdir "$osc/.claude"
@@ -296,59 +309,50 @@ play_args "$scratch/play/default" | grep -qx -- '--fps-cap\|--windowed\|--fullsc
     && fail "play: by default the Video options decide (no window or frame-cap arguments)"
 [[ $(play_args "$scratch/play/full" --full | grep -cx -- --fullscreen) == 1 ]] || fail "play: --full overrides full screen"
 
-check_plugins() {
-    python3 -I - "$1" "$2" <<'PY'
+check_plugins() { # SOURCE INSTALLED_JSON PROJECT
+    python3 -I - "$@" <<'PY'
 import json
 import pathlib
 import sys
 
-source, installed = map(pathlib.Path, sys.argv[1:])
+source, installed, project = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
 if not installed.exists():
     print('Skipping the installed-plugin check: installed_plugins.json does not exist.')
     sys.exit(0)
-gone = [name for name in json.loads(installed.read_text()).get('plugins', {})
-        if name.endswith('@supcom') and not (source / name.removesuffix('@supcom')).is_dir()]
-for name in gone:
-    print(f'Installed but removed from mac/agents/mods: {name} (claude plugin uninstall {name} --scope local)')
-sys.exit(1 if gone else 0)
+records = json.loads(installed.read_text()).get('plugins', {})
+problems = [f'{name} is installed but gone from mac/agents/mods (claude plugin uninstall {name} --scope local)'
+            for name in records if name.endswith('@supcom') and not (source / name.removesuffix('@supcom')).is_dir()]
+for plugin in sorted(d for d in source.iterdir() if (d / '.claude-plugin/plugin.json').is_file()):
+    name = plugin.name + '@supcom'
+    version = json.loads((plugin / '.claude-plugin/plugin.json').read_text())['version']
+    mine = [r for r in records.get(name, []) if r.get('projectPath') == project]
+    if not mine:
+        problems.append(f'{name} is not installed for {project} (claude plugin install {name} --scope local)')
+        continue
+    cache = pathlib.Path(mine[0].get('installPath', ''))
+    stale = [str(f.relative_to(plugin)) for f in plugin.rglob('*') if f.is_file()
+             and not ((cache / f.relative_to(plugin)).is_file() and (cache / f.relative_to(plugin)).read_bytes() == f.read_bytes())]
+    if mine[0].get('version') != version or stale:
+        problems.append(f'{name} {mine[0].get("version")} differs from mac/agents/mods ({version}; {", ".join(stale[:3]) or "version"}): '
+                        f'bump its plugin.json version if files changed, then claude plugin update {name} --scope local')
+print('\n'.join(problems))
+sys.exit(1 if problems else 0)
 PY
 }
-mkdir -p "$scratch/plugins/source/demo"
-printf '{"plugins":{"demo@supcom":[{}]}}\n' > "$scratch/plugins/installed.json"
-check_plugins "$scratch/plugins/source" "$scratch/plugins/absent.json" >/dev/null || fail "plugin check fresh machine"
-check_plugins "$scratch/plugins/source" "$scratch/plugins/installed.json" >/dev/null || fail "plugin check present plugin"
-rm -rf "$scratch/plugins/source/demo"
-check_plugins "$scratch/plugins/source" "$scratch/plugins/installed.json" >/dev/null && fail "plugin check missed removed plugin"
-check_plugins "$root/agents/mods" "$HOME/.claude/plugins/installed_plugins.json" || fail "installed supcom plugins (uninstall the reported plugins)"
+plugins="$scratch/plugins"
+mkdir -p "$plugins/source/demo/.claude-plugin" "$plugins/cache/demo/.claude-plugin"
+echo '{"version": "1"}' | tee "$plugins/source/demo/.claude-plugin/plugin.json" > "$plugins/cache/demo/.claude-plugin/plugin.json"
+printf '{"plugins":{"demo@supcom":[{"projectPath":"/p","version":"1","installPath":"%s"}]}}\n' "$plugins/cache/demo" > "$plugins/installed.json"
+check_plugins "$plugins/source" "$plugins/absent.json" /p >/dev/null || fail "plugin check fresh machine"
+check_plugins "$plugins/source" "$plugins/installed.json" /p >/dev/null || fail "plugin check installed copy equal to source"
+check_plugins "$plugins/source" "$plugins/installed.json" /other >/dev/null && fail "plugin check missed a plugin installed only elsewhere"
+echo edited > "$plugins/source/demo/skill.md"
+check_plugins "$plugins/source" "$plugins/installed.json" /p >/dev/null && fail "plugin check missed a source edit"
+rm -rf "$plugins/source/demo"
+check_plugins "$plugins/source" "$plugins/installed.json" /p >/dev/null && fail "plugin check missed a removed plugin"
+check_plugins "$root/agents/mods" "$HOME/.claude/plugins/installed_plugins.json" "$(dirname "$root")" || fail "installed supcom plugins match mac/agents/mods"
 
-expect_hook() {
-    local expected=$1 command=$2 code
-    python3 -I -c 'import json, sys; print(json.dumps({"tool_input": {"command": sys.argv[1]}}))' "$command" \
-        | "$root/agents/hooks/block-git-bypass.sh" 2>/dev/null
-    code=$?
-    [[ $code == "$expected" ]] || fail "bypass hook exit $code, expected $expected: $command"
-}
-bypass_flag="--no""-verify"
-expect_hook 2 "git commit $bypass_flag -m x"
-expect_hook 2 "git commit -nm x"
-expect_hook 2 "git add -f work/game"
-expect_hook 2 "git -c core.hooksPath=/dev/null commit -m x"
-expect_hook 0 'git commit -m "network fix"'
-expect_hook 0 "git add README.md"
-
-expect_hook 2 "git add -A"
-expect_hook 2 "git add --all"
-expect_hook 2 "git add ."
-expect_hook 2 "git add -Av"
-expect_hook 2 "git pull --rebase"
-expect_hook 2 "git pull --rebase=true"
-git init -q -b topic "$scratch/rebase topic"
-expect_hook 2 "git -C '$scratch/rebase topic' rebase main"
-expect_hook 0 "git -C '$scratch/rebase topic' rebase feature"
-git -C "$scratch/rebase topic" symbolic-ref HEAD refs/heads/main
-expect_hook 2 "git -C '$scratch/rebase topic' rebase feature"
-expect_hook 2 "cd '$scratch/rebase topic' && git rebase feature"
-expect_hook 0 "git -C '$scratch/rebase topic' merge feature"
+"$root/agents/hooks/test" || fail "Claude hook cases (mac/agents/hooks/test)"
 
 printf "a = {\n    b = 'x}\\\\'{'\n}\nactive_mods = {\n    ['old-uid'] = true\n}\nmovie = { nologo = true }\n" > "$scratch/Game.prefs"
 GAME_PREFS="$scratch/Game.prefs" "$root/scripts/game-prefs" mods >/dev/null || fail "game-prefs mods (clear)"
@@ -365,7 +369,11 @@ printf "warning: Unable to reset selection sets: call expected but got nil\n    
     || fail "game-log-check ignored --allow"
 
 HOME="$scratch" "$root/scripts/game-window" key 36 >/dev/null 2>&1; code=$?
-[[ $code == 4 ]] || fail "game-window sent input without ~/.supcom-input-ok (exit $code, expected 4)"
+[[ $code == 4 ]] || fail "game-window sent input without JStar's grant (exit $code, expected 4)"
+echo $(( $(date +%s) - 60 )) > "$scratch/.supcom-input-ok"
+HOME="$scratch" "$root/scripts/game-window" key 36 >/dev/null 2>&1; code=$?
+[[ $code == 4 ]] || fail "game-window sent input on an expired grant (exit $code, expected 4)"
+rm -f "$scratch/.supcom-input-ok"
 
 
 mkdir -p "$scratch/links/docs"
@@ -385,8 +393,8 @@ printf '[template](docs/YYYY-MM-DD-TOPIC.md) [set](docs/SET-N.md)\n' > "$scratch
 "$root/scripts/link-check" "$scratch/links/placeholders.md" >/dev/null || fail "link-check rejected explicit placeholder tokens"
 "$root/scripts/doc-hygiene" --self-test >/dev/null || fail "doc-hygiene self-test"
 "$root/scripts/doc-hygiene" || fail "dead terms in live guidance (mac/agents/dead-terms.txt)"
-"$root/scripts/link-check" "$root/README.md" "$root/AGENTS.md" "$root"/docs/*.md \
-    || fail "dead links (mac/scripts/link-check)"
+mapfile -t guidance < <(cd "$root" && git ls-files --cached --others --exclude-standard -- '*.md' ':!work' | sed "s|^|$root/|")
+"$root/scripts/link-check" "$(dirname "$root")/AGENTS.md" "${guidance[@]}" || fail "dead links (mac/scripts/link-check)"
 
 mkdir -p "$scratch/ghidra/bin"
 printf '#!/bin/sh\necho ran\n' > "$scratch/ghidra/bin/uv"; chmod +x "$scratch/ghidra/bin/uv"
@@ -399,15 +407,6 @@ sleep 1
 [[ "$(ghidra_py)" == *ran* ]] && fail "ghidra-py ignored a live holder of the lock"
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 
-expect_input_hook() {
-    local expected=$1 json=$2 code
-    printf '%s' "$json" | HOME="$scratch" "$root/agents/hooks/block-real-input.sh" 2>/dev/null; code=$?
-    [[ $code == "$expected" ]] || fail "input hook exit $code, expected $expected: $json"
-}
-input_word="osa""script"
-expect_input_hook 2 "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$input_word -e 1\"}}"
-expect_input_hook 2 '{"tool_name":"mcp__computer-use__app_click","tool_input":{}}'
-expect_input_hook 0 '{"tool_name":"Bash","tool_input":{"command":"scripts/game-window shot x"}}'
 
 if (( failures )); then
     write_receipt "$root" "$snapshot" fail "$failures"
