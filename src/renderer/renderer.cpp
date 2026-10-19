@@ -336,11 +336,10 @@ bool Renderer::create_logical_device(const vkb::Instance& vkb_inst) {
     required_features.samplerAnisotropy = VK_TRUE;
 
     vkb::PhysicalDeviceSelector selector(vkb_inst);
-    auto phys_ret = selector
-        .set_surface(surface_)
-        .set_minimum_version(1, 0)
-        .set_required_features(required_features)
-        .select_devices();
+    auto phys_ret = selector.set_surface(surface_)
+                        .set_minimum_version(1, 0)
+                        .set_required_features(required_features)
+                        .select_devices();
 
     if (!phys_ret || phys_ret.value().empty()) {
         spdlog::error("No suitable Vulkan GPU found: {}",
@@ -3963,7 +3962,8 @@ void Renderer::set_fullscreen(u32 width, u32 height, u32 rate,
         return;
     }
     if (count == 0) return;
-    glfwSetWindowMonitor(window_, monitors[target], 0, 0, static_cast<int>(width), static_cast<int>(height),
+    glfwSetWindowMonitor(window_, monitors[target], 0, 0, static_cast<int>(width),
+                         static_cast<int>(height),
                          rate > 0 ? static_cast<int>(rate) : GLFW_DONT_CARE);
 }
 

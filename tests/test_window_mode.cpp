@@ -197,8 +197,8 @@ TEST_CASE("A Retina window's UI is its size in points, drawn at the framebuffer'
 
 TEST_CASE("Full screen goes to the display holding the last window, else the main one",
           "[window]") {
-    using core::DisplayArea;
     using core::display_at;
+    using core::DisplayArea;
     // The main display, a laptop screen to its left and lower, one above
     const std::array<DisplayArea, 3> displays{DisplayArea{0, 0, 2880, 1620},
                                               DisplayArea{-1512, 700, 1512, 982},

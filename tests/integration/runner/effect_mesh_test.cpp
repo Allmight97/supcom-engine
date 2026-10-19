@@ -610,10 +610,10 @@ void test_effect_meshes(TestContext& ctx) {
             ctx.sim.entity_registry().find(static_cast<u32>(lua_tonumber(ctx.L, -1)));
         lua_pop(ctx.L, 1);
         const f32 half_scale = half ? half->scale_x() : -1.0f;
-        t.check(std::abs(half_scale - 0.5f) < 1e-4f,
-                fmt::format(
-                    "Test 12: SetScale(8.5) on the dome scales it {} of its blueprint's (0.5)",
-                    half_scale));
+        t.check(
+            std::abs(half_scale - 0.5f) < 1e-4f,
+            fmt::format("Test 12: SetScale(8.5) on the dome scales it {} of its blueprint's (0.5)",
+                        half_scale));
         const auto gone = ctx.lua_state.do_string("__osc_scaled:Destroy()\n");
         if (!gone) spdlog::warn("the scaled dome's end: {}", gone.error().message);
         for (int i = 0; i < 10; ++i) ctx.sim.tick();
@@ -662,13 +662,13 @@ void test_effect_meshes(TestContext& ctx) {
                             dome_bp.empty() ? "never made" : dome_bp, static_cast<u32>(seen),
                             dome_draws));
         const f32 growth = (dome_scale_2s - dome_scale_born) / 2.0f;
-        t.check(std::abs(growth - 0.3f) < 0.01f,
-                fmt::format("Test 12: the dome grows {} UniformScale a second (0.3 expected)",
-                            growth));
-        t.check(side_draws > 0,
-                fmt::format(
-                    "Test 12: seen from close by its side, the dome draws ({} NukeUEF draws)",
-                    side_draws));
+        t.check(
+            std::abs(growth - 0.3f) < 0.01f,
+            fmt::format("Test 12: the dome grows {} UniformScale a second (0.3 expected)", growth));
+        t.check(
+            side_draws > 0,
+            fmt::format("Test 12: seen from close by its side, the dome draws ({} NukeUEF draws)",
+                        side_draws));
     }
 
     spdlog::info("Effect mesh test: {}/{} passed", t.pass, t.pass + t.fail);

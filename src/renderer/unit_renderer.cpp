@@ -414,8 +414,8 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
                 const f32 rx = reach(gpu->bounds_min.x, gpu->bounds_max.x);
                 const f32 ry = reach(gpu->bounds_min.y, gpu->bounds_max.y);
                 const f32 rz = reach(gpu->bounds_min.z, gpu->bounds_max.z);
-                const f32 radius = std::max(
-                    5.0f, std::sqrt(rx * rx + ry * ry + rz * rz) * std::max({sx, sy, sz}));
+                const f32 radius =
+                    std::max(5.0f, std::sqrt(rx * rx + ry * ry + rz * rz) * std::max({sx, sy, sz}));
                 if (!frustum->is_sphere_visible(pos.x, pos.y, pos.z, radius)) return;
             }
             build_model_matrix(inst.model, pos, view.orientation(entity), sx, sy, sz);

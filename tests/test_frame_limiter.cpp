@@ -87,8 +87,7 @@ TEST_CASE("Fast frames start a period apart", "[frame_cap]") {
     CHECK(intervals.sd() < 1e-3);
 }
 
-TEST_CASE("A late frame keeps the cadence; one a whole period late restarts it",
-          "[frame_cap]") {
+TEST_CASE("A late frame keeps the cadence; one a whole period late restarts it", "[frame_cap]") {
     FrameLimiter limiter;
     limiter.set_fps(100); // 10 ms
     const Clock::time_point t0{};
