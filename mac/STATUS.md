@@ -36,6 +36,11 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   (#4: cause traced, not fixed). The nuke's opaque sphere (#3) is fixed offscreen
   (`--effect-mesh-test`); against the original it differs: a white-hot dome in the original, an orange banded fireball in OSC ([nuke reference log](log/2026-10-18-nuke-reference.md)). Seven mesh shader
   names still draw as opaque units (`docs/current-state.md`, M211o).
+- JStar's play, 2026-10-18 evening (full screen 2560x1440, cap 118, KosmicKrisp; replay and log in
+  `mac/work/playtests/2026-10-18-jstar/`): smooth; the nuke looks better than the sphere but not
+  like the original, and clips with zoom; lighting effects show a glow or aura unlike the original
+  (bloom? unverified); the M4 Max's fans spin up at 1440p and 118 fps (unmeasured: M2). The
+  original in CrossOver at `/windowed 2560 1440` looked fuzzy (not sharp); it closed normally.
 - Agent soaks (2026-10-18, headless, 8 AIs): 0 Lua errors; late-game sim 93 ms per tick of
   100; unverified: script threads 7,614 to 24,929 from minute 30 to 60, no unit gains
   veterancy. `test_net_lobby.cpp:356` (LaunchGame) failed once, then passed: a flake.
