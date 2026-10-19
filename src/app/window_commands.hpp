@@ -60,8 +60,9 @@ void publish_adapter_options(lua_State* uL, const std::vector<Resolution>& modes
                              const std::string& primary_adapter);
 
 /// The primary_adapter option as a native full screen (macOS) was entered
-/// or left, the green button's too.
-void keep_adapter_option(lua_State* uL, core::Preferences& prefs, bool fullscreen);
+/// or left, the green button's too; `modes` are the display's.
+void keep_adapter_option(lua_State* uL, core::Preferences& prefs, bool fullscreen,
+                         const std::vector<Resolution>& modes);
 
 /// The fidelity options' states and defaults, as retail's executable sets
 /// them at startup: no Ultra preset, Medium by default, low shadows; and

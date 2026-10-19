@@ -140,22 +140,30 @@ TEST_CASE("The adapter option lists the display's modes as Moho does (M217h)", "
     CHECK(overridden == "overridden");
 }
 
-TEST_CASE("A native full screen is one adapter state the option keeps", "[window]") {
+TEST_CASE("A native full screen has a state per refresh rate the option keeps", "[window]") {
     CHECK(native_fullscreen_key("1920,1200,120") == "1920,1200,120");
     CHECK(native_fullscreen_key("1024,768,60") == "1024,768,60");
     CHECK(native_fullscreen_key("windowed") == "1024,768,60");
     CHECK(native_fullscreen_key("overridden") == "1024,768,60");
 
-    auto [states, fallback] = native_adapter_states("1920,1200,120", false);
-    REQUIRE(states.size() == 2);
+    // The display's rates (the held one too), each once, at the held size
+    const std::vector<Resolution> modes{
+        {1920, 1200, 120}, {1024, 768, 60}, {2560, 1600, 120}, {1920, 1200, 0}};
+    auto [states, fallback] = native_adapter_states("1920,1200,120", modes, false);
+    REQUIRE(states.size() == 3);
     CHECK(states[0].key == "windowed");
-    CHECK(states[1].key == "1920,1200,120");
-    CHECK(states[1].text == "Full Screen");
+    CHECK(states[1].key == "1920,1200,60");
+    CHECK(states[1].text == "Full Screen (60 Hz)");
+    CHECK(states[2].key == "1920,1200,120");
+    CHECK(states[2].text == "Full Screen (120 Hz)");
     CHECK(fallback == "1024,768,60");
-    auto [first, first_fallback] = native_adapter_states("windowed", false);
+    auto [first, first_fallback] = native_adapter_states("windowed", {}, false);
     REQUIRE(first.size() == 2);
     CHECK(first[1].key == "1024,768,60");
-    auto [only, overridden] = native_adapter_states("1920,1200,120", true);
+    auto [held, held_fallback] = native_adapter_states("1920,1200,144", modes, false);
+    REQUIRE(held.size() == 4);
+    CHECK(held[3].key == "1920,1200,144");
+    auto [only, overridden] = native_adapter_states("1920,1200,120", modes, true);
     REQUIRE(only.size() == 1);
     CHECK(only[0].key == "overridden");
     CHECK(overridden == "overridden");

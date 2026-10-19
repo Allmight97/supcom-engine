@@ -53,10 +53,11 @@ std::optional<int> App::Window::run() {
             if (!frame()) break;
         }
         if (frame_cap && frame_intervals.count > 0) {
-            spdlog::info("Frame intervals at cap {:.1f}: {}, mean {:.3f} ms, sd {:.3f} ms, "
+            spdlog::info("Frame intervals at cap {}: {}, mean {:.3f} ms, sd {:.3f} ms, "
                          "min {:.3f} ms, max {:.3f} ms",
-                         frame_cap->fps(), frame_intervals.count, frame_intervals.mean(),
-                         frame_intervals.sd(), frame_intervals.min, frame_intervals.max);
+                         frame_cap->fps() > 0 ? fmt::format("{:.1f}", frame_cap->fps()) : "none",
+                         frame_intervals.count, frame_intervals.mean(), frame_intervals.sd(),
+                         frame_intervals.min, frame_intervals.max);
         }
         if (auto code = finish()) return code;
     } else if (auto code = run_without_renderer()) {
@@ -176,7 +177,8 @@ std::optional<int> App::Window::set_up() {
                                                 sim_state ? sim_state->terrain() : nullptr, script,
                                                 at, facing);
          }});
-    if (const double cap = opt.fps_cap.value_or(fps_cap_option(prefs)); cap != 0) {
+    if (const double cap = opt.fps_cap.value_or(fps_cap_option(prefs));
+        cap != 0 || (osc::core::kNativeFullscreen && !opt.fps_cap)) {
         frame_cap.emplace(cap);
     }
     prev_time = std::chrono::high_resolution_clock::now();

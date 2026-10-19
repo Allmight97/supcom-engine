@@ -171,7 +171,7 @@ void size_root_frame(lua_State* uL, u32 width, u32 height) {
 void publish_adapter_options(lua_State* uL, const std::vector<Resolution>& modes, bool overridden,
                              const std::string& primary_adapter) {
     const auto [states, fallback] = core::kNativeFullscreen
-                                        ? native_adapter_states(primary_adapter, overridden)
+                                        ? native_adapter_states(primary_adapter, modes, overridden)
                                         : adapter_states(modes, overridden);
     set_custom_data(uL, "primary_adapter", states, fallback);
     // One display: the secondary adapter is disabled, or overridden
@@ -183,7 +183,8 @@ void publish_adapter_options(lua_State* uL, const std::vector<Resolution>& modes
     }
 }
 
-void keep_adapter_option(lua_State* uL, core::Preferences& prefs, bool fullscreen) {
+void keep_adapter_option(lua_State* uL, core::Preferences& prefs, bool fullscreen,
+                         const std::vector<Resolution>& modes) {
     const std::string key = option_key(prefs, "primary_adapter");
     if (key.empty()) {
         return;
@@ -194,7 +195,7 @@ void keep_adapter_option(lua_State* uL, core::Preferences& prefs, bool fullscree
         return;
     }
     prefs.set_string(key, now);
-    publish_adapter_options(uL, {}, false, now);
+    publish_adapter_options(uL, modes, false, now);
 }
 
 void publish_fidelity_options(lua_State* uL) {

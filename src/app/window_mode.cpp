@@ -116,12 +116,22 @@ std::string native_fullscreen_key(std::string_view primary_adapter) {
 }
 
 std::pair<std::vector<OptionState>, std::string>
-native_adapter_states(std::string_view primary_adapter, bool overridden) {
+native_adapter_states(std::string_view primary_adapter, const std::vector<Resolution>& modes,
+                      bool overridden) {
     if (overridden) {
         return adapter_states({}, true);
     }
-    std::vector<OptionState> states{{"<LOC OPTIONS_0070>Windowed", "windowed"},
-                                    {"Full Screen", native_fullscreen_key(primary_adapter)}};
+    const Resolution held = *parse_resolution(native_fullscreen_key(primary_adapter));
+    std::set<u32> rates{held.rate};
+    for (const Resolution& m : modes) {
+        if (m.rate > 0) rates.insert(m.rate);
+    }
+    std::vector<OptionState> states{{"<LOC OPTIONS_0070>Windowed", "windowed"}};
+    for (const u32 rate : rates) {
+        states.push_back({"Full Screen (" + std::to_string(rate) + " Hz)",
+                          std::to_string(held.width) + "," + std::to_string(held.height) + "," +
+                              std::to_string(rate)});
+    }
     return {std::move(states), std::string(kDefaultAdapterMode)};
 }
 

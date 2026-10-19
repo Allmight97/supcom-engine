@@ -75,11 +75,13 @@ struct OptionState {
 std::pair<std::vector<OptionState>, std::string>
 adapter_states(const std::vector<Resolution>& modes, bool overridden);
 
-/// macOS's full screen keeps the desktop's mode, so the option has one
-/// full-screen state, keyed as the option holds it.
+/// macOS's full screen keeps the desktop's mode: the option has a
+/// full-screen state per refresh rate of the display's modes (and the one it
+/// holds), at the size it holds; the rate caps frames (FrameCap).
 std::string native_fullscreen_key(std::string_view primary_adapter);
 std::pair<std::vector<OptionState>, std::string>
-native_adapter_states(std::string_view primary_adapter, bool overridden);
+native_adapter_states(std::string_view primary_adapter, const std::vector<Resolution>& modes,
+                      bool overridden);
 std::string adapter_option_for(bool fullscreen, std::string_view primary_adapter);
 
 } // namespace osc::app
