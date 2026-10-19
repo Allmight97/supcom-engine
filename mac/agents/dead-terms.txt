@@ -17,3 +17,5 @@ roadmap.md
 mac/notes/
 mac/log/
 status-limits
+block-git-bypass
+block-real-input

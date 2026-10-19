@@ -1,118 +1,47 @@
-# mac/: the Mac-developer toolkit for OpenSupCom
+# mac/: the Mac toolkit for OpenSupCom
 
-## Outcome
+Supreme Commander: Forged Alliance runs natively on the Mac through OpenSupCom (OSC), faithful to the original,
+with FAF. Mac work lands on the fork's `main` first and goes upstream as PRs where upstream can take it. The
+root `AGENTS.md` holds the rules for every agent; this file routes toolkit work.
 
-Supreme Commander: Forged Alliance runs natively on JStar's Mac through
-OpenSupCom (OSC, [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine),
-MIT, C++20, Vulkan through KosmicKrisp on Metal 4), faithful to the original,
-with FAF and its improvements. JStar is OSC's macOS developer; Mac work lands on the
-fork's main first and is offered upstream as pull requests where upstream can take it.
+## Where things are
 
-One checkout, `~/Projects/OpenSupCom`, JStar's fork
-([Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine)):
-
-- Outside `mac/`: upstream's engine plus Mac engine changes. Upstream's own rules
-  apply there (`CONTRIBUTING.md`, `docs/provenance-and-compatibility.md`); its tests
-  prove engine changes.
-- `mac/` (this folder, MIT): everything else. The play command and build recipe,
-  capture and comparison tools for the original game, guards, Claude plugins. It came from Allmight97/SupCom (history there and in its tag
-  `native-engine-final`).
-- Fork-only files outside `mac/`: `AGENTS.md`, `CLAUDE.md`, the banner at the top
-  of `README.md`, and `.github/workflows/mac-upstream-watch.yml` (rewrites the fork's issue
-  "Upstream Mac watch" daily).
-- Branches: `main` is the fork. Mac engine work goes on `mac/<topic>` branches and
-  merges into `main`. An upstream pull request goes on an `up/<topic>` branch cut
-  from `upstream/main`, with only the engine commits cherry-picked; it never carries
-  `mac/`, the root `AGENTS.md` or `CLAUDE.md`, the README banner or the fork's workflow. The
-  pre-push hook refuses an `up/*` branch whose commits touch any of them but the banner.
-
-The plan, its decisions and all work in flight live in GitHub: the
-[roadmap issue](https://github.com/Allmight97/supcom-engine/issues/12) and its sub-issues. Read it when joining or resuming;
-record a decision or a finding in the issue it belongs to, not in a file. Procedures are
-in [docs/toolchain.md](docs/toolchain.md). The repo keeps only docs a reader needs now; history is
-in git, commits and issues. Unsettled agent notes go in `mac/work/notes/` (ignored).
+- Play and build: `mac/scripts/play`, `mac/recipe/build.sh`. Procedures: [docs/toolchain.md](docs/toolchain.md).
+  The original game in CrossOver: [docs/crossover-recipe.md](docs/crossover-recipe.md).
+- Guards, hooks and Claude plugins: `mac/agents/` (its own AGENTS.md). Capture and comparison tools for the
+  original: `mac/tools/` (its own AGENTS.md).
+- Upstream: `mac/scripts/upstream-news` (what upstream is doing), `mac/scripts/sync-upstream` (merge it into the
+  fork), `mac/scripts/up-refresh` (keep an up/* PR current), `mac/scripts/prove` (the engine checks a change
+  needs, with the Tested block for the PR text). The upstream-pr skill holds the PR practice.
+- `mac/work/` (ignored): the player's game (`game`), the reference corpus of the original (`traces`, `logs`),
+  the Ghidra project, the Vulkan SDK, play-test evidence, `downloads` (acquired originals: never patch the only
+  copy; record new ones in toolchain.md Identities), and `notes` for unsettled agent notes.
+- Fork-only files outside `mac/`: `AGENTS.md`, `CLAUDE.md`, the banner atop `README.md`, and
+  `.github/workflows/mac-upstream-watch.yml`. pre-push keeps all but the banner out of up/* branches.
 
 ## How we judge work
 
-- Start from what a player feels and an observed failure: interface scale, frame
-  pacing (the worst frames, not the average), input latency, first-use shader
-  hitches. Go narrow and deep; widen only when a measurement points somewhere.
+- Start from what a player feels and an observed failure: frame pacing (the worst frames, not the average),
+  interface scale, input latency, first-use hitches. Go narrow and deep; widen only when a measurement points.
 - Measure before tuning: `mac/scripts/play` (Metal HUD on) and upstream's `--render-bench`.
-- Every human observation becomes a command that reproduces it: a replay plus a
-  screenshot at a tick, or a capture of the original plus a comparator. Agents then
-  check it without a person.
-- Faithful to the original: when OSC and the original disagree, a capture of the
-  original decides, not a decompiler reading or a guess.
-- A Mac build must pass OSC's cross-platform lockstep checks before anyone plays
-  online (floating-point contraction on arm64 can change results).
-- Prefer the simplest change that serves the outcome. Upstream's maintainer reviews
-  every PR: small, one logical change per commit, messages that say why.
-
-## Evidence and game files
-
-- Contributors supply their own game. Never commit game files, captures, game
-  screenshots, saves or replays. Guards: `mac/agents/githooks/pre-commit` and
-  `pre-push`, which `mac/scripts/setup` copies to `.git/mac-hooks/` so they run on
-  every branch. Never bypass a hook (`--no-verify`, `add -f`);
-  `mac/agents/hooks/block-git-bypass.sh` blocks those commands, even inside a heredoc,
-  so put such text in a file.
-- `mac/work/` (ignored; never committed) holds the player's game (`mac/work/game`,
-  which OSC reads), the reference corpus of the original (`mac/work/traces`,
-  `mac/work/logs`, including reference screenshots), the Ghidra project
-  (`mac/work/ghidra`), the Vulkan SDK, and play-test evidence (`mac/work/playtests`).
-  `mac/work/downloads/` holds acquired originals; never patch the only copy. Record
-  byte sizes and SHA-256 identities of new originals.
-- The original runs only in CrossOver under Rosetta, which macOS 28 removes.
-  CrossOver serves only reference captures; capture what we need while it runs.
-- OSC's provenance policy: a rule learned from a decompile is re-expressed and
-  tested; decompiled code is never copied. faf-re (Draiget/faf-re) has no licence:
-  read it as a behaviour reference only.
-- Label observations, inferences and unknowns. Static analysis does not establish
-  runtime behaviour. Tie findings about the original to the executable's SHA-256 and
-  function addresses.
-- The Ghidra project allows one opener at a time: run pyghidra scripts through
-  `mac/scripts/ghidra-py`. Bound tool output; write long results to `mac/work/logs/`.
+- Every human observation becomes a command that reproduces it (a replay plus a screenshot at a tick, or a
+  capture of the original plus a comparator), so agents check it without a person.
+- When OSC and the original disagree, a capture of the original decides, not a decompile or a guess. Tie
+  findings about the original to the executable's SHA-256 and function addresses; label inferences.
+- No online play until the Mac passes OSC's cross-OS lockstep check (#10).
+- The original runs only in CrossOver under Rosetta, which macOS 28 removes: capture what the corpus needs (#15).
 
 ## Verification
 
-- Run `mac/scripts/check` before a commit that touches `mac/`, `AGENTS.md`,
-  `CLAUDE.md` or `README.md`. It proves the toolkit only. The commit hook refuses
-  unless the last check passed on exactly the staged content: `git add` every file
-  first, edit nothing after.
-- Toolkit code (scripts and `.py`, `.sh`, `.lua`, `.swift`, `.cmake` in `mac/`) stays under 8,000
-  tokens (bytes / 4), so an agent reads each file whole. The commit hook refuses a larger file and
-  says how to split it. Engine files are upstream's structure and have no cap.
-- Engine changes: the tests CONTRIBUTING.md names (unit, `ctest -L mp`, and
-  `ctest -L gate` before every PR), `mac/scripts/format` (the formatting ratchet with CI's LLVM 22), `mac/scripts/osc-smoke` and `mac/scripts/osc-render-check`, as in
-  [docs/toolchain.md](docs/toolchain.md); a nontrivial bug fix shows its test failing first.
-- Report checks run, checks not run, failures and deletions.
-- Docs stay true to the current direction: `mac/scripts/check` fails on a term from
-  `mac/agents/dead-terms.txt` in live guidance (add dropped terms there when a direction
-  changes); run `/supcom-docs:doc-audit` after a decision changes a direction.
+- `mac/scripts/check` proves the toolkit; the commit hook requires it on exactly the staged content, so
+  `git add` every file first and edit nothing after.
+- Engine changes: `mac/scripts/prove`; a nontrivial bug fix shows its test failing first.
+- After a decision changes a direction, add the dropped terms to `mac/agents/dead-terms.txt` and run
+  `/supcom-docs:doc-audit`.
 
-## Collaboration
+## Working here
 
-- JStar's mouse, keyboard and window focus are his. Agents never send real input
-  or raise windows unless JStar created `~/.supcom-input-ok`; agents never create
-  it (`mac/agents/hooks/block-real-input.sh`). Validate with scripted, hidden runs and
-  offscreen screenshots; JStar does the visual play tests (`mac/scripts/play`).
-- Work in the existing checkout. Ask JStar before creating a worktree, deleting a
-  database or resetting user data. `origin` is JStar's fork
-  (Allmight97/supcom-engine) and `upstream` is bwiemz's (push disabled by
-  `mac/scripts/setup`). Mac work lands on the fork; a PR to upstream needs JStar's word.
-- Audits: Haiku at high effort for mechanical sweeps (paths, links, consistency);
-  Sonnet at medium or better when the question is what could mislead an agent.
-- One session at a time works in the checkout. Another session that needs it asks JStar for a
-  worktree instead of switching branches.
-- Main session: Opus at medium; judgement and adjudication stay there with JStar.
-  Delegate bounded labour and light judgement to Haiku at high or Sonnet at medium,
-  judgement-heavy subtasks to Opus at medium. GPT 6.1 Sol at xhigh through `codex exec`
-  (stdin closed: `</dev/null`) gives reviews and opinions before or after implementation,
-  never the implementation itself; give it a narrow brief naming the files to read, and stop
-  a run that has produced nothing after 20 minutes.
-- Commit with `git commit -m … -- <paths>`; one logical change per commit, as
-  CONTRIBUTING.md asks; merge branches into `main` with a merge commit; push at
-  milestones and pauses. Git command restrictions are enforced by
-  `mac/agents/hooks/block-git-bypass.sh`.
-- The CrossOver bottle and the Ghidra project are shared; check running processes
-  before changing either.
+- One session at a time works in this checkout; another that needs it asks JStar for a worktree.
+- Commit with `git commit -m … -- <paths>`, one logical change per commit.
+- The CrossOver bottle and the Ghidra project are shared: go through `mac/tools/lib/game-run.sh` and
+  `mac/scripts/ghidra-py`, which lock them.

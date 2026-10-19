@@ -18,7 +18,7 @@ developer's toolkit inside JStar's fork of it,
 [Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine) (upstream:
 [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine)): the build recipe, the
 play command, checks, and tools that compare against the original game. Mac engine work lands on the fork and is offered upstream where
-upstream can take it. The toolkit came from Allmight97/SupCom, archived after the move.
+upstream can take it.
 
 Graphics run Vulkan on Metal 4 through **KosmicKrisp** (LunarG's conformant driver) on Apple
 Silicon with macOS 26+, and the bundled **MoltenVK** on macOS 14-25. Plan, decisions, known
