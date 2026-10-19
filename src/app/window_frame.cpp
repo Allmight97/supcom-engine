@@ -68,11 +68,27 @@ bool App::Window::frame() {
 
 void App::Window::pace_frame() {
     if (!frame_cap) return;
-    if (frame_cap->update(frame_cap->relative() ? renderer.refresh_rate() : 0)) {
+    double mode_hz = 0;
+    if (frame_cap->setting() == 0 && renderer.fullscreen() && !offscreen_capture &&
+        !adapter_overridden && !fixed_step()) {
+        if (const auto mode = parse_resolution(read_window_prefs(prefs).primary_adapter)) {
+            mode_hz = mode->rate;
+        }
+    }
+    const double before = frame_cap->fps();
+    if (frame_cap->update(frame_cap->setting() > 0 ? 0 : renderer.refresh_rate(), mode_hz)) {
         frame_limiter.set_fps(frame_cap->fps());
         const std::string cap =
             frame_cap->fps() > 0 ? fmt::format("{:.1f}", frame_cap->fps()) : "none";
-        if (frame_cap->relative()) {
+        if (frame_cap->setting() == 0) {
+            if (frame_cap->fps() > 0) {
+                spdlog::info("Frame cap {} (the Video option's {:g} Hz, display {:g} Hz)", cap,
+                             frame_cap->mode_hz(), frame_cap->refresh_hz());
+            } else if (before > 0) {
+                spdlog::info("Frame cap none (vsync at the display's {:g} Hz)",
+                             frame_cap->refresh_hz());
+            }
+        } else if (frame_cap->relative()) {
             spdlog::info("Frame cap {} (display {:g} Hz - {:g})", cap, frame_cap->refresh_hz(),
                          -frame_cap->setting());
         } else if (frame_cap->fps() > 0) {

@@ -201,9 +201,9 @@ private:
     osc::renderer::CommandMode current_command_mode;
     bool ghost_from_mode = false;
     std::chrono::high_resolution_clock::time_point prev_time;
-    /// --fps-cap or the fps_cap option, when either sets one: each frame
-    /// starts no sooner than the cap allows (pace_frame), and the frames'
-    /// intervals are logged at the end.
+    /// --fps-cap or the fps_cap option, when either sets one, else (macOS)
+    /// the full screen mode's rate: each frame starts no sooner than the cap
+    /// allows (pace_frame), and the frames' intervals are logged at the end.
     std::optional<osc::core::FrameCap> frame_cap;
     osc::core::FrameLimiter frame_limiter;
     osc::core::FrameIntervals frame_intervals;

@@ -10,7 +10,8 @@ namespace osc::core {
 
 /// The fps_cap setting (--fps-cap, the fps_cap option): a positive value is
 /// the cap in frames per second, a negative one that far below the refresh
-/// rate of the window's display, 0 none.
+/// rate of the window's display, 0 none but a full screen mode's rate below
+/// the display's (macOS keeps the display's mode, so the rate caps frames).
 class FrameCap {
 public:
     /// The lowest cap: a frame's time for the game is clamped (to 0.25 s, and
@@ -22,18 +23,26 @@ public:
     bool relative() const { return setting_ < 0; }
     double setting() const { return setting_; }
     double refresh_hz() const { return refresh_hz_; }
+    double mode_hz() const { return mode_hz_; }
     /// Frames per second; 0 is none (also a cap under kMinFps, as a relative
     /// one is while its display's rate is unknown).
     double fps() const { return fps_; }
 
-    /// The refresh rate of the window's display now (0 unknown); true when
-    /// the cap is first set or the rate it follows changed.
-    bool update(double refresh_hz) {
-        if (!relative()) refresh_hz = 0;
-        if (set_ && refresh_hz == refresh_hz_) return false;
+    /// The refresh rate of the window's display now (0 unknown) and of the
+    /// full screen mode chosen (0 none); true when the cap is first set or
+    /// a rate it follows changed.
+    bool update(double refresh_hz, double mode_hz = 0) {
+        if (setting_ > 0) refresh_hz = 0;
+        if (setting_ != 0) mode_hz = 0;
+        if (set_ && refresh_hz == refresh_hz_ && mode_hz == mode_hz_) return false;
         set_ = true;
         refresh_hz_ = refresh_hz;
-        fps_ = relative() ? refresh_hz + setting_ : setting_;
+        mode_hz_ = mode_hz;
+        if (setting_ == 0) {
+            fps_ = mode_hz < refresh_hz ? mode_hz : 0;
+        } else {
+            fps_ = relative() ? refresh_hz + setting_ : setting_;
+        }
         if (fps_ < kMinFps) fps_ = 0;
         return true;
     }
@@ -41,6 +50,7 @@ public:
 private:
     double setting_;
     double refresh_hz_ = 0;
+    double mode_hz_ = 0;
     double fps_ = 0;
     bool set_ = false;
 };

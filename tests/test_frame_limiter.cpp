@@ -46,6 +46,31 @@ TEST_CASE("A relative frame cap follows the display's refresh rate", "[frame_cap
     CHECK(deep.fps() == 0);
 }
 
+TEST_CASE("Without a setting, a full screen mode's lower rate is the cap", "[frame_cap]") {
+    // The Video option's 60 Hz on a 120 Hz display: 60; its 120 Hz, or 60 Hz
+    // on a 60 Hz display: none beyond vsync
+    FrameCap cap(0);
+    CHECK(cap.update(120, 60));
+    CHECK(cap.fps() == 60);
+    CHECK_FALSE(cap.update(120, 60));
+    CHECK(cap.update(120, 120));
+    CHECK(cap.fps() == 0);
+    CHECK(cap.update(60, 60));
+    CHECK(cap.fps() == 0);
+    // No mode (windowed), or the display's rate unknown: none
+    CHECK(cap.update(120, 0));
+    CHECK(cap.fps() == 0);
+    CHECK(cap.update(0, 60));
+    CHECK(cap.fps() == 0);
+    // A setting wins over the mode
+    FrameCap absolute(90);
+    absolute.update(120, 60);
+    CHECK(absolute.fps() == 90);
+    FrameCap relative(-2);
+    relative.update(120, 60);
+    CHECK(relative.fps() == 118);
+}
+
 TEST_CASE("A frame cap under the lowest is none", "[frame_cap]") {
     FrameCap slow(9.5);
     slow.update(0);

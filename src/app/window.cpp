@@ -176,7 +176,8 @@ std::optional<int> App::Window::set_up() {
                                                 sim_state ? sim_state->terrain() : nullptr, script,
                                                 at, facing);
          }});
-    if (const double cap = opt.fps_cap.value_or(fps_cap_option(prefs)); cap != 0) {
+    if (const double cap = opt.fps_cap.value_or(fps_cap_option(prefs));
+        cap != 0 || (osc::core::kNativeFullscreen && !opt.fps_cap)) {
         frame_cap.emplace(cap);
     }
     prev_time = std::chrono::high_resolution_clock::now();
