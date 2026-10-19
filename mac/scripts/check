@@ -293,8 +293,8 @@ play_cap() { # ARGS FILE [PLAY ARGS]: the value after the only --fps-cap the gam
     OSC_ROOT="$scratch/play" PLAY_ARGS="$file" "$root/scripts/play" "$@" >/dev/null 2>&1
     [[ $(grep -cx -- --fps-cap "$file") == 1 ]] && grep -A1 -x -- --fps-cap "$file" | tail -1
 }
-[[ $(play_cap "$scratch/play/default") == -2 ]] || fail "play: default frame-rate cap -2"
-[[ $(play_cap "$scratch/play/own" -- --fps-cap 60) == 60 ]] || fail "play: a given --fps-cap replaces the default"
+[[ $(play_cap "$scratch/play/default") == 60 ]] || fail "play: default frame-rate cap 60"
+[[ $(play_cap "$scratch/play/own" -- --fps-cap -2) == -2 ]] || fail "play: a given --fps-cap replaces the default"
 
 check_plugins() {
     python3 -I - "$1" "$2" <<'PY'

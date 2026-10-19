@@ -84,7 +84,7 @@ fixes, what is open. Never edit an earlier log.
   unless the last check passed on exactly the staged content: `git add` every file
   first, edit nothing after.
 - Engine changes: the tests CONTRIBUTING.md names (unit, `ctest -L mp`, and
-  `ctest -L gate` before every PR), `mac/scripts/osc-smoke` and `mac/scripts/osc-render-check`, as in
+  `ctest -L gate` before every PR), `mac/scripts/format` (the formatting ratchet with CI's LLVM 22), `mac/scripts/osc-smoke` and `mac/scripts/osc-render-check`, as in
   [docs/toolchain.md](docs/toolchain.md); a nontrivial bug fix shows its test failing first.
 - Report checks run, checks not run, failures and deletions.
 - Docs stay true to the current direction: `mac/scripts/check` fails on a term from

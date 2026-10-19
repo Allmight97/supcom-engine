@@ -8,7 +8,7 @@
 #   mac/scripts/play --prefs         no size: the game's own Video options decide
 #   mac/scripts/play --hud           Apple's Metal performance HUD (frame rate, frame time)
 #   mac/scripts/play ... -- ARGS     extra opensupcom arguments
-# The frame rate is capped 2 below the display's refresh rate (--fps-cap -2) unless ARGS hold --fps-cap.
+# The frame rate is capped at 60 (--fps-cap 60) unless ARGS hold --fps-cap (-2: 2 below the refresh rate; 0: none).
 main() {
     local recipe; recipe="$(cd "$(dirname "$0")/../recipe" && pwd)" || return 1
     local osc=${OSC_ROOT:-$recipe/../..} build=0
@@ -25,7 +25,7 @@ main() {
         esac
         shift
     done
-    local cap=(--fps-cap -2)
+    local cap=(--fps-cap 60)
     case " $* " in *" --fps-cap "*) cap=() ;; esac
     cd "$osc" && source "$recipe/env.sh" || return 1
     if [ $build = 1 ]; then

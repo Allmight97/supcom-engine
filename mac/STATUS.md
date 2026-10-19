@@ -99,6 +99,9 @@ apart, so FAF addresses never apply directly.
   (JStar is its only author); Allmight97/SupCom is archived after the move.
 - Goal beyond the build: a faithful copy of the original that also runs FAF and its
   improvements; adapting FAF's open code is fine.
+- Play default (2026-10-18): 60 fps (`mac/scripts/play` passes `--fps-cap 60`) at the game's highest
+  video settings (Fidelity, Shadows, Textures and Level of detail High, Bloom on); `-- --fps-cap -2`
+  tries 2 below the refresh rate.
 - Focus (2026-10-18), where no one else upstream is: KosmicKrisp and Metal 4 runtime quality,
   frame pacing and 120 fps on high-resolution displays, effect-rendering fidelity checked against
   captures of the original, and FAF on the Mac. Not volume: the Mac build presets come from
