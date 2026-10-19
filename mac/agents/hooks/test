@@ -61,6 +61,12 @@ expect_hook ask "git tag v1"
 expect_hook 0 "git tag -l"
 expect_hook ask "git checkout -- ."
 expect_hook 0 "git checkout main"
+git init -q -b main "$scratch/main-tree"; git -C "$scratch/main-tree" commit -q --allow-empty -m x
+git -C "$scratch/main-tree" worktree add -q "$scratch/side-tree" -b side 2>/dev/null
+expect_hook ask "git -C '$scratch/main-tree' checkout --detach side"
+expect_hook ask "git -C '$scratch/main-tree' switch side"
+expect_hook 0 "git -C '$scratch/main-tree' switch main"
+expect_hook 0 "git -C '$scratch/side-tree' switch -c other"
 expect_hook ask "git stash -u"
 expect_hook ask "rm -rf mac/work/traces"
 expect_hook 0 "rm -rf .local/tmp"
