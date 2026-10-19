@@ -45,6 +45,9 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   created (5120x2880)`; Retina framebuffer, `renderer.cpp:218`): four RGBA16F targets, full-res
   reflection and normal passes, redrawn at 118 fps from a 10 Hz sim. Two read-only opinions
   (Fable 5.1, GPT 6.1 Sol) call it brute force: `mac/work/logs/perf-opinions-2026-10-18.md`.
+  Measured with upstream's `--render-bench` (battle scene, M4 Max): GPU p50 9.59 ms at 5120x2880
+  against 5.35 at 2560x1440, plus about 3.9 ms that no size changes (three whole-map terrain draws,
+  inferred). Plan: [fork issue #6](https://github.com/Allmight97/supcom-engine/issues/6).
 - Agent soaks (2026-10-18, headless, 8 AIs): 0 Lua errors; late-game sim 93 ms per tick of
   100; unverified: script threads 7,614 to 24,929 from minute 30 to 60, no unit gains
   veterancy. `test_net_lobby.cpp:356` (LaunchGame) failed once, then passed: a flake.
@@ -129,16 +132,16 @@ apart, so FAF addresses never apply directly.
    - The nuke: a UEF ACU death or nuke in a skirmish. The dome should be translucent and
      fade, not an opaque sphere; compare with the original as remembered.
    - FPS cap: watch the `--hud` frame times; agents do no more FPS work (JStar).
-2. Upstream PR of the effect techniques (`d53c82f4`, `fc8c39ce`) after JStar's look at the
-   nuke: an `up/effect-shaders` branch from `upstream/main`, a draft PR.
+2. Upstream PR for the nuke (#3), one draft of vertical slices: the effect techniques (`d53c82f4`,
+   `fc8c39ce`), then the dome's scale, culling, `SetScale` and light-particle bloom (`5ffb307c`,
+   `6d650ff9`, `3a42b963`, `a56410fe`); after JStar's look; `/supcom-upstream:shape` first.
 3. #4: look the pod's id up through `blueprint_name()` in `brain_GetUnitBlueprint`, with a
    failing test first.
-4. Play-test findings still open: Game Mode through the `.app`, the play recorder (#2).
-5. Build on upstream #745 (macOS presets) once it lands; drop the fork's own preset work and
+4. Render less per frame on Retina (#6): render scale first, then per-pass GPU timing, terrain
+   culling.
+5. Play-test findings still open: Game Mode through the `.app`, the play recorder (#2).
+6. Build on upstream #745 (macOS presets) once it lands; drop the fork's own preset work and
    keep `mac/recipe/` only for what #745 lacks. Fork issue #1 holds the packaging.
-6. Original-side nuke capture: a `kill` action in `mac/tools/ref-shot/hook/lua/SimCallbacks.lua`
-   and a `shots/nuke.lua`, then a time-boxed try at running the same hook in OSC (M3).
-
 ## Tracks
 
 Track detail goes in the session's log.
