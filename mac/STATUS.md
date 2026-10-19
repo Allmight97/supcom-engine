@@ -139,13 +139,13 @@ Roadmap of 2026-10-19 ([log](log/2026-10-19-issue-audit.md)); each step eases th
    `mac/recipe/build.sh`. Full checks, a play by JStar (with the 10-18 full-screen display steps:
    maximize on the MacBook, then Full Screen, then relaunch), his powermetrics baseline at 60 Hz, a
    build without `mac/recipe/overlays/` (delete them if it passes).
-2. The focus-army desync (fork issue, new): prove, gate test (record a windowed game, replay it
+2. The focus-army desync (#10): prove, gate test (record a windowed game, replay it
    headless), fix. Upstream PR.
 3. #4 at its root: one blueprint lookup owner plus a ratchet; the ShaderName vocabulary ratchet.
    Upstream PRs.
 4. macOS CI job and the provenance line: upstream PRs opened together.
 5. #7, then #8 (the pod auto-assist task, after a capture of the original's pods). Upstream PRs.
-6. #6: per-pass GPU timing, terrain culling; the emitter LOD rule. Upstream PRs.
+6. #6: per-pass GPU timing, terrain culling; the emitter LOD rule (#11). Upstream PRs.
 7. Fork-only: the capture backend (DXVK/D3DMetal), the .app (#1), the M1 8 GB check, the Mac in
    the cross-OS lockstep check, #2 when needed. FAF: #9.
 Keep bwiemz #750 current with upstream main until it lands.
