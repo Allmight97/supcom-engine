@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Fork commit-message guard (copied to .git/mac-hooks/ by mac/scripts/setup). A commit that touches engine files
+# (anything but mac/, AGENTS*.md, CLAUDE.md, README.md and the fork's workflow) can go upstream, so its message
+# names no agent or model and no local path (guard-shell --upstream-text). This overrides the harness's
+# attribution lines for engine commits; toolkit-only commits keep them.
+set -euo pipefail
+engine=$(git diff --cached --name-only -- . ':!mac' ':(exclude,glob)**/AGENTS*.md' ':(exclude,glob)**/CLAUDE.md' ':!README.md' \
+    ':!.github/workflows/mac-upstream-watch.yml')
+[[ -n $engine ]] || exit 0
+[[ -e "$(git rev-parse --git-path MERGE_HEAD)" ]] && exit 0
+check="$(dirname "$0")/claude/guard-shell"
+[[ -x $check ]] || { echo "commit-msg: $check is missing; run mac/scripts/setup." >&2; exit 1; }
+if ! named=$(grep -v '^#' "$1" | "$check" --upstream-text); then
+    printf 'commit-msg: this commit touches engine files, which go upstream; drop these lines:\n%s\n' "$named" >&2
+    exit 1
+fi

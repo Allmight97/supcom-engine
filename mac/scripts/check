@@ -93,7 +93,8 @@ new_repo "$scratch" ""
 head -c 1100000 /dev/zero > "$scratch/big.dat"; printf 'png' > "$scratch/icon.png"
 echo text > "$scratch/notes.txt"
 git -C "$scratch" add big.dat icon.png notes.txt; git -C "$scratch" commit -qm baseline
-git -C "$scratch" config core.hooksPath "$root/agents/githooks"
+mkdir -p "$scratch/commit-hooks/claude"; cp "$root"/agents/githooks/{pre-commit,commit-msg} "$scratch/commit-hooks/"
+cp "$root/agents/hooks/guard-shell" "$scratch/commit-hooks/claude/"; git -C "$scratch" config core.hooksPath "$scratch/commit-hooks"
 echo text > "$scratch/plain.txt"; git -C "$scratch" add plain.txt; expect_commit allowed "plain text"; rm "$scratch/plain.txt"
 echo more >> "$scratch/big.dat"; echo more >> "$scratch/icon.png"; git -C "$scratch" add big.dat icon.png
 expect_commit allowed "edit of a tracked large file and image outside mac/"
@@ -146,7 +147,11 @@ git -C "$scratch" add CLAUDE.md; receipt pass; expect_commit allowed "root CLAUD
 rm "$scratch/CLAUDE.md"
 echo code > "$scratch/engine.cpp"; git -C "$scratch" add engine.cpp
 receipt fail 1; expect_commit allowed "engine commit needs no toolkit check"
-rm "$scratch/engine.cpp"
+git -C "$scratch" add engine.cpp
+expect_commit rejected "engine commit naming an agent" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+rm "$scratch/engine.cpp"; echo x > "$scratch/mac/toolkit.txt"; git -C "$scratch" add mac/toolkit.txt; receipt pass
+expect_commit allowed "toolkit commit keeps its attribution" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+rm "$scratch/mac/toolkit.txt"
 
 push="$scratch/push"
 new_repo "$push" ""
@@ -210,7 +215,7 @@ for entry in settings['hooks']['PreToolUse']:
         path = pathlib.Path(shlex.split(hook['command'])[0])
         assert path.parent == hooks / 'claude' and os.access(path, os.X_OK), path
         assert path.read_bytes() == (root / 'agents/hooks' / path.name).read_bytes(), path
-for name in ('pre-commit', 'pre-push'):
+for name in ('pre-commit', 'commit-msg', 'pre-push'):
     assert (hooks / name).read_bytes() == (root / 'agents/githooks' / name).read_bytes(), name
 assert module['git'](str(osc), 'config', 'core.hooksPath').stdout.strip() == str(hooks)
 assert module['git'](str(osc), 'remote', 'get-url', '--push', 'upstream').stdout.strip() == 'DISABLED'

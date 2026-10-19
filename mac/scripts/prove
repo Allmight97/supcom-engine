@@ -79,6 +79,10 @@ def main():
     print(f'prove: {len(diff.stdout.split())} changed paths; checks: {" ".join(chosen)}', flush=True)
     cmds = commands(base)
     env = {**os.environ, 'OSC_ROOT': root}
+    if not os.path.isdir(os.path.join(root, 'mac')):
+        # Upstream's code finds a driver only in ~/VulkanSDK or Homebrew; name the fork's pinned KosmicKrisp.
+        sdk = sh(root, ['bash', '-c', f'source {TOOLKIT}/recipe/env.sh && echo "$VULKAN_SDK"']).stdout.strip()
+        env['VK_ADD_DRIVER_FILES'] = f'{sdk}/share/vulkan/icd.d/libkosmickrisp_icd.json'
     binary = os.path.join(root, 'build/play/opensupcom')
     notes = []
     if not os.path.exists(binary):

@@ -21,7 +21,7 @@ import sys
 
 TOOLKIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCLUDES = ['.local/', '/mac/work/']
-GIT_HOOKS = ['pre-commit', 'pre-push', 'up-tree-rules.txt']
+GIT_HOOKS = ['pre-commit', 'commit-msg', 'pre-push', 'up-tree-rules.txt']
 CLAUDE_HOOKS = ['guard-shell', 'guard-input']
 APPLE_PLUGIN = 'game-porting-skills@game-porting-toolkit'
 APPLE_MARKETPLACE = {'source': {'source': 'github', 'repo': 'apple/game-porting-toolkit'}}
