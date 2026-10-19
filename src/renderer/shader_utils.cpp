@@ -1762,6 +1762,7 @@ float fadeAfter(float age, float start, float rate) {
 // lanes. The blended ones are clamped as FA's 8-bit target clamps them.
 vec4 explosionColor() {
     float age = pc.time - fragShaderTime;
+    if (age < 0.0) age += 36000.0; // the times wrap at 36000
     if (pc.technique == 32u) {
         // EffectPS: the albedo scrolled and tiled thrice down; its alpha,
         // the glow, one less the albedo's, fading from 180 ticks old.

@@ -77,7 +77,8 @@ lights a plate 0.72, the ambience alone 0.4, and the unlit show their albedo.
 - Test 8, `NukeUEF`: the closed form of its colour and alpha; standing over
   an `Effect` plate, its depth hides it; a faint dome dissolves after 20
   ticks and the alpha test uncovers the plate; at 70 ticks old its alpha is
-  0.7 of its first.
+  0.7 of its first, and so it is for a dome made 50 ticks before the clock
+  wraps at 36000 ticks, 20 ticks after it.
 - Test 9, `OuterCloud`: its colour and masked alpha; over an `Effect` plate
   the plate shows (no depth written); level with a `Unit` plate it is hidden
   (strictly less); at 200 ticks old its alpha is half.

@@ -519,6 +519,18 @@ void test_effect_meshes(TestContext& ctx) {
                             show(dome_fresh), show(solid), show(faint_fresh), show(thin),
                             show(dome_later), show(solid), show(faint_later), show(green),
                             show(dome_fading), show(fading)));
+        // Across the clock's wrap: the times are kept mod 36000, so a dome
+        // made 50 ticks before it is 70 ticks old 20 ticks after it.
+        while (ctx.sim.tick_count() < 35949) ctx.sim.tick();
+        stand(dome, 1.0f, 340.0f, 220.0f);
+        const u32 born = ctx.sim.tick_count();
+        (void)at_lit(340.0f, 220.0f);
+        for (int i = 0; i < 69; ++i) ctx.sim.tick();
+        const Rgb wrapped = at_lit(340.0f, 220.0f);
+        t.check(near(wrapped, fading),
+                fmt::format("Test 8: a NukeUEF dome made at tick {} shows {} 70 ticks old, past "
+                            "the clock's wrap at 36000 ({})",
+                            born, show(wrapped), show(fading)));
     }
 
     // Test 9: OuterCloud: AlphaFadeTexShiftScalePS(1, -0.008, 180, 0.025),
