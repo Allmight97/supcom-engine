@@ -10,8 +10,8 @@ It writes those Claude hooks, a session-start hook that prints `mac/scripts/upst
 Apple's game-porting-skills and the supcom plugin marketplace (mac/agents/mods, its plugins enabled)
 into .claude/settings.local.json, keeping other settings; adds .local/ and /mac/work/
 to .git/info/exclude; and sets upstream's push URL to DISABLED (origin is JStar's fork).
-A worktree without mac/ (an up/* tree for an upstream PR, which carries no fork files) gets the same
-Claude hooks and a session-start hook that prints mac/agents/up-tree-rules.txt.
+Every other worktree gets the same Claude hooks; one without mac/ (an up/* tree for an upstream PR,
+which carries no fork files) starts sessions by printing mac/agents/githooks/up-tree-rules.txt.
 """
 import json
 import os
@@ -97,8 +97,8 @@ def plan(osc):
     hooks_dir = os.path.realpath(os.path.join(git_dir, 'mac-hooks'))
     changes = []
     for tree in worktrees(osc)[1:]:
-        if not os.path.isdir(os.path.join(tree, 'mac')):
-            changes += settings_change(tree, {'hooks': hooks(os.path.join(hooks_dir, 'claude'), True)})
+        up_tree = not os.path.isdir(os.path.join(tree, 'mac'))
+        changes += settings_change(tree, {'hooks': hooks(os.path.join(hooks_dir, 'claude'), up_tree)})
     claude_dir = os.path.join(hooks_dir, 'claude')
     changes += [c for c in
                [copy_change(os.path.join(TOOLKIT, 'agents/githooks', name), os.path.join(hooks_dir, name))
