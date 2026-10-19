@@ -80,5 +80,4 @@ The game's log is `~/Library/Application Support/opensupcom/logs/opensupcom.log`
 
 ## Licence
 
-MIT, like OpenSupCom ([LICENSE](LICENSE)). The vcpkg overlay ports keep vcpkg's MIT notice
-([recipe/overlays/LICENSE.txt](recipe/overlays/LICENSE.txt)).
+MIT, like OpenSupCom ([LICENSE](LICENSE)).

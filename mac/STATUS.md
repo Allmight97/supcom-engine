@@ -135,11 +135,10 @@ apart, so FAF addresses never apply directly.
 
 Roadmap of 2026-10-19 ([log](log/2026-10-19-issue-audit.md)): steps in order, each easing the next;
 the codes in brackets are the `mac/roadmap.md` rows each serves.
-1. [M1 #745 row] Sync fork main with upstream main (`mac/scripts/sync-upstream`): drop upstream's installed-SDK driver
-   discovery, keep the 8-bit targets, the loader and the KosmicKrisp preference; keep
-   `mac/recipe/build.sh`. Full checks, a play by JStar (with the 10-18 full-screen display steps:
-   maximize on the MacBook, then Full Screen, then relaunch), his powermetrics baseline at 60 Hz, a
-   build without `mac/recipe/overlays/` (delete them if it passes).
+1. [M1 #745 row] Sync with upstream: done 2026-10-19 (`bb01647c`, every check passing; upstream's
+   installed-SDK driver discovery dropped; the vcpkg overlays deleted). Keep pace with
+   `mac/scripts/sync-upstream`. Left for JStar: a play, with the 10-18 full-screen display steps
+   (maximize on the MacBook, then Full Screen, then relaunch), and his powermetrics baseline at 60 Hz.
 2. [M1 lockstep, M7] The focus-army desync (#10): proven 2026-10-19; gate test (record a windowed game, replay it
    headless), fix. Upstream PR.
 3. [M5] #4 at its root: one blueprint lookup owner plus a ratchet; the ShaderName vocabulary ratchet.

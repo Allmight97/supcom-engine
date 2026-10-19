@@ -35,10 +35,9 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   before syncing. `mac/scripts/play` prints a one-line note
   when `main` is behind upstream.
 - `mac/recipe/build.sh`: configures and builds `build/play` (Ninja, RelWithDebInfo,
-  arm64, triplet `arm64-osx`) with the vcpkg overlay ports in
-  `mac/recipe/overlays/` (`minizip`, `zlib`). It prints `BUILD_OK` or
+  arm64, triplet `arm64-osx`, upstream's own vcpkg ports). It prints `BUILD_OK` or
   `BUILD_FAIL`; logs are `.local/configure.log` and `.local/build.log`. After
-  the SDK or the overlays move, delete `build/play/CMakeCache.txt` first: CMake
+  the SDK moves, delete `build/play/CMakeCache.txt` first: CMake
   keeps the old paths.
 - `mac/scripts/play` builds (`--build`) and starts the game: windowed 2560x1440 by
   default; `--full`, `--size W H`, `--prefs` (the game's Video options decide),
