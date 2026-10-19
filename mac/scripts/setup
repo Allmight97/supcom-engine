@@ -99,7 +99,8 @@ def plan(osc):
     trees = worktrees(osc)
     for tree in [t for t in trees if os.path.realpath(t) != os.path.realpath(osc)]:
         up_tree = not os.path.isdir(os.path.join(tree, 'mac'))
-        changes += settings_change(tree, {'hooks': hooks(os.path.join(hooks_dir, 'claude'), up_tree, trees[0])})
+        changes += [(f'(other worktree) {d}', a) for d, a in
+                    settings_change(tree, {'hooks': hooks(os.path.join(hooks_dir, 'claude'), up_tree, trees[0])})]
     claude_dir = os.path.join(hooks_dir, 'claude')
     changes += [c for c in
                [copy_change(os.path.join(TOOLKIT, 'agents/githooks', name), os.path.join(hooks_dir, name))
@@ -154,7 +155,7 @@ def main():
         else:
             apply()
             print(f'{osc}: wrote {description}')
-    sys.exit(1 if args else 0)
+    sys.exit(1 if args and any(not d.startswith('(other worktree)') for d, _ in changes) else 0)
 
 
 if __name__ == '__main__':

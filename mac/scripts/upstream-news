@@ -4,7 +4,8 @@ those in Mac areas (MAC) and those touching an engine file the fork changed (OVE
 
   mac/scripts/upstream-news             fetch upstream, list missing landings and those open PRs
   mac/scripts/upstream-news --brief     only the count behind and those PRs (the session-start hook)
-  mac/scripts/upstream-news --markdown  the same as a GitHub issue body (the fork's daily watch)
+  mac/scripts/upstream-news --markdown  the same as a GitHub issue body (the fork's daily watch), plus JStar's upstream PRs
+  mac/scripts/upstream-news --contributions  JStar's upstream PRs: open, landed (the landing commit) or closed
   mac/scripts/upstream-news --behind    print only the count of upstream commits missing from main
   mac/scripts/upstream-news --self-test
 Run before starting any Mac change, so work upstream already did or is doing is found first.
@@ -80,6 +81,29 @@ def open_prs():
     return out
 
 
+def our_prs():
+    """JStar's upstream PRs, newest first, each with the upstream commit that landed it ('' if none)."""
+    result = subprocess.run(['gh', 'pr', 'list', '--repo', REPO, '--author', 'Allmight97', '--state', 'all',
+                             '--limit', '100', '--json', 'number,title,state,createdAt,closedAt,comments,reviews'],
+                            capture_output=True, text=True)
+    if result.returncode:
+        return None
+    return [{**p, 'landing': (git('log', 'upstream/main', '--fixed-strings', f"--grep=(#{p['number']})",
+                                  '--format=%h %cs', soft=True).splitlines() or [''])[-1]}
+            for p in json.loads(result.stdout)]
+
+
+def contribution_line(p):
+    talk = f"{len(p['comments'])} comments, {len(p['reviews'])} reviews"
+    if p['landing']:
+        sha, day = p['landing'].split()
+        status = f'LANDED {day} as `{sha}`'
+    else:
+        status = {'OPEN': 'open', 'CLOSED': f"closed unlanded {(p['closedAt'] or '')[:10]}",
+                  'MERGED': 'merged'}.get(p['state'], p['state'].lower())
+    return f"- `#{p['number']}` {status}; opened {p['createdAt'][:10]}; {talk}: {p['title']}"
+
+
 def pr_line(p, markdown=False):
     tags = ' '.join(t for t, on in (('MAC', p['mac']), ('OVERLAP', p['overlap']), ('draft', p['isDraft'])) if on)
     files = f" ({', '.join(p['overlap'][:4])}{', …' if len(p['overlap']) > 4 else ''})" if p['overlap'] else ''
@@ -98,6 +122,10 @@ def markdown(prs):
     if prs is None:
         return print('gh could not list PRs this run.')
     print('\n'.join(pr_line(p, True) for p in prs) or 'None open.')
+    mine = our_prs()
+    print("\n## JStar's upstream PRs\n\nUpstream lands each PR as one commit whose subject ends with its number; "
+          'LANDED names that commit on upstream main.\n')
+    print('gh could not list them this run.' if mine is None else '\n'.join(map(contribution_line, mine)) or 'None yet.')
 
 
 def self_test():
@@ -113,6 +141,11 @@ def self_test():
     pr = {'title': 'sim: guards', 'files': [{'path': 'src/sim/a.cpp'}, {'path': 'src/renderer/b.cpp'}]}
     assert classify(pr, {'src/renderer/b.cpp', 'src/app/c.cpp'}) == (False, ['src/renderer/b.cpp'])
     assert classify(pr, set()) == (False, [])
+    base_pr = {'number': 7, 'title': 't', 'state': 'CLOSED', 'createdAt': '2026-10-19T00:00:00Z',
+               'closedAt': '2026-10-21T00:00:00Z', 'comments': [{}], 'reviews': [], 'landing': ''}
+    assert 'closed unlanded 2026-10-21' in contribution_line(base_pr)
+    assert 'LANDED 2026-10-22 as `abc1234`' in contribution_line({**base_pr, 'landing': 'abc1234 2026-10-22'})
+    assert '1 comments, 0 reviews' in contribution_line(base_pr)
     print('upstream-news self-test passed')
 
 
@@ -130,6 +163,9 @@ def report():
     fetch()
     if '--behind' in sys.argv:
         return print(behind())
+    if '--contributions' in sys.argv:
+        mine = our_prs()
+        return print('gh unavailable' if mine is None else '\n'.join(map(contribution_line, mine)))
     if '--markdown' in sys.argv:
         return markdown(open_prs())
     if '--brief' in sys.argv:
