@@ -29,7 +29,11 @@ main() {
     fi
     local behind; behind=$("$recipe/../scripts/upstream-news" --behind 2>/dev/null)
     [ "${behind:-0}" -gt 0 ] && echo "Note: $behind upstream commits are not in main; see mac/scripts/upstream-news." >&2
-    echo "OpenSupCom $(git rev-parse --short HEAD) on $(git branch --show-current); log: ~/Library/Application Support/opensupcom/logs/opensupcom.log"
-    exec env "${env[@]}" build/play/opensupcom --fa-path "$OSC_FA_PATH" "${mode[@]}" "$@"
+    local logs="$HOME/Library/Application Support/opensupcom/logs"
+    echo "OpenSupCom $(git rev-parse --short HEAD) on $(git branch --show-current); log: $logs/opensupcom.log"
+    # The last game's checksum trace, beside its log: tools/checksum_diff.py against its LastGame's
+    # --replay --checksum-trace names the first domain that diverged.
+    mkdir -p "$logs" && exec env "${env[@]}" build/play/opensupcom --fa-path "$OSC_FA_PATH" \
+        --checksum-trace "$logs/checksum-trace.txt" "${mode[@]}" "$@"
 }
 main "$@"

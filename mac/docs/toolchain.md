@@ -42,6 +42,9 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   macOS a full-screen mode's refresh below the display's (60 on a 120 Hz panel) caps the frame rate.
   The Metal HUD is on (`--no-hud` turns it off). `--full`/`--size` override the Video option, which
   then shows "Command Line Override"; `-- --fps-cap N` sets a cap (`-2`: 2 below the refresh rate).
+  Each game writes its checksum trace to `checksum-trace.txt` beside its log. If its `LastGame`
+  replay diverges, run that replay with `--replay ... --checksum-trace`, then compare the two traces
+  with `tools/checksum_diff.py`. It names the first domain that differs.
   The game log is `~/Library/Application Support/opensupcom/logs/opensupcom.log` (upstream #746; settings stay in `~/.config/opensupcom` when it exists).
 - `mac/scripts/setup` (idempotent; `--check` reports differences and writes
   nothing) installs the guards outside the tree, so they also run on branches
