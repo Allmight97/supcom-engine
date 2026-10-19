@@ -88,6 +88,7 @@ void test_bloom(TestContext& ctx) {
     write_dds(dir / "secondary_dark.dds", 1, flat(10, 10, 10, 128));
     write_dds(dir / "white.dds", 1, flat(255, 255, 255, 255));
     write_dds(dir / "dim.dds", 1, flat(20, 20, 20, 255));
+    write_dds(dir / "half.dds", 1, flat(255, 255, 255, 128));
     ctx.vfs.mount(kRoot, std::make_unique<vfs::DirectoryMount>(dir));
     ctx.vfs.mount("/textures/particles/osc_bloom", std::make_unique<vfs::DirectoryMount>(dir));
     const auto plate = [](const char* albedo, const char* glow, const char* shader = "Unit") {
@@ -106,6 +107,10 @@ void test_bloom(TestContext& ctx) {
                 ground_y);
     const auto dull = ctx.lua_state.do_string("__osc_dull_plate = __osc_last_plate\n");
     if (!dull) spdlog::warn("the dull plate: {}", dull.error().message);
+    stand_plate(ctx, kRoot, "ueb1201", plate("albedo_128.dds", "glow_none.dds"), 280, 100,
+                ground_y);
+    const auto dull2 = ctx.lua_state.do_string("__osc_dull_plate_2 = __osc_last_plate\n");
+    if (!dull2) spdlog::warn("the second dull plate: {}", dull2.error().message);
     // A build slice (AlphaFade, M211g), whole and just made.
     stand_plate(ctx, kRoot, "ueb0201", plate("albedo_10.dds", "glow_none.dds", "AlphaFade"), 250,
                 100, ground_y);
@@ -254,30 +259,47 @@ void test_bloom(TestContext& ctx) {
     // Test 7: a light particle glows. TLight_ADD blends SrcAlpha, One into
     // colour and alpha alike (Write_RGBA, no separate alpha blend), so its
     // light adds to the glow: on the plate that doesn't glow, the bloom
-    // lifts it. The UEF nuke's flash is three of them.
+    // lifts it. The UEF nuke's flash is three of them. Its alpha adds by
+    // itself squared: a light at alpha 128/255 over a plate glowing 0.01
+    // leaves 0.01 + 0.25 in the frame (0.51 were it added once).
     {
         const f32 before = lift(160.0f, 1.0f, 0.0f);
         const auto lit = ctx.lua_state.do_string(
             "CreateLightParticle(__osc_dull_plate, -1, 1, 20, 1000, 'osc_bloom/white', "
+            "'osc_bloom/dim')\n"
+            "CreateLightParticle(__osc_dull_plate_2, -1, 1, 20, 1000, 'osc_bloom/half', "
             "'osc_bloom/dim')\n");
         if (!lit) spdlog::warn("CreateLightParticle: {}", lit.error().message);
-        for (const char* tex : {"white", "dim"})
+        for (const char* tex : {"white", "dim", "half"})
             (void)r.texture_cache().get_blocking(
                 fmt::format("/textures/particles/osc_bloom/{}.dds", tex));
         ctx.sim.tick();
         const f32 after = lift(160.0f, 1.0f, 0.0f);
-        t.check(after > before + 0.2f,
+        (void)frame(280.0f, 100.0f, 1.0f, 0.0f, false, false);
+        renderer::Renderer::SceneImage scene;
+        r.request_scene_capture(
+            [&](renderer::Renderer::SceneImage captured) { scene = std::move(captured); });
+        shots.redraw();
+        const size_t at =
+            (static_cast<size_t>(scene.height / 2) * scene.width + scene.width / 2) * 4;
+        const f32 glow = at + 3 < scene.rgba.size() ? scene.rgba[at + 3] : -1.0f;
+        const f32 a = 128.0f / 255.0f;
+        t.check(after > before + 0.2f && std::abs(glow - (0.01f + a * a)) < 0.01f,
                 fmt::format("Test 7: under a light particle the bloom brightens a plate that "
-                            "doesn't glow {:.2f} times ({:.2f} without the light)",
-                            after, before));
+                            "doesn't glow {:.2f} times ({:.2f} without the light); under one at "
+                            "half alpha, the frame's glow is {:.3f} ({:.3f})",
+                            after, before, glow, 0.01f + a * a));
     }
 
     // Test 8: FA's frame and bloom targets are 8-bit (A8R8G8B8: the GOG
     // exe's CBloomRenderer::Init at 0x007F4D10 asks for GAL format 2, and its
     // format table at 0x00D41E84 has no float format), so colour saturates at
-    // 1 at every write and the bloom reads nothing brighter. The frame holds
-    // nothing above 1: not a white plate glowing fully (twice its albedo), nor
-    // the light particle over the dull plate.
+    // 1 at every write: the frame's colour holds nothing above 1, not a white
+    // plate glowing fully (twice its albedo) nor the light particle over the
+    // dull plate, and each blur pass clips. A bloom that didn't clip would be
+    // linear: over black, the white plate (1 in the frame) would halo as the
+    // dim one (2 * 10/255) times 12.75, saturating where that does. Clipped,
+    // its halo saturates over well under that.
     {
         const auto brightest = [&](f32 x) {
             (void)frame(x, 100.0f, 0.0f, 0.0f, false, true);
@@ -285,15 +307,38 @@ void test_bloom(TestContext& ctx) {
             r.request_scene_capture(
                 [&](renderer::Renderer::SceneImage captured) { image = std::move(captured); });
             shots.redraw();
-            return image.rgba.empty() ? -1.0f
-                                      : *std::max_element(image.rgba.begin(), image.rgba.end());
+            f32 most = -1.0f;
+            for (size_t i = 0; i + 2 < image.rgba.size(); i += 4)
+                most = std::max({most, image.rgba[i], image.rgba[i + 1], image.rgba[i + 2]});
+            return most;
         };
         const f32 plate = brightest(340.0f);
         const f32 light = brightest(160.0f);
-        t.check(plate >= 0.99f && plate <= 1.0f && light >= 0.0f && light <= 1.0f,
-                fmt::format("Test 8: the frame's brightest value is {:.3f} at a white plate "
-                            "glowing fully, {:.3f} under the light particle (1 at most)",
-                            plate, light));
+        r.set_clear_color({0.0f, 0.0f, 0.0f, 0.0f});
+        const auto on_off = [&](f32 x) {
+            return std::pair{frame(x, 100.0f, 0.0f, 0.0f, false, false),
+                             frame(x, 100.0f, 0.0f, 0.0f, false, true)};
+        };
+        const auto [white_off, white] = on_off(340.0f);
+        const auto [dim_off, dim] = on_off(100.0f);
+        r.set_clear_color(OffscreenShots::kBackdrop);
+        const f32 linear = 255.0f / (2.0f * 10.0f);
+        size_t saturated = 0;
+        size_t saturated_if_linear = 0;
+        for (size_t i = 0; i < white_off.pixels.size() && i < dim.pixels.size(); i += 4) {
+            if (white_off.pixels[i] > 2 || dim_off.pixels[i] > 2) continue; // a plate
+            if (white.pixels[i] >= 250) ++saturated;
+            if (static_cast<f32>(dim.pixels[i]) * linear >= 250.0f) ++saturated_if_linear;
+        }
+        const Rgb shown = middle(white);
+        t.check(plate >= 0.99f && plate <= 1.0f && light >= 0.0f && light <= 1.0f &&
+                    shown[0] >= 0.99f && shown[1] >= 0.99f && shown[2] >= 0.99f && saturated > 0 &&
+                    saturated < saturated_if_linear * 3 / 4,
+                fmt::format("Test 8: the frame's brightest colour is {:.3f} at a white plate "
+                            "glowing fully, {:.3f} under the light particle (1 at most); shown, "
+                            "the plate is {}, its halo saturating {} pixels of black ({} if the "
+                            "bloom were linear: under 3/4 of it)",
+                            plate, light, show(shown), saturated, saturated_if_linear));
     }
 
     r.set_bloom_enabled(false);

@@ -102,9 +102,11 @@ standing off it:
    1.062 times.
 5. **Fading.** A glowing plate under construction isn't brightened
    (1.000): it blends, and writes no glow.
-8. **8-bit.** The frame's brightest value is 1.000 at a white plate
-   glowing fully and under a light particle (2.000 and 1.010 with float
-   targets).
+8. **8-bit.** The frame's colour is at most 1 at a white plate glowing
+   fully (2.000 with float targets), and the plate shows white. Over
+   black its halo saturates 1,492 pixels. An unclipped bloom is linear: it
+   would saturate 3,206, where the dim plate's halo times 12.75 does, and
+   float targets did (4,730; 3,200 with only the bloom's made float).
 
 **Mutation testing: 12 of 12 mutants killed.**
 - The copy: without `MinimumGlow`; scale 1; the map's bloom ignored.
@@ -114,7 +116,8 @@ standing off it:
   SpecTeam red; the fade pipeline writing alpha; the colour interpolated.
 
 The masks on decals, water and particles aren't exercised: the test's
-scene has none. Test 7 checks a light particle's glow.
+scene has none. Test 7 checks a light particle's glow, and that one at
+half alpha adds its alpha squared to the frame's (0.263 over 0.01).
 
 ## Left for later
 
