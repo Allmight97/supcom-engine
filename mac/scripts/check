@@ -105,6 +105,14 @@ rm -f "$scratch"/tool.txt "$scratch"/big.txt; rm -rf "$scratch/mac/work"
 for name in gamedata.scd shot.PNG LastGame.oscreplay mac/SupCom.gpr; do
     echo x > "$scratch/$name"; git -C "$scratch" add "$name"; expect_commit rejected "new $name"; rm "$scratch/$name"
 done
+code_of() { { printf '%s' "$2"; head -c $(($3 - ${#2})) /dev/zero | tr '\0' x; } > "$scratch/$1"; git -C "$scratch" add "$1"; }
+mkdir -p "$scratch/mac/tools"
+code_of mac/tools/fits.py '' 32000; expect_commit allowed "toolkit code at the 8,000-token budget"
+code_of mac/tools/big.lua '' 32001; expect_commit rejected "toolkit code over the budget"
+code_of mac/tools/run '#!/bin/sh' 32001; expect_commit rejected "extensionless script over the budget"
+code_of mac/tools/notes '' 32001; code_of mac/tools/fix.patch '' 32001; code_of big.py '' 32001
+expect_commit allowed "data, patches and engine files over the toolkit code budget"
+rm -rf "$scratch/mac/tools" "$scratch/big.py"
 
 echo edit >> "$scratch/mac/log/earlier.md"; git -C "$scratch" add mac/log/earlier.md
 expect_commit rejected "edit of earlier log"

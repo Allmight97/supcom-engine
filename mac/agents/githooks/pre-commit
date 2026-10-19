@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fork commit guard. mac/scripts/setup copies it to .git/mac-hooks/, so it also runs on branches without mac/.
 # Every commit: refuse game content, screenshots, saves, replays, Windows executables, new files over 1 MiB,
-# anything under mac/work/, and edits or deletions of earlier mac/log/ entries. A commit that touches mac/,
+# anything under mac/work/, edits or deletions of earlier mac/log/ entries, and mac/ code (scripts and .py, .sh,
+# .lua, .swift, .cmake) over 8,000 tokens, so an agent can read any toolkit file whole. A commit that touches mac/,
 # AGENTS.md, CLAUDE.md or README.md also needs mac/scripts/check to have passed on exactly the staged content.
 set -euo pipefail
 max_bytes=1048576
@@ -39,6 +40,23 @@ check_file() { # PATH: refuse game content by name, size or header
 # Upstream tracks large files and images; only new ones are checked outside mac/.
 while IFS= read -r -d '' path; do check_file "$path"; done < <(git diff --cached --name-only --diff-filter=AC -z)
 while IFS= read -r -d '' path; do check_file "$path"; done < <(git diff --cached --name-only --diff-filter=MR -z -- mac/)
+
+max_code_bytes=32000
+while IFS= read -r -d '' path; do
+    case "$path" in
+        *.py|*.sh|*.lua|*.swift|*.cmake) ;;
+        *) [[ ${path##*/} != *.* && "$(git cat-file -p ":$path" | head -c 2)" == '#!' ]] || continue ;;
+    esac
+    size=$(git cat-file -s ":$path")
+    if (( size > max_code_bytes )); then
+        printf 'pre-commit: refusing %s: ~%d tokens (bytes / 4), over the 8,000-token budget for toolkit code.\n' \
+            "$path" $((size / 4)) >&2
+        printf '  Split it by concept: each new file owns one idea and is named for it (no part1, utils or misc).\n' >&2
+        printf '  Move whole functions with the contract their callers rely on. Commit the split on its own,\n' >&2
+        printf '  proven by mac/scripts/check, before the change that needed the room.\n' >&2
+        rejected=1
+    fi
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- mac/)
 
 protected=$(git diff --cached --name-only -- mac/ AGENTS.md CLAUDE.md README.md)
 if [[ -n $protected && -x "$toolkit/scripts/check" ]]; then

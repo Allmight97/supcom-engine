@@ -83,6 +83,9 @@ fixes, what is open. Never edit an earlier log.
   `CLAUDE.md` or `README.md`. It proves the toolkit only. The commit hook refuses
   unless the last check passed on exactly the staged content: `git add` every file
   first, edit nothing after.
+- Toolkit code (scripts and `.py`, `.sh`, `.lua`, `.swift`, `.cmake` in `mac/`) stays under 8,000
+  tokens (bytes / 4), so an agent reads each file whole. The commit hook refuses a larger file and
+  says how to split it. Engine files are upstream's structure and have no cap.
 - Engine changes: the tests CONTRIBUTING.md names (unit, `ctest -L mp`, and
   `ctest -L gate` before every PR), `mac/scripts/format` (the formatting ratchet with CI's LLVM 22), `mac/scripts/osc-smoke` and `mac/scripts/osc-render-check`, as in
   [docs/toolchain.md](docs/toolchain.md); a nontrivial bug fix shows its test failing first.
