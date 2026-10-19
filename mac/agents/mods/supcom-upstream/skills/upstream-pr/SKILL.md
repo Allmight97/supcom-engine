@@ -32,8 +32,12 @@ Outcome: a PR the upstream owner can review and land without asking for changes.
 3. Prove it on the upstream base: build that tree, then `mac/scripts/prove --root <tree>`; also run the data
    tests it touches with retail data and with FAF's (OSC prefers FAF's files when `OSC_FA_PATH` is unset).
    Each commit builds alone.
-4. Before the first push, GPT 6.1 Sol at xhigh audits the branch and the PR text read-only
-   (JStar's rule); fix what it finds, then push.
+4. Before the PR opens, two independent review lanes read the up/* branch and the PR text, read only:
+   GPT 6.1 Sol at high effort (correctness, determinism, fit with upstream's practice and CONTRIBUTING.md)
+   and the code-review skill at high effort by a Claude model other than the branch's author (requested
+   behaviour, regressions, missing proof). The main session checks each finding against the code; fixes go
+   back as one batched commit. Then prove runs on the up/* tree with nothing else running, and the PR opens
+   ready with JStar's word.
 
 ## The PR text
 
