@@ -11,6 +11,7 @@ under src/renderer or to a shader adds the render check; anything else (docs) ru
 It never builds: it stops if DIR/build/play is missing and notes a build older than HEAD. Exit status
 is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
 """
+import fcntl
 import os
 import subprocess
 import sys
@@ -56,6 +57,16 @@ def sh(root, argv, env=None):
 
 
 def run_check(root, name, argv, env):
+    if name in ('mp', 'gate'):
+        # One tree at a time: parallel suites on one Mac fail network and render tests under load.
+        with open(os.path.expanduser('~/.cache/osc-prove.lock'), 'w') as lock:
+            print(f'prove: {name}: waiting for other trees\' heavy checks', flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return run_suite(root, name, argv, env)
+    return run_suite(root, name, argv, env)
+
+
+def run_suite(root, name, argv, env):
     result = sh(root, argv, env)
     if result.returncode and name in ('mp', 'gate'):
         print(f'prove: {name}: rerunning failures once (network tests flake under load)', flush=True)

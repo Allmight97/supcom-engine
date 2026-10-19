@@ -93,7 +93,7 @@ def settings_change(tree, keys):
 
 def plan(osc):
     """Return [(description, apply)] for every target that differs."""
-    git_dir = os.path.join(osc, git(osc, 'rev-parse', '--git-dir').stdout.strip())
+    git_dir = os.path.join(osc, git(osc, 'rev-parse', '--git-common-dir').stdout.strip())
     hooks_dir = os.path.realpath(os.path.join(git_dir, 'mac-hooks'))
     changes = []
     for tree in worktrees(osc)[1:]:
