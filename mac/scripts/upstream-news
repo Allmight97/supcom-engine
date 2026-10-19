@@ -83,14 +83,15 @@ def open_prs():
 
 def our_prs():
     """JStar's upstream PRs, newest first, each with the upstream commit that landed it ('' if none)."""
-    result = subprocess.run(['gh', 'pr', 'list', '--repo', REPO, '--author', 'Allmight97', '--state', 'all',
-                             '--limit', '100', '--json', 'number,title,state,createdAt,closedAt,comments,reviews'],
+    # --author goes through the search API, which the Actions token cannot reach for another repository.
+    result = subprocess.run(['gh', 'pr', 'list', '--repo', REPO, '--state', 'all', '--limit', '300',
+                             '--json', 'number,title,state,createdAt,closedAt,comments,reviews,author'],
                             capture_output=True, text=True)
     if result.returncode:
         return None
     return [{**p, 'landing': (git('log', 'upstream/main', '--fixed-strings', f"--grep=(#{p['number']})",
                                   '--format=%h %cs', soft=True).splitlines() or [''])[-1]}
-            for p in json.loads(result.stdout)]
+            for p in json.loads(result.stdout) if p['author']['login'] == 'Allmight97']
 
 
 def contribution_line(p):
