@@ -41,6 +41,10 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   like the original, and clips with zoom; lighting effects show a glow or aura unlike the original
   (bloom? unverified); the M4 Max's fans spin up at 1440p and 118 fps (unmeasured: M2). The
   original in CrossOver at `/windowed 2560 1440` looked fuzzy (not sharp); it closed normally.
+- Full screen at "looks like" 2560x1440 renders the 3D scene at 5120x2880 (log: `Frame targets
+  created (5120x2880)`; Retina framebuffer, `renderer.cpp:218`): four RGBA16F targets, full-res
+  reflection and normal passes, redrawn at 118 fps from a 10 Hz sim. Two read-only opinions
+  (Fable 5.1, GPT 6.1 Sol) call it brute force: `mac/work/logs/perf-opinions-2026-10-18.md`.
 - Agent soaks (2026-10-18, headless, 8 AIs): 0 Lua errors; late-game sim 93 ms per tick of
   100; unverified: script threads 7,614 to 24,929 from minute 30 to 60, no unit gains
   veterancy. `test_net_lobby.cpp:356` (LaunchGame) failed once, then passed: a flake.
