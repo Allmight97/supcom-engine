@@ -1178,7 +1178,7 @@ void main() {
     // AtmospherePS: the lookup by azimuth, times the lookup by the height
     // through the horizon, blends the horizon's colour into the sky's. Every
     // sky pass saturates what it writes, as Moho's 8-bit target stores it
-    // (the scene here is half floats; a map's colours may pass 1).
+    // (a map's colours may pass 1).
     float th = INV_TWO_PI * clamp(fragTheta, 0.0, TWO_PI);
     float tv = clamp((fragElevation - u.horizon.x) / (u.horizon.y - u.horizon.x), 0.0, 1.0);
     float t = texture(horizonLookup, vec2(th, 0.25)).a * texture(horizonLookup, vec2(tv, 0.75)).a;
@@ -1758,8 +1758,9 @@ float fadeAfter(float age, float start, float rate) {
 }
 
 // The explosions' techniques (mesh.fx, by EffectVS, which leaves the
-// normal 0), `age` ticks after the mesh instance was made. No fidelity
-// lanes. The blended ones are clamped as FA's 8-bit target clamps them.
+// normal 0), `age` ticks after the mesh instance was made. Cloud's three
+// fidelity lanes light it alike. The blended ones are clamped as FA's 8-bit
+// target clamps them.
 vec4 explosionColor() {
     float age = pc.time - fragShaderTime;
     if (age < 0.0) age += 36000.0; // the times wrap at 36000
@@ -1869,8 +1870,7 @@ void main() {
     vec3 tint = prop ? vec3(1.0) : fragColor.rgb;
     // The blended techniques (the builds, AlphaFade, UEFBuildCube,
     // VertexNormal) and the build ghost's fade: FA drew them into an 8-bit
-    // target, which clamps what a shader writes before it blends (the scene
-    // here is half floats).
+    // target, which clamps what a shader writes before it blends.
     bool blended = (pc.technique >= 5u && pc.technique <= 8u) || pc.technique == 11u ||
                    pc.technique == 12u || vertexNormal || fragColor.a < 1.0;
     // Alpha: the build ghost's fade, which its pipeline blends by, leaving
