@@ -22,6 +22,7 @@
 #include "map/terrain.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/mesh_cache.hpp"
+#include "renderer/unit_renderer.hpp"
 #include "sim/army_brain.hpp"
 #include "sim/entity.hpp"
 #include "sim/sim_state.hpp"
@@ -602,6 +603,37 @@ void test_effect_meshes(TestContext& ctx) {
                                                show(shown), show(cube)));
     }
 
+    // What the last frame drew at (x, z) by `technique`: its draw scale (its
+    // model's first column), its mesh's width, and its width in the world.
+    struct Drawn {
+        f32 scale = 0.0f;
+        f32 mesh_width = 0.0f;
+        f32 width = 0.0f;
+    };
+    const auto drawn_at = [&](f32 x, f32 z, MeshTechnique technique) {
+        Drawn d;
+        const renderer::MeshInstance* all = r.unit_renderer().mesh_instances();
+        for (const auto& g : r.unit_renderer().mesh_groups())
+            for (u32 k = 0; all && g.mesh && g.mesh->technique == technique && k < g.instance_count;
+                 ++k) {
+                const f32* m = all[g.instance_offset + k].model;
+                if (std::abs(m[12] - x) > 0.05f || std::abs(m[14] - z) > 0.05f) continue;
+                d.scale = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+                d.mesh_width = g.mesh->bounds_max.x - g.mesh->bounds_min.x;
+                d.width = d.mesh_width * d.scale;
+            }
+        return d;
+    };
+    const auto lua_number = [&](const std::string& expr) {
+        const auto got = ctx.lua_state.do_string(fmt::format("__osc_number = {}\n", expr));
+        if (!got) spdlog::warn("{}: {}", expr, got.error().message);
+        lua_pushstring(ctx.L, "__osc_number");
+        lua_rawget(ctx.L, LUA_GLOBALSINDEX);
+        const auto n = static_cast<f32>(lua_tonumber(ctx.L, -1));
+        lua_pop(ctx.L, 1);
+        return n;
+    };
+
     // Test 12: the UEF nuke in context. A UEF commander dies on the test's
     // ground; its DeathWeapon's controller makes the dome (UEFNukeEffect01).
     // OSC_EFFECT_MESH_TEST_PNG=<prefix>: the frames, to see.
@@ -609,25 +641,38 @@ void test_effect_meshes(TestContext& ctx) {
         const auto killed = ctx.lua_state.do_string(
             "__osc_nuke_acu = CreateUnitHPR('uel0001', 'ARMY_1', 32, 0, 40, 0, 0, 0)\n");
         if (!killed) spdlog::warn("the commander: {}", killed.error().message);
-        // SetScale names the draw scale: half its UniformScale (17) is half its size.
-        const auto scaled = ctx.lua_state.do_string(
-            "__osc_scaled = __osc_nuke_acu:CreateProjectile("
-            "'/effects/entities/UEFNukeEffect01/UEFNukeEffect01_proj.bp', 0, 0, 0, nil, nil, nil)\n"
-            "__osc_scaled:SetScale(8.5)\n"
-            "__osc_scaled_id = __osc_scaled:GetEntityId()\n");
-        if (!scaled) spdlog::warn("the scaled dome: {}", scaled.error().message);
-        lua_pushstring(ctx.L, "__osc_scaled_id");
-        lua_rawget(ctx.L, LUA_GLOBALSINDEX);
-        const auto* half =
-            ctx.sim.entity_registry().find(static_cast<u32>(lua_tonumber(ctx.L, -1)));
-        lua_pop(ctx.L, 1);
-        const f32 half_scale = half ? half->scale_x() : -1.0f;
-        t.check(
-            std::abs(half_scale - 0.5f) < 1e-4f,
-            fmt::format("Test 12: SetScale(8.5) on the dome scales it {} of its blueprint's (0.5)",
-                        half_scale));
-        const auto gone = ctx.lua_state.do_string("__osc_scaled:Destroy()\n");
-        if (!gone) spdlog::warn("the scaled dome's end: {}", gone.error().message);
+        // SetScale names the draw scale, whatever the blueprint's UniformScale:
+        // the dome's (17) set to 8.5 is drawn 8.5 times its mesh, a debris's
+        // (0.15) set to 0.3 is drawn 0.3 times its. Each stands off the
+        // commander, which the frame draws too.
+        const auto scaled_width = [&](const char* bp, f32 scale, f32 offset, f32 distance) {
+            const auto made = ctx.lua_state.do_string(fmt::format(
+                "__osc_scaled = __osc_nuke_acu:CreateProjectile('{}', {}, 0, 0, nil, nil, nil)\n"
+                "__osc_scaled:SetScale({})\n",
+                bp, offset, scale));
+            if (!made) spdlog::warn("{}: {}", bp, made.error().message);
+            const auto* p = ctx.sim.entity_registry().find(
+                static_cast<u32>(lua_number("__osc_scaled:GetEntityId()")));
+            const f32 x = p ? p->position().x : 0.0f;
+            const f32 z = p ? p->position().z : 0.0f;
+            (void)frame(x, z, map::ScmapLighting{}, distance);
+            const Drawn d = drawn_at(x, z, r.mesh_technique(lower(bp), ctx.L));
+            const auto gone = ctx.lua_state.do_string("__osc_scaled:Destroy()\n");
+            if (!gone) spdlog::warn("{}'s end: {}", bp, gone.error().message);
+            return d;
+        };
+        const Drawn dome = scaled_width("/effects/entities/UEFNukeEffect01/UEFNukeEffect01_proj.bp",
+                                        8.5f, 40.0f, 160.0f);
+        const Drawn debris =
+            scaled_width("/effects/entities/DebrisMisc04/DebrisMisc04_proj.bp", 0.3f, 10.0f, 30.0f);
+        t.check(dome.mesh_width > 0.0f && debris.mesh_width > 0.0f &&
+                    std::abs(dome.width - 8.5f * dome.mesh_width) < 1e-3f * dome.width &&
+                    std::abs(debris.width - 0.3f * debris.mesh_width) < 1e-3f * debris.width,
+                fmt::format("Test 12: SetScale(8.5) draws the dome {:.3f} across ({:.3f}: its "
+                            "mesh, {:.3f}, times 8.5); SetScale(0.3) a debris (UniformScale "
+                            "0.15) {:.4f} ({:.4f}: its mesh, {:.4f}, times 0.3)",
+                            dome.width, 8.5f * dome.mesh_width, dome.mesh_width, debris.width,
+                            0.3f * debris.mesh_width, debris.mesh_width));
         for (int i = 0; i < 10; ++i) ctx.sim.tick();
         const auto dead =
             ctx.lua_state.do_string("Damage(nil, __osc_nuke_acu, 99999, nil, 'Normal')\n");
@@ -638,10 +683,10 @@ void test_effect_meshes(TestContext& ctx) {
         f32 dome_x = 32.0f;
         f32 dome_z = 40.0f;
         // Its script grows it by 0.3 UniformScale a second for 4 seconds:
-        // its scale (a multiple of UniformScale) at birth and 2 seconds on.
+        // the width it's drawn at when made and 2 seconds on.
         int dome_born = 0;
-        f32 dome_scale_born = 0.0f;
-        f32 dome_scale_2s = 0.0f;
+        Drawn dome_made;
+        Drawn dome_2s;
         for (int i = 1; i <= 60; ++i) {
             ctx.sim.tick();
             ctx.sim.entity_registry().for_each([&](const sim::Entity& e) {
@@ -651,12 +696,13 @@ void test_effect_meshes(TestContext& ctx) {
                 dome_bp = e.blueprint_id();
                 dome_x = e.position().x;
                 dome_z = e.position().z;
-                if (dome_born == 0) {
-                    dome_born = i;
-                    dome_scale_born = e.scale_x();
-                }
-                if (i == dome_born + 20) dome_scale_2s = e.scale_x();
+                if (dome_born == 0) dome_born = i;
             });
+            if (dome_born > 0 && (i == dome_born || i == dome_born + 20)) {
+                (void)frame(dome_x, dome_z, map::ScmapLighting{}, 160.0f);
+                (i == dome_born ? dome_made : dome_2s) =
+                    drawn_at(dome_x, dome_z, MeshTechnique::NukeUEF);
+            }
             if (i != 15 && i != 50) continue;
             const ImageRGBA8 image = frame(dome_x, dome_z, map::ScmapLighting{}, 160.0f);
             dome_draws += r.mesh_draws(MeshTechnique::NukeUEF);
@@ -673,10 +719,16 @@ void test_effect_meshes(TestContext& ctx) {
                             "drawn by technique {} ({} NukeUEF draws in the frames)",
                             dome_bp.empty() ? "never made" : dome_bp, static_cast<u32>(seen),
                             dome_draws));
-        const f32 growth = (dome_scale_2s - dome_scale_born) / 2.0f;
-        t.check(
-            std::abs(growth - 0.3f) < 0.01f,
-            fmt::format("Test 12: the dome grows {} UniformScale a second (0.3 expected)", growth));
+        const f32 dome_scale =
+            dome_bp.empty()
+                ? 0.0f
+                : lua_number(fmt::format("__blueprints['{}'].Display.UniformScale", dome_bp));
+        const f32 growth = (dome_2s.width - dome_made.width) / 2.0f;
+        const f32 expected_growth = 0.3f * dome_scale * dome_made.mesh_width;
+        t.check(std::abs(growth - expected_growth) < 0.01f * expected_growth,
+                fmt::format("Test 12: the dome's drawn width grows {:.2f} units a second ({:.2f} "
+                            "expected: its mesh, {:.3f} across, by 0.3 of its UniformScale, {})",
+                            growth, expected_growth, dome_made.mesh_width, dome_scale));
         t.check(
             side_draws > 0,
             fmt::format("Test 12: seen from close by its side, the dome draws ({} NukeUEF draws)",
