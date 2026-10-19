@@ -102,9 +102,10 @@ apart, so FAF addresses never apply directly.
   (JStar is its only author); Allmight97/SupCom is archived after the move.
 - Goal beyond the build: a faithful copy of the original that also runs FAF and its
   improvements; adapting FAF's open code is fine.
-- Play default (2026-10-18): 60 fps (`mac/scripts/play` passes `--fps-cap 60`) at the game's highest
-  video settings (Fidelity, Shadows, Textures and Level of detail High, Bloom on); `-- --fps-cap -2`
-  tries 2 below the refresh rate.
+- Play (2026-10-18): JStar sets the frame rate in the game's Video options, not on the command line.
+  `mac/scripts/play` passes no window or cap, keeps the Metal HUD on, and on macOS full screen at a
+  60 Hz mode caps at 60 (merge a364666d). Video settings at the game's highest (Fidelity,
+  Shadows, Textures and Level of detail High, Bloom on).
 - Focus (2026-10-18), where no one else upstream is: KosmicKrisp and Metal 4 runtime quality,
   frame pacing and 120 fps on high-resolution displays, effect-rendering fidelity checked against
   captures of the original, and FAF on the Mac. Not volume: the Mac build presets come from
@@ -131,7 +132,7 @@ apart, so FAF addresses never apply directly.
      MacBook's top-left corner. Drag back to the Studio Display and repeat: the Studio.
    - The nuke: a UEF ACU death or nuke in a skirmish. The dome should be translucent and
      fade, not an opaque sphere; compare with the original as remembered.
-   - FPS cap: watch the `--hud` frame times; agents do no more FPS work (JStar).
+   - Frame rate: pick "Full Screen (60 Hz)" or "(120 Hz)" in Video; the Metal HUD and the log line "Frame cap 60.0 (the Video option's 60 Hz ...)" show it took effect.
 2. Upstream PR for the nuke (#3), one draft of vertical slices: the effect techniques (`d53c82f4`,
    `fc8c39ce`), then the dome's scale, culling, `SetScale` and light-particle bloom (`5ffb307c`,
    `6d650ff9`, `3a42b963`, `a56410fe`); after JStar's look; `/supcom-upstream:shape` first.

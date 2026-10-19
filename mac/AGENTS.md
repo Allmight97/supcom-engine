@@ -40,7 +40,7 @@ fixes, what is open. Never edit an earlier log.
 - Start from what a player feels and an observed failure: interface scale, frame
   pacing (the worst frames, not the average), input latency, first-use shader
   hitches. Go narrow and deep; widen only when a measurement points somewhere.
-- Measure before tuning: `mac/scripts/play --hud` today; `xctrace` and frame-capture
+- Measure before tuning: `mac/scripts/play` (Metal HUD on) today; `xctrace` and frame-capture
   procedures are M2 deliverables (roadmap.md).
 - Every human observation becomes a command that reproduces it: a replay plus a
   screenshot at a tick, or a capture of the original plus a comparator. Agents then

@@ -288,13 +288,14 @@ OSC_ROOT="$scratch/smoke" RENDER_NO_LOG=1 "$root/scripts/osc-render-check" >/dev
 mkdir -p "$scratch/play/build/play"
 printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$PLAY_ARGS"\n' > "$scratch/play/build/play/opensupcom"
 chmod +x "$scratch/play/build/play/opensupcom"
-play_cap() { # ARGS FILE [PLAY ARGS]: the value after the only --fps-cap the game got
+play_args() { # FILE [PLAY ARGS]: the arguments the game got, one a line
     local file=$1; shift
     OSC_ROOT="$scratch/play" PLAY_ARGS="$file" "$root/scripts/play" "$@" >/dev/null 2>&1
-    [[ $(grep -cx -- --fps-cap "$file") == 1 ]] && grep -A1 -x -- --fps-cap "$file" | tail -1
+    cat "$file"
 }
-[[ $(play_cap "$scratch/play/default") == 60 ]] || fail "play: default frame-rate cap 60"
-[[ $(play_cap "$scratch/play/own" -- --fps-cap -2) == -2 ]] || fail "play: a given --fps-cap replaces the default"
+play_args "$scratch/play/default" | grep -qx -- '--fps-cap\|--windowed\|--fullscreen' \
+    && fail "play: by default the Video options decide (no window or frame-cap arguments)"
+[[ $(play_args "$scratch/play/full" --full | grep -cx -- --fullscreen) == 1 ]] || fail "play: --full overrides full screen"
 
 check_plugins() {
     python3 -I - "$1" "$2" <<'PY'

@@ -36,8 +36,10 @@ selects another). The Mac build recipe is in `mac/recipe/`:
 - `mac/scripts/play` builds (`--build`) and starts the game: windowed 2560x1440 by
   default; `--full`, `--size W H`, `--prefs` (the game's Video options decide),
   `--hud` (Metal performance HUD), `-- ARGS` for extra `opensupcom` arguments.
-  It passes `--fps-cap 60` (JStar's default, for power and heat; `-2` is 2 below the display's refresh rate) unless ARGS hold
-  their own `--fps-cap`; the game reads only the first one.
+  By default it passes no window or frame-cap arguments: the game's Video options decide, and on
+  macOS a full-screen mode's refresh below the display's (60 on a 120 Hz panel) caps the frame rate.
+  The Metal HUD is on (`--no-hud` turns it off). `--full`/`--size` override the Video option, which
+  then shows "Command Line Override"; `-- --fps-cap N` sets a cap (`-2`: 2 below the refresh rate).
   The game log is `~/.local/state/opensupcom/logs/opensupcom.log`.
 - `mac/scripts/setup` (idempotent; `--check` reports differences and writes
   nothing) installs the guards outside the tree, so they also run on branches

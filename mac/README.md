@@ -2,11 +2,11 @@
 
 ```bash
 # Quick reference (run from ~/Projects/OpenSupCom). KosmicKrisp (Metal 4) is chosen automatically.
-mac/scripts/play                     # windowed 2560x1440
-mac/scripts/play --full              # full screen (main display, or the one last used)
-mac/scripts/play --full --hud        # plus Apple's Metal HUD: fps and frame times
-mac/scripts/play --build --full      # rebuild the current branch first
-mac/scripts/play --full -- --fps-cap -2  # extra game args after --; default cap 60, -2 = refresh - 2, 0 = none
+mac/scripts/play                     # Video options decide; full screen at 60 Hz caps at 60; Metal HUD on
+mac/scripts/play --build             # rebuild the current branch first
+mac/scripts/play --full              # force full screen 2560x1440 (overrides the Video option)
+mac/scripts/play --no-hud            # without Apple's Metal HUD (fps and frame times)
+mac/scripts/play -- --fps-cap -2     # extra game args after --; a cap (-2 = refresh - 2, 0 = none)
 grep -m1 driver ~/.local/state/opensupcom/logs/opensupcom.log   # confirm: "driver KosmicKrisp"
 # Nuke test: skirmish as UEF, victory "Sandbox", select your ACU, Ctrl-K.
 ```
@@ -39,14 +39,13 @@ checkout root (`~/Projects/OpenSupCom`).
 
 | Command | What it does |
 | --- | --- |
-| `mac/scripts/play` | Play, windowed 2560x1440, frame rate capped at 60 (`--fps-cap 60`) |
+| `mac/scripts/play` | Play as the game's Video options say (full screen at 60 Hz caps the frame rate at 60), with the Metal HUD |
 | `mac/scripts/play --build` | Rebuild the current branch first |
-| `mac/scripts/play --full` | Full screen |
+| `mac/scripts/play --full` | Full screen 2560x1440, overriding the Video option |
 | `mac/scripts/play --size W H` | Windowed at W x H |
-| `mac/scripts/play --prefs` | Let the game's own Video options decide the window |
-| `mac/scripts/play --hud` | Apple's Metal HUD: frame rate, GPU time, frame interval |
+| `mac/scripts/play --no-hud` | Without Apple's Metal HUD (frame rate, GPU time, frame interval) |
 | `mac/scripts/play ... -- --ui-scale 1.25` | Pass any game option after `--` (here: a larger interface) |
-| `mac/scripts/play -- --fps-cap -2` | Another frame-rate cap (`-2`: 2 below the refresh rate; `0`: none); it replaces the default |
+| `mac/scripts/play -- --fps-cap -2` | A frame-rate cap (`-2`: 2 below the refresh rate; `0`: none) |
 | `mac/scripts/osc-smoke` | Headless AI skirmish; fails on any error |
 | `mac/scripts/osc-render-check` | Hidden rendered capture; fails unless the driver is KosmicKrisp and there are no errors |
 | `mac/scripts/upstream-news` | What upstream landed or is working on that touches the Mac; run before any Mac change |
