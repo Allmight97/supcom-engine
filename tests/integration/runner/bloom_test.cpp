@@ -85,7 +85,10 @@ void test_bloom(TestContext& ctx) {
     write_dds(dir / "glow_fifth.dds", 1, flat(0, 0, 51, 0));
     write_dds(dir / "glow_none.dds", 1, flat(0, 0, 0, 0));
     write_dds(dir / "secondary_dark.dds", 1, flat(10, 10, 10, 128));
+    write_dds(dir / "white.dds", 1, flat(255, 255, 255, 255));
+    write_dds(dir / "dim.dds", 1, flat(20, 20, 20, 255));
     ctx.vfs.mount(kRoot, std::make_unique<vfs::DirectoryMount>(dir));
+    ctx.vfs.mount("/textures/particles/osc_bloom", std::make_unique<vfs::DirectoryMount>(dir));
     const auto plate = [](const char* albedo, const char* glow, const char* shader = "Unit") {
         Plate p;
         p.albedo = albedo;
@@ -100,6 +103,8 @@ void test_bloom(TestContext& ctx) {
                 ground_y);
     stand_plate(ctx, kRoot, "ueb5101", plate("albedo_128.dds", "glow_none.dds"), 160, 100,
                 ground_y);
+    const auto dull = ctx.lua_state.do_string("__osc_dull_plate = __osc_last_plate\n");
+    if (!dull) spdlog::warn("the dull plate: {}", dull.error().message);
     // A build slice (AlphaFade, M211g), whole and just made.
     stand_plate(ctx, kRoot, "ueb0201", plate("albedo_10.dds", "glow_none.dds", "AlphaFade"), 250,
                 100, ground_y);
@@ -240,6 +245,27 @@ void test_bloom(TestContext& ctx) {
         t.check(
             slice > 5.6f && slice < 6.5f,
             fmt::format("Test 6: the bloom brightens a build slice {:.2f} times (6.04)", slice));
+    }
+
+    // Test 7: a light particle glows. TLight_ADD blends SrcAlpha, One into
+    // colour and alpha alike (Write_RGBA, no separate alpha blend), so its
+    // light adds to the glow: on the plate that doesn't glow, the bloom
+    // lifts it. The UEF nuke's flash is three of them.
+    {
+        const f32 before = lift(160.0f, 1.0f, 0.0f);
+        const auto lit = ctx.lua_state.do_string(
+            "CreateLightParticle(__osc_dull_plate, -1, 1, 20, 1000, 'osc_bloom/white', "
+            "'osc_bloom/dim')\n");
+        if (!lit) spdlog::warn("CreateLightParticle: {}", lit.error().message);
+        for (const char* tex : {"white", "dim"})
+            (void)r.texture_cache().get_blocking(
+                fmt::format("/textures/particles/osc_bloom/{}.dds", tex));
+        ctx.sim.tick();
+        const f32 after = lift(160.0f, 1.0f, 0.0f);
+        t.check(after > before + 0.2f,
+                fmt::format("Test 7: under a light particle the bloom brightens a plate that "
+                            "doesn't glow {:.2f} times ({:.2f} without the light)",
+                            after, before));
     }
 
     r.set_bloom_enabled(false);

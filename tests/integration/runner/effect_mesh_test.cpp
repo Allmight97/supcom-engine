@@ -29,6 +29,7 @@
 #include "vfs/directory_mount.hpp"
 #include "vfs/virtual_file_system.hpp"
 
+#include <lua.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -596,6 +597,25 @@ void test_effect_meshes(TestContext& ctx) {
         const auto killed = ctx.lua_state.do_string(
             "__osc_nuke_acu = CreateUnitHPR('uel0001', 'ARMY_1', 32, 0, 40, 0, 0, 0)\n");
         if (!killed) spdlog::warn("the commander: {}", killed.error().message);
+        // SetScale names the draw scale: half its UniformScale (17) is half its size.
+        const auto scaled = ctx.lua_state.do_string(
+            "__osc_scaled = __osc_nuke_acu:CreateProjectile("
+            "'/effects/entities/UEFNukeEffect01/UEFNukeEffect01_proj.bp', 0, 0, 0, nil, nil, nil)\n"
+            "__osc_scaled:SetScale(8.5)\n"
+            "__osc_scaled_id = __osc_scaled:GetEntityId()\n");
+        if (!scaled) spdlog::warn("the scaled dome: {}", scaled.error().message);
+        lua_pushstring(ctx.L, "__osc_scaled_id");
+        lua_rawget(ctx.L, LUA_GLOBALSINDEX);
+        const auto* half =
+            ctx.sim.entity_registry().find(static_cast<u32>(lua_tonumber(ctx.L, -1)));
+        lua_pop(ctx.L, 1);
+        const f32 half_scale = half ? half->scale_x() : -1.0f;
+        t.check(std::abs(half_scale - 0.5f) < 1e-4f,
+                fmt::format(
+                    "Test 12: SetScale(8.5) on the dome scales it {} of its blueprint's (0.5)",
+                    half_scale));
+        const auto gone = ctx.lua_state.do_string("__osc_scaled:Destroy()\n");
+        if (!gone) spdlog::warn("the scaled dome's end: {}", gone.error().message);
         for (int i = 0; i < 10; ++i) ctx.sim.tick();
         const auto dead =
             ctx.lua_state.do_string("Damage(nil, __osc_nuke_acu, 99999, nil, 'Normal')\n");
@@ -605,6 +625,11 @@ void test_effect_meshes(TestContext& ctx) {
         u32 dome_draws = 0;
         f32 dome_x = 32.0f;
         f32 dome_z = 40.0f;
+        // Its script grows it by 0.3 UniformScale a second for 4 seconds:
+        // its scale (a multiple of UniformScale) at birth and 2 seconds on.
+        int dome_born = 0;
+        f32 dome_scale_born = 0.0f;
+        f32 dome_scale_2s = 0.0f;
         for (int i = 1; i <= 60; ++i) {
             ctx.sim.tick();
             ctx.sim.entity_registry().for_each([&](const sim::Entity& e) {
@@ -614,12 +639,21 @@ void test_effect_meshes(TestContext& ctx) {
                 dome_bp = e.blueprint_id();
                 dome_x = e.position().x;
                 dome_z = e.position().z;
+                if (dome_born == 0) {
+                    dome_born = i;
+                    dome_scale_born = e.scale_x();
+                }
+                if (i == dome_born + 20) dome_scale_2s = e.scale_x();
             });
             if (i != 15 && i != 50) continue;
             const ImageRGBA8 image = frame(dome_x, dome_z, map::ScmapLighting{}, 160.0f);
             dome_draws += r.mesh_draws(MeshTechnique::NukeUEF);
             if (dump) write_png(fmt::format("{}_nuke_t{}.png", dump, i), image);
         }
+        // Close in on its side: its centre is out of view, its surface fills it.
+        const ImageRGBA8 side = frame(dome_x + 25.0f, dome_z, map::ScmapLighting{}, 30.0f);
+        const u32 side_draws = r.mesh_draws(MeshTechnique::NukeUEF);
+        if (dump) write_png(fmt::format("{}_nuke_side.png", dump), side);
         const MeshTechnique seen =
             dome_bp.empty() ? MeshTechnique::Unit : r.mesh_technique(dome_bp, ctx.L);
         t.check(seen == MeshTechnique::NukeUEF && dome_draws > 0,
@@ -627,6 +661,14 @@ void test_effect_meshes(TestContext& ctx) {
                             "drawn by technique {} ({} NukeUEF draws in the frames)",
                             dome_bp.empty() ? "never made" : dome_bp, static_cast<u32>(seen),
                             dome_draws));
+        const f32 growth = (dome_scale_2s - dome_scale_born) / 2.0f;
+        t.check(std::abs(growth - 0.3f) < 0.01f,
+                fmt::format("Test 12: the dome grows {} UniformScale a second (0.3 expected)",
+                            growth));
+        t.check(side_draws > 0,
+                fmt::format(
+                    "Test 12: seen from close by its side, the dome draws ({} NukeUEF draws)",
+                    side_draws));
     }
 
     spdlog::info("Effect mesh test: {}/{} passed", t.pass, t.pass + t.fail);
