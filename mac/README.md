@@ -1,5 +1,16 @@
 # Forged Alliance natively on the Mac
 
+```bash
+# Quick reference (run from ~/Projects/OpenSupCom). KosmicKrisp (Metal 4) is chosen automatically.
+mac/scripts/play                     # windowed 2560x1440
+mac/scripts/play --full              # full screen (main display, or the one last used)
+mac/scripts/play --full --hud        # plus Apple's Metal HUD: fps and frame times
+mac/scripts/play --build --full      # rebuild the current branch first
+mac/scripts/play --full -- --fps-cap 0   # extra game args after --; cap 0 = uncapped (default: refresh - 2)
+grep -m1 driver ~/.local/state/opensupcom/logs/opensupcom.log   # confirm: "driver KosmicKrisp"
+# Nuke test: skirmish as UEF, victory "Sandbox", select your ACU, Ctrl-K.
+```
+
 Supreme Commander: Forged Alliance (2007) runs natively on Apple Silicon, with no
 Wine, CrossOver or Rosetta, through **OpenSupCom**, an open reimplementation of the
 game's engine that runs the game's own scripts and data. This folder is the Mac
