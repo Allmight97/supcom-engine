@@ -70,6 +70,9 @@ expect_hook 0 "git -C '$scratch/side-tree' switch -c other"
 expect_hook ask "git stash -u"
 expect_hook ask "rm -rf mac/work/traces"
 expect_hook 0 "rm -rf .local/tmp"
+expect_hook ask "pkill -f opensupcom"
+expect_hook ask "killall ctest"
+expect_hook 0 "pkill -f /Users/x/tree/build/play"
 expect_hook 2 "git reset --hard" bypassPermissions
 expect_hook ask "JSTAR_SAID_YES=1 git reset --hard" bypassPermissions
 expect_hook 2 "gh pr merge 1 --repo Allmight97/supcom-engine --squash"
