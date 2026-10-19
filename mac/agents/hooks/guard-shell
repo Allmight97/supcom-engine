@@ -4,7 +4,7 @@
 Deny: skipping or removing a git guard, broad staging, rebasing main, squash merges, cleaning ignored
 files (mac/work holds the only captures of the original), a gh write without --repo, an upstream PR that
 is a draft or not from an up/* branch, agent names or local paths in upstream text, and linked upstream refs
-in fork text. Ask JStar: commands that discard work or history, worktrees, tags and releases, deleting
+in fork text, agent names in fork issues. Ask JStar: commands that discard work or history, worktrees, tags and releases, deleting
 under mac/work, auto-merge, and every other GitHub write to upstream. Bypass mode skips a hook's ask, so
 there the command is refused until JStar agrees in chat and the agent reruns it as JSTAR_SAID_YES=1 <command>.
 
@@ -19,7 +19,9 @@ import subprocess
 import sys
 
 UPSTREAM = 'bwiemz/supcom-engine'
-AGENT_TEXT = re.compile(r'\b(claude|anthropic|codex|chatgpt|openai|gpt-?\d|sonnet|opus|haiku)\b|mac/work|/Users/', re.I)
+AGENT_NAMES = r'\b(claude|anthropic|codex|chatgpt|openai|gpt[- ]?\d|sonnet|opus|haiku|fable)\b'
+AGENT_TEXT = re.compile(AGENT_NAMES + r'|mac/work|/Users/', re.I)
+NAMED = re.compile(AGENT_NAMES, re.I)
 LINKED_UPSTREAM = re.compile(UPSTREAM + r'(#\d|/(pull|issues)/\d)')
 SEPARATORS = ';&|\n()'
 WRAPPERS = {'env', 'command', 'nohup', 'time', 'xargs', 'sudo', 'exec'}
@@ -171,6 +173,8 @@ def check_gh(args, cwd):
     if repo != UPSTREAM:
         if LINKED_UPSTREAM.search(text):
             deny('fork text names upstream PRs and issues as unlinked text ("upstream PR 750")')
+        if group == 'issue' and NAMED.search(text):
+            deny('fork issues name no agent or model (JStar\'s rule)')
         return
     if AGENT_TEXT.search(text):
         deny('upstream text names no agent or model and no local path')
