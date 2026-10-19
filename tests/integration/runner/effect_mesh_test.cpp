@@ -605,6 +605,11 @@ void test_effect_meshes(TestContext& ctx) {
         u32 dome_draws = 0;
         f32 dome_x = 32.0f;
         f32 dome_z = 40.0f;
+        // Its script grows it by 0.3 UniformScale a second for 4 seconds:
+        // its scale (a multiple of UniformScale) at birth and 2 seconds on.
+        int dome_born = 0;
+        f32 dome_scale_born = 0.0f;
+        f32 dome_scale_2s = 0.0f;
         for (int i = 1; i <= 60; ++i) {
             ctx.sim.tick();
             ctx.sim.entity_registry().for_each([&](const sim::Entity& e) {
@@ -614,6 +619,11 @@ void test_effect_meshes(TestContext& ctx) {
                 dome_bp = e.blueprint_id();
                 dome_x = e.position().x;
                 dome_z = e.position().z;
+                if (dome_born == 0) {
+                    dome_born = i;
+                    dome_scale_born = e.scale_x();
+                }
+                if (i == dome_born + 20) dome_scale_2s = e.scale_x();
             });
             if (i != 15 && i != 50) continue;
             const ImageRGBA8 image = frame(dome_x, dome_z, map::ScmapLighting{}, 160.0f);
@@ -627,6 +637,10 @@ void test_effect_meshes(TestContext& ctx) {
                             "drawn by technique {} ({} NukeUEF draws in the frames)",
                             dome_bp.empty() ? "never made" : dome_bp, static_cast<u32>(seen),
                             dome_draws));
+        const f32 growth = (dome_scale_2s - dome_scale_born) / 2.0f;
+        t.check(std::abs(growth - 0.3f) < 0.01f,
+                fmt::format("Test 12: the dome grows {} UniformScale a second (0.3 expected)",
+                            growth));
     }
 
     spdlog::info("Effect mesh test: {}/{} passed", t.pass, t.pass + t.fail);
