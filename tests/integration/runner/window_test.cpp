@@ -162,7 +162,7 @@ void test_window(TestContext& ui, TestContext& sim, const std::function<void(int
         const std::string held(app::kDefaultAdapterMode);
         app::publish_adapter_options(L, modes, false, held);
         const auto [want, fallback] = core::kNativeFullscreen
-                                          ? app::native_adapter_states(held, false)
+                                          ? app::native_adapter_states(held, modes, false)
                                           : app::adapter_states(modes, false);
         const std::string find =
             "(function() for _, s in import('/lua/options/optionsLogic.lua').GetOptionsData() do "

@@ -120,7 +120,7 @@ double App::Window::begin_frame() {
     if (osc::core::kNativeFullscreen && !offscreen_capture && !adapter_overridden &&
         renderer.fullscreen() != shown_fullscreen) {
         shown_fullscreen = renderer.fullscreen();
-        keep_adapter_option(ui_lua_state.raw(), prefs, shown_fullscreen);
+        keep_adapter_option(ui_lua_state.raw(), prefs, shown_fullscreen, display_modes);
     }
     auto now = std::chrono::high_resolution_clock::now();
     double dt = std::chrono::duration<double>(now - prev_time).count();
