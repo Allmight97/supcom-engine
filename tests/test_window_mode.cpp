@@ -163,6 +163,14 @@ TEST_CASE("A native full screen has a state per refresh rate the option keeps", 
     auto [held, held_fallback] = native_adapter_states("1920,1200,144", modes, false);
     REQUIRE(held.size() == 4);
     CHECK(held[3].key == "1920,1200,144");
+    // Only rates that divide the display's highest evenly: 48 and 50 Hz on a 120 Hz panel hold
+    // frames for 2.5 and 2.4 refreshes, so they would judder
+    const std::vector<Resolution> promotion{
+        {1920, 1200, 48}, {1920, 1200, 50}, {1920, 1200, 60}, {1920, 1200, 120}};
+    auto [even, even_fallback] = native_adapter_states("1920,1200,120", promotion, false);
+    REQUIRE(even.size() == 3);
+    CHECK(even[1].key == "1920,1200,60");
+    CHECK(even[2].key == "1920,1200,120");
     auto [only, overridden] = native_adapter_states("1920,1200,120", modes, true);
     REQUIRE(only.size() == 1);
     CHECK(only[0].key == "overridden");

@@ -122,9 +122,11 @@ native_adapter_states(std::string_view primary_adapter, const std::vector<Resolu
         return adapter_states({}, true);
     }
     const Resolution held = *parse_resolution(native_fullscreen_key(primary_adapter));
+    u32 highest = 0;
+    for (const Resolution& m : modes) highest = std::max(highest, m.rate);
     std::set<u32> rates{held.rate};
     for (const Resolution& m : modes) {
-        if (m.rate > 0) rates.insert(m.rate);
+        if (m.rate > 0 && highest % m.rate == 0) rates.insert(m.rate);
     }
     std::vector<OptionState> states{{"<LOC OPTIONS_0070>Windowed", "windowed"}};
     for (const u32 rate : rates) {
