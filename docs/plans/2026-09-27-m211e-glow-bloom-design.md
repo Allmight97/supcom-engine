@@ -29,6 +29,17 @@ formulas, never copied; faf-re's `CBloomRenderer` for the passes.
 The targets are half the head's size. The blur's scale compounds: four
 passes at 1.5 grow the glow's energy about fivefold.
 
+FA's targets are 8-bit. The GOG executable (`SupremeCommander.exe`, SHA-256
+`79074e294ea72fb179914cc393525720c523b65d6c9e300f11d31edceccdb887`) makes
+the bloom's two targets at 0x007F4D10 with GAL format 2, which its format
+table at 0x00D41E84 maps to `A8R8G8B8`; that table holds no floating-point
+format at all. Colour therefore saturates at 1 with every write: an additive
+effect stacked past white blooms as white does, and each blur pass clips.
+The engine's scene, its copies and the bloom's targets are `R8G8B8A8_UNORM`
+for the same reason (they were `R16G16B16A16_SFLOAT` until 2026-10, which
+let stacked additive effects reach several times white and bloom wider and
+brighter than FA's targets allow).
+
 ## What each surface leaves in alpha
 
 The scene pass clears alpha to 0, and each technique writes (or keeps) it
@@ -91,6 +102,9 @@ standing off it:
    1.062 times.
 5. **Fading.** A glowing plate under construction isn't brightened
    (1.000): it blends, and writes no glow.
+8. **8-bit.** The frame's brightest value is 1.000 at a white plate
+   glowing fully and under a light particle (2.000 and 1.010 with float
+   targets).
 
 **Mutation testing: 12 of 12 mutants killed.**
 - The copy: without `MinimumGlow`; scale 1; the map's bloom ignored.

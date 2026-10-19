@@ -482,11 +482,22 @@ before the snap; a shot without `pos` keeps the game's current camera.
 `shots/hud.lua` uses the default camera, `shots/faction-acu.lua` frames army
 1's ACU. SETTINGS lines end with the user-side `GameTime` in seconds. A shot's
 `sim = { action = 'move'|'build'|'kill', dx, dz, blueprint }` orders army 1's ACU
-through `SimCallback` (a `SimCallbacks.lua` hook; `kill` kills it at once), and `resume = S` runs the
-game S seconds before the shot (`shots/hud-move.lua`,
+through `SimCallback` (a `SimCallbacks.lua` hook; `kill` kills it at once; `emitters` sets emitter blueprints
+down beside it, optionally with a lifetime or scale: `shots/emitter-probe.lua`), and `resume = S` runs the
+game S seconds before the shot (`pause = false` leaves it running for the shot) (`shots/hud-move.lua`,
 `shots/build-progress.lua`, `shots/nuke.lua`: the UEF ACU's death nuke, captured with
 `GAME_RUN_WINDOW="1600 900"` to match OSC). The sim hook logs each ACU's pose and
-`REFSHOT|BUILD|tick|army|entity|blueprint|fraction` every tick. `/refclean` hides the
+`REFSHOT|BUILD|tick|army|entity|blueprint|fraction` every tick; `/refemitters TEXT` logs each
+`CreateAttachedEmitter` whose blueprint path contains TEXT, with the bone's position and the result
+(`REFSHOT|EMITTER`). `shots/build-at.lua` takes `/refzoom Z` and `/reflive` (its second shot unpaused).
+`/refdump DIR` (a Windows path, such as `Z:\Users\…\screens\dump`) also saves each shot with the game's own
+`dump_Frame` console command as `DIR/SCFrame_*.bmp`: it needs no macOS screen capture, so it works while the
+Mac is locked, when `screencapture` returns black.
+Emitter particles: on 2026-10-18 the original in this bottle drew no emitter particles at all (build effects,
+the nuke's smoke ring, six emitters set beside the ACU, fog on or off, zoom 10 to 30, paused or running);
+light particles, beams, meshes and decals drew. Wine logged `wined3d_device_context_map Map box is invalid`
+about 29,000 times in one short run (a zero-size lock; D3D9 reads that as the whole buffer), the suspected
+cause. Until that is fixed, these captures cannot show what the original's emitters look like. `/refclean` hides the
 overlays `HideGameUI` leaves: range rings (`ren_Ranges false`), icons
 (`ui_RenderIcons false`), the faction map-border panels (`ren_MapBorderClear`),
 the playable boundary (`ren_PlayableBoundary false`) and the deposit icons
