@@ -29,8 +29,8 @@ Outcome: a PR the upstream owner can review and land without asking for changes.
 2. Cut `up/<topic>` from `upstream/main` in the up/* tree (`~/Projects/OpenSupCom-up`; ask JStar before
    creating another) and cherry-pick engine commits only. Drop agent trailers from each message
    (`git cherry-pick -e`); pre-push refuses fork-only paths and agent names in new commits.
-3. Prove it on the upstream base: build that tree, then `mac/scripts/prove --root <tree>`; also run the data
-   tests it touches with retail data and with FAF's (OSC prefers FAF's files when `OSC_FA_PATH` is unset).
+3. Prove it on the upstream base: build that tree, then `mac/scripts/prove --root <tree>`; it runs the data tests on
+   the retail files (`env.sh` sets `OSC_FA_PATH`). FAF's data is the separate FAF scope (fork issue #9), never a blocker.
    Each commit builds alone.
 4. Before the PR opens, two independent review lanes read the up/* branch and the PR text, read only:
    GPT 6.1 Sol at high effort (correctness, determinism, fit with upstream's practice and CONTRIBUTING.md)

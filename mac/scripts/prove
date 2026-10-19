@@ -56,6 +56,12 @@ def sh(root, argv, env=None):
     return subprocess.run(argv, cwd=root, text=True, capture_output=True, env=env)
 
 
+def recipe_env(root):
+    """The environment env.sh gives a build: without OSC_FA_PATH the engine reads FAF's files and data tests fail."""
+    out = sh(root, ['bash', '-c', f'source {TOOLKIT}/recipe/env.sh && env -0']).stdout
+    return {**dict(line.split('=', 1) for line in out.split('\0') if '=' in line), 'OSC_ROOT': root}
+
+
 def run_check(root, name, argv, env):
     if name in ('mp', 'gate'):
         # One tree at a time: parallel suites on one Mac fail network and render tests under load.
@@ -89,11 +95,10 @@ def main():
     chosen, skipped = checks_for(diff.stdout.split())
     print(f'prove: {len(diff.stdout.split())} changed paths; checks: {" ".join(chosen)}', flush=True)
     cmds = commands(base)
-    env = {**os.environ, 'OSC_ROOT': root}
+    env = recipe_env(root)
     if not os.path.isdir(os.path.join(root, 'mac')):
         # Upstream's code finds a driver only in ~/VulkanSDK or Homebrew; name the fork's pinned KosmicKrisp.
-        sdk = sh(root, ['bash', '-c', f'source {TOOLKIT}/recipe/env.sh && echo "$VULKAN_SDK"']).stdout.strip()
-        env['VK_ADD_DRIVER_FILES'] = f'{sdk}/share/vulkan/icd.d/libkosmickrisp_icd.json'
+        env['VK_ADD_DRIVER_FILES'] = f"{env['VULKAN_SDK']}/share/vulkan/icd.d/libkosmickrisp_icd.json"
     binary = os.path.join(root, 'build/play/opensupcom')
     notes = []
     if not os.path.exists(binary):
