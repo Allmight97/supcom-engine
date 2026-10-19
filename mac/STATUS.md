@@ -33,9 +33,20 @@ OpenSupCom (OSC). Rewrite in place as facts change; history goes to `mac/log/`.
   2880x1620 at 2x backing; built-in display also 120 Hz.
 - Defects still open (2026-10-17 play test, [notes](notes/play-test-2026-10-17.md)):
   anti-aliasing unavailable (single-sample renderer); one Lua warning, `terranunits.lua:517`
-  (#4: cause traced, not fixed). The nuke's opaque sphere (#3) is fixed offscreen
-  (`--effect-mesh-test`); against the original it differs: a white-hot dome in the original, an orange banded fireball in OSC ([nuke reference log](log/2026-10-18-nuke-reference.md)). Seven mesh shader
-  names still draw as opaque units (`docs/current-state.md`, M211o).
+  (#4: cause traced, not fixed). Seven mesh shader names still draw as opaque units
+  (`docs/current-state.md`, M211o).
+- Fixed and confirmed by JStar in play (2026-10-18, 21:30): the nuke (#3: mesh techniques, the
+  dome's scale and culling, light particles feed bloom) and the glow/aura (the frame and bloom in
+  8-bit targets as FA's: GOG exe 0x007F4D10, format table 0x00D41E84). Merges `b4b857f5`,
+  `e959494b`, `073b18e5`.
+- New play-test bugs (2026-10-18, replay `mac/work/playtests/2026-10-18-jstar/assist-beam-and-drones.oscreplay`):
+  an ACU assisting a factory keeps its build beam on the factory after other orders, until a
+  second queued build; engineering drones (UEF engineering station, ACU) hover without building
+  and show no beam. Not yet filed.
+- Reference captures of the original in CrossOver draw no emitter particles (smoke, sparks,
+  emitted glows): six probe emitters, including a control, drew nothing; Wine logs about 28,900
+  "Map box is invalid" (a zero-size buffer lock). Meshes, decals, beams and light particles draw.
+  Particle comparisons need another D3D backend or capture path first.
 - JStar's play, 2026-10-18 evening (full screen 2560x1440, cap 118, KosmicKrisp; replay and log in
   `mac/work/playtests/2026-10-18-jstar/`): smooth; the nuke looks better than the sphere but not
   like the original, and clips with zoom; lighting effects show a glow or aura unlike the original
