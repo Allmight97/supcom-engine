@@ -29,6 +29,7 @@
 #include "vfs/directory_mount.hpp"
 #include "vfs/virtual_file_system.hpp"
 
+#include <lua.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -596,6 +597,25 @@ void test_effect_meshes(TestContext& ctx) {
         const auto killed = ctx.lua_state.do_string(
             "__osc_nuke_acu = CreateUnitHPR('uel0001', 'ARMY_1', 32, 0, 40, 0, 0, 0)\n");
         if (!killed) spdlog::warn("the commander: {}", killed.error().message);
+        // SetScale names the draw scale: half its UniformScale (17) is half its size.
+        const auto scaled = ctx.lua_state.do_string(
+            "__osc_scaled = __osc_nuke_acu:CreateProjectile("
+            "'/effects/entities/UEFNukeEffect01/UEFNukeEffect01_proj.bp', 0, 0, 0, nil, nil, nil)\n"
+            "__osc_scaled:SetScale(8.5)\n"
+            "__osc_scaled_id = __osc_scaled:GetEntityId()\n");
+        if (!scaled) spdlog::warn("the scaled dome: {}", scaled.error().message);
+        lua_pushstring(ctx.L, "__osc_scaled_id");
+        lua_rawget(ctx.L, LUA_GLOBALSINDEX);
+        const auto* half =
+            ctx.sim.entity_registry().find(static_cast<u32>(lua_tonumber(ctx.L, -1)));
+        lua_pop(ctx.L, 1);
+        const f32 half_scale = half ? half->scale_x() : -1.0f;
+        t.check(std::abs(half_scale - 0.5f) < 1e-4f,
+                fmt::format(
+                    "Test 12: SetScale(8.5) on the dome scales it {} of its blueprint's (0.5)",
+                    half_scale));
+        const auto gone = ctx.lua_state.do_string("__osc_scaled:Destroy()\n");
+        if (!gone) spdlog::warn("the scaled dome's end: {}", gone.error().message);
         for (int i = 0; i < 10; ++i) ctx.sim.tick();
         const auto dead =
             ctx.lua_state.do_string("Damage(nil, __osc_nuke_acu, 99999, nil, 'Normal')\n");
