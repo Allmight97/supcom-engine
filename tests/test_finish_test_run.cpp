@@ -66,3 +66,13 @@ TEST_CASE("A test mode's Lua LOG line naming PASS counts as a check", "[app][tes
     CHECK(osc::test_status::failure_count() == 0);
     osc::test_status::reset();
 }
+
+TEST_CASE(
+    "finish_test_run: a run whose only check failed reports the failure, not \"no check ran\"",
+    "[app][test-status]") {
+    osc::test_status::reset();
+    osc::test_status::fail("the one check failed");
+    CHECK(osc::test_status::check_count() == 1);
+    CHECK(osc::app::finish_test_run("one failure") == 1);
+    osc::test_status::reset();
+}

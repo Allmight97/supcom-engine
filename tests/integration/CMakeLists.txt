@@ -664,4 +664,19 @@ set_tests_properties(data.binding_coverage PROPERTIES
     SKIP_RETURN_CODE 77
     TIMEOUT 300)
 
+# The zero-check guard, through the headless runner: a mode that checks nothing
+# fails, and an AI game, which its caller judges, passes with none.
+add_test(NAME data.zero-check-test COMMAND osc_integration --map ${OSC_TEST_MAP} --zero-check-test)
+set_tests_properties(data.zero-check-test PROPERTIES
+    LABELS "data;gate"
+    SKIP_RETURN_CODE 77
+    PASS_REGULAR_EXPRESSION "integration tests: FAIL \\(no check ran\\)"
+    TIMEOUT 300)
+add_test(NAME data.ai-game-no-check
+         COMMAND osc_integration --map ${OSC_TEST_MAP} --ai-skirmish --ai-armies 2 --ticks 30)
+set_tests_properties(data.ai-game-no-check PROPERTIES
+    LABELS "data;gate"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 300)
+
 osc_gate_test_environment()

@@ -88,6 +88,9 @@ struct Mode {
     bool ui;
 };
 
+/// A mode that checks nothing: data.zero-check-test requires its run to fail ("no check ran").
+void test_zero_check(TestContext&) {}
+
 // In main()'s order: the modes before --gameui-test's...
 constexpr Mode kModesBefore[] = {
     {"--damage-test", test_damage, false},
@@ -295,6 +298,7 @@ constexpr Mode kModesAfter[] = {
     {"--vfx-render-test", test_vfx_render, false},
     {"--transport-silo-test", test_transport_silo_render, false},
     {"--profile-test", test_profile, false},
+    {"--zero-check-test", test_zero_check, false},
 };
 
 /// Modes with code of their own (below), and the windowed ones.
