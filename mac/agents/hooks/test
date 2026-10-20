@@ -7,48 +7,54 @@ scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 failures=0
 fail() { echo "FAIL: $1"; failures=$((failures + 1)); }
-expect_hook() { # EXPECTED (0, 2 or ask) COMMAND [PERMISSION_MODE]
-    local expected=$1 command=$2 out code
+refused_for() { # GUARD EXPECTED CODE CASE: a refusal (2:REASON) must give REASON on stderr, in $scratch/err
+    [[ $2 == 2* && $3 == 2 ]] || return 0
+    [[ $2 == 2:?* ]] || { fail "$1: a refused case names the reason it expects (2:REASON): $4"; return; }
+    grep -qF -- "${2#2:}" "$scratch/err" || fail "$1 refused for another reason than \"${2#2:}\": $4: $(head -1 "$scratch/err")"
+}
+expect_hook() { # EXPECTED (0, 2:REASON or ask) COMMAND [PERMISSION_MODE]
+    local expected=${1%%:*} command=$2 out code
     out=$(python3 -I -c 'import json, sys; print(json.dumps({"permission_mode": sys.argv[2], "tool_input": {"command": sys.argv[1]}}))' \
-        "$command" "${3:-default}" | "$root/agents/hooks/guard-shell" 2>/dev/null)
+        "$command" "${3:-default}" | "$root/agents/hooks/guard-shell" 2>"$scratch/err")
     code=$?
     [[ $code == 0 && $out == *'"ask"'* ]] && code=ask
     [[ $code == "$expected" ]] || fail "guard-shell gave $code, expected $expected: $command"
+    refused_for guard-shell "$1" "$code" "$command"
 }
 bypass_flag="--no""-verify"
-expect_hook 2 "git commit $bypass_flag -m x"
-expect_hook 2 "git commit -nm x"
-expect_hook 2 "git add -f work/game"
-expect_hook 2 "git -c core.hooksPath=/dev/null commit -m x"
+expect_hook "2:skipping the git hooks" "git commit $bypass_flag -m x"
+expect_hook "2:skipping the git hooks" "git commit -nm x"
+expect_hook "2:stage files by name" "git add -f work/game"
+expect_hook "2:git -c core.hooksPath turns off the commit and push guards" "git -c core.hooksPath=/dev/null commit -m x"
 expect_hook 0 'git commit -m "network fix"'
 expect_hook 0 "git add README.md"
 
-expect_hook 2 "git add -A"
-expect_hook 2 "git add --all"
-expect_hook 2 "git add ."
-expect_hook 2 "git add -Av"
-expect_hook 2 "git pull --rebase"
-expect_hook 2 "git pull --rebase=true"
+expect_hook "2:stage files by name" "git add -A"
+expect_hook "2:stage files by name" "git add --all"
+expect_hook "2:stage files by name" "git add ."
+expect_hook "2:stage files by name" "git add -Av"
+expect_hook "2:pull with a merge, never a rebase" "git pull --rebase"
+expect_hook "2:pull with a merge, never a rebase" "git pull --rebase=true"
 git init -q -b topic "$scratch/rebase topic"
-expect_hook 2 "git -C '$scratch/rebase topic' rebase main"
+expect_hook "2:never rebase main or onto main" "git -C '$scratch/rebase topic' rebase main"
 expect_hook 0 "git -C '$scratch/rebase topic' rebase feature"
 git -C "$scratch/rebase topic" symbolic-ref HEAD refs/heads/main
-expect_hook 2 "git -C '$scratch/rebase topic' rebase feature"
-expect_hook 2 "cd '$scratch/rebase topic' && git rebase feature"
+expect_hook "2:never rebase main or onto main" "git -C '$scratch/rebase topic' rebase feature"
+expect_hook "2:never rebase main or onto main" "cd '$scratch/rebase topic' && git rebase feature"
 expect_hook 0 "git -C '$scratch/rebase topic' merge feature"
-expect_hook 2 "git pull -r"
+expect_hook "2:pull with a merge, never a rebase" "git pull -r"
 expect_hook 0 "git pull --rebase=false"
-expect_hook 2 'git -c "core.hooksPath=/dev/null" commit -m x'
-expect_hook 2 "git config core.hooksPath /dev/null"
-expect_hook 2 "git config --unset core.hooksPath"
+expect_hook "2:git -c core.hooksPath turns off the commit and push guards" 'git -c "core.hooksPath=/dev/null" commit -m x'
+expect_hook "2:changing core.hooksPath turns off the commit and push guards" "git config core.hooksPath /dev/null"
+expect_hook "2:changing core.hooksPath turns off the commit and push guards" "git config --unset core.hooksPath"
 expect_hook 0 "git config core.hooksPath"
-expect_hook 2 "GIT_CONFIG_COUNT=1 git commit -m x"
-expect_hook 2 "bash -c 'git add -A'"
+expect_hook "2:GIT_CONFIG variables can turn off the git guards" "GIT_CONFIG_COUNT=1 git commit -m x"
+expect_hook "2:stage files by name" "bash -c 'git add -A'"
 expect_hook 0 'git commit -m "explain why git add -A is refused"'
 expect_hook 0 "$(printf "git commit -F - <<'EOF'\nit's a hook's message\nEOF")"
-expect_hook 2 "$(printf "cat <<EOF\nx\nEOF\ngit add -A")"
-expect_hook 2 "git merge --squash topic"
-expect_hook 2 "git clean -fdx"
+expect_hook "2:stage files by name" "$(printf "cat <<EOF\nx\nEOF\ngit add -A")"
+expect_hook "2:merge with a merge commit, never squash" "git merge --squash topic"
+expect_hook "2:git clean -x deletes ignored files, including mac/work" "git clean -fdx"
 expect_hook ask "git clean -fd"
 expect_hook ask "git reset --hard"
 expect_hook 0 "git reset --soft HEAD~"
@@ -73,19 +79,19 @@ expect_hook 0 "rm -rf .local/tmp"
 expect_hook ask "pkill -f opensupcom"
 expect_hook ask "killall ctest"
 expect_hook 0 "pkill -f /Users/x/tree/build/play"
-expect_hook 2 "git reset --hard" bypassPermissions
+expect_hook "2:git reset --hard can discard work, rewrite history, or needs JStar" "git reset --hard" bypassPermissions
 expect_hook ask "JSTAR_SAID_YES=1 git reset --hard" bypassPermissions
-expect_hook 2 "gh pr merge 1 --repo Allmight97/supcom-engine --squash"
+expect_hook "2:merge with a merge commit, never squash or rebase" "gh pr merge 1 --repo Allmight97/supcom-engine --squash"
 expect_hook 0 "gh pr merge 1 --repo Allmight97/supcom-engine --merge"
-expect_hook 2 "gh pr comment 1 --body x"
+expect_hook "2:gh pr comment needs --repo" "gh pr comment 1 --body x"
 expect_hook 0 "gh pr view 750 --repo bwiemz/supcom-engine"
-expect_hook 2 "gh issue comment 12 --repo Allmight97/supcom-engine --body 'see bwiemz/supcom-engine#750'"
+expect_hook "2:fork text names upstream PRs and issues as unlinked text" "gh issue comment 12 --repo Allmight97/supcom-engine --body 'see bwiemz/supcom-engine#750'"
 expect_hook 0 "gh issue comment 12 --repo Allmight97/supcom-engine --body 'see upstream PR 750'"
-expect_hook 2 "gh issue edit 12 --repo Allmight97/supcom-engine --body 'reviewed by GPT 6.1 Sol'"
+expect_hook "2:fork issues name no agent or model" "gh issue edit 12 --repo Allmight97/supcom-engine --body 'reviewed by GPT 6.1 Sol'"
 expect_hook 0 "gh issue edit 12 --repo Allmight97/supcom-engine --body 'two review lanes'"
-expect_hook 2 "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --body 'Co-Authored-By: Claude'"
-expect_hook 2 "gh pr create --repo bwiemz/supcom-engine --head Allmight97:mac/x --body ok"
-expect_hook 2 "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --draft --body ok"
+expect_hook "2:upstream text names no agent or model and no local path" "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --body 'Co-Authored-By: Claude'"
+expect_hook "2:an upstream PR comes from an up/* branch" "gh pr create --repo bwiemz/supcom-engine --head Allmight97:mac/x --body ok"
+expect_hook "2:upstream PRs open ready: upstream lands ready PRs, so shape and prove it locally first" "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --draft --body ok"
 expect_hook ask "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --body ok"
 expect_hook ask "gh api -X PATCH repos/bwiemz/supcom-engine/pulls/750"
 printf 'clean line\nCo-Authored-By: Claude Opus\n' | "$root/agents/hooks/guard-shell" --upstream-text >/dev/null \
@@ -93,24 +99,25 @@ printf 'clean line\nCo-Authored-By: Claude Opus\n' | "$root/agents/hooks/guard-s
 printf 'engine: fix the dome\n' | "$root/agents/hooks/guard-shell" --upstream-text >/dev/null \
     || fail "guard-shell --upstream-text refused clean text"
 
-expect_input_hook() { # EXPECTED (0, 2 or ask) TOOL COMMAND [PERMISSION_MODE]
-    local expected=$1 out code
+expect_input_hook() { # EXPECTED (0, 2:REASON or ask) TOOL COMMAND [PERMISSION_MODE]
+    local expected=${1%%:*} out code
     out=$(python3 -I -c 'import json, sys; print(json.dumps({"tool_name": sys.argv[1], "permission_mode": sys.argv[3], "tool_input": {"command": sys.argv[2]}}))' \
-        "$2" "$3" "${4:-default}" | HOME="$scratch" "$root/agents/hooks/guard-input" 2>/dev/null)
+        "$2" "$3" "${4:-default}" | HOME="$scratch" "$root/agents/hooks/guard-input" 2>"$scratch/err")
     code=$?
     [[ $code == 0 && $out == *'"ask"'* ]] && code=ask
     [[ $code == "$expected" ]] || fail "guard-input gave $code, expected $expected: $2 $3"
+    refused_for guard-input "$1" "$code" "$2 $3"
 }
 input_word="osa""script"
 grant_word="supcom-input""-ok"
-expect_input_hook 2 Bash "$input_word -e 1"
-expect_input_hook 2 mcp__computer-use__app_click ""
-expect_input_hook 2 mcp__cua_repl__js ""
+expect_input_hook "2:real input is off" Bash "$input_word -e 1"
+expect_input_hook "2:real input is off" mcp__computer-use__app_click ""
+expect_input_hook "2:real input is off" mcp__cua_repl__js ""
 expect_input_hook 0 mcp__github__get_issue ""
 expect_input_hook 0 Bash "scripts/game-window shot x"
-expect_input_hook 2 Bash "touch ~/.$grant_word"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "touch ~/.$grant_word"
 expect_input_hook ask Bash "mac/scripts/play --full"
-expect_input_hook 2 Bash "mac/scripts/play --full" bypassPermissions
+expect_input_hook "2:this opens a window on JStar's display" Bash "mac/scripts/play --full" bypassPermissions
 expect_input_hook ask Bash "JSTAR_SAID_YES=1 mac/scripts/play --full" bypassPermissions
 expect_input_hook 0 Bash "mac/scripts/osc-render-check"
 expect_input_hook 0 Bash "grep scripts/play README.md"
@@ -120,14 +127,14 @@ expect_input_hook 0 Bash "echo $input_word"
 expect_input_hook ask Bash "cd mac && scripts/play --full"
 expect_input_hook ask Bash "bash -c 'mac/scripts/play --full'"
 expect_input_hook ask Bash "bash mac/tools/mouse-probe/run"
-expect_input_hook 2 Bash "echo hi; $input_word -e 1"
-expect_input_hook 2 Bash "bash -c '$input_word -e 1'"
-expect_input_hook 2 Bash "mac/scripts/game-window key 36"
+expect_input_hook "2:real input is off" Bash "echo hi; $input_word -e 1"
+expect_input_hook "2:real input is off" Bash "bash -c '$input_word -e 1'"
+expect_input_hook "2:real input is off" Bash "mac/scripts/game-window key 36"
 echo $(( $(date +%s) + 600 )) > "$scratch/.$grant_word"
 expect_input_hook 0 Bash "$input_word -e 1"
-expect_input_hook 2 Bash "rm ~/.$grant_word"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "rm ~/.$grant_word"
 echo $(( $(date +%s) - 1 )) > "$scratch/.$grant_word"
-expect_input_hook 2 Bash "$input_word -e 1"
+expect_input_hook "2:real input is off" Bash "$input_word -e 1"
 printf 'not json' | HOME="$scratch" "$root/agents/hooks/guard-input" 2>/dev/null; [[ $? == 2 ]] || fail "guard-input passed an unreadable payload"
 printf 'not json' | "$root/agents/hooks/guard-shell" 2>/dev/null; [[ $? == 2 ]] || fail "guard-shell passed an unreadable payload"
 (( failures == 0 ))

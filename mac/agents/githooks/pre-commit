@@ -61,7 +61,7 @@ if [[ -n $protected && -x "$toolkit/scripts/check" ]]; then
         printf 'pre-commit: untracked files sit in mac/ folders this commit touches; git add or ignore them:\n%s\n' "$untracked" >&2
         rejected=1
     fi
-    read -r checked result _ < "$toolkit/work/check-last.txt" 2>/dev/null || { checked=0; result=none; }
+    read -r checked result _ 2>/dev/null < "$toolkit/work/check-last.txt" || { checked=0; result=none; }
     unchecked=$(git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r git --literal-pathspecs ls-files -s -- \
         | LC_ALL=C sort | LC_ALL=C comm -23 - <(LC_ALL=C sort "$toolkit/work/check-last.manifest" 2>/dev/null))
     deleted=$(git diff --cached --name-only --diff-filter=D | LC_ALL=C sort \

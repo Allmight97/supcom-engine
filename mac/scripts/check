@@ -77,11 +77,17 @@ new_repo() { # DIR HOOKS: a scratch repository whose commits run the hooks in HO
     git -C "$1" config user.name check
     [[ -z $2 ]] || git -C "$1" config core.hooksPath "$2"
 }
-expect_commit_in() { # REPO EXPECTED LABEL [COMMIT ARGS]
-    local repo=$1 expected=$2 label=$3 actual
+refused_for() { # WHAT EXPECTED ACTUAL: a refusal (rejected:REASON) must give REASON on stderr, in $scratch/err
+    [[ $2 == rejected* && $3 == rejected ]] || return 0
+    [[ $2 == rejected:?* ]] || { fail "$1: a refused case names the reason it expects (rejected:REASON)"; return; }
+    grep -qF -- "${2#rejected:}" "$scratch/err" || fail "$1: refused for another reason than \"${2#rejected:}\": $(head -1 "$scratch/err")"
+}
+expect_commit_in() { # REPO EXPECTED (allowed or rejected:REASON) LABEL [COMMIT ARGS]
+    local repo=$1 want=$2 expected=${2%%:*} label=$3 actual
     shift 3
-    if git -C "$repo" commit -qm "$label" "$@" >/dev/null 2>&1; then actual=allowed; else actual=rejected; fi
+    if git -C "$repo" commit -qm "$label" "$@" >/dev/null 2>"$scratch/err"; then actual=allowed; else actual=rejected; fi
     [[ $actual == "$expected" ]] || fail "pre-commit $label: expected $expected, got $actual"
+    refused_for "pre-commit $label" "$want" "$actual"
     [[ $actual == allowed ]] && git -C "$repo" reset -q --soft HEAD~ 2>/dev/null
     [[ -e "$(git -C "$repo" rev-parse --absolute-git-dir)/MERGE_HEAD" ]] || git -C "$repo" reset -q
 }
@@ -97,18 +103,18 @@ echo text > "$scratch/plain.txt"; git -C "$scratch" add plain.txt; expect_commit
 echo more >> "$scratch/big.dat"; echo more >> "$scratch/icon.png"; git -C "$scratch" add big.dat icon.png
 expect_commit allowed "edit of a tracked large file and image outside mac/"
 git -C "$scratch" checkout -q -- big.dat icon.png
-printf 'MZ\x90\x00' > "$scratch/tool.txt"; git -C "$scratch" add tool.txt; expect_commit rejected "executable header"
-head -c 1100000 /dev/zero > "$scratch/big.txt"; git -C "$scratch" add big.txt; expect_commit rejected "new file over 1 MiB"
-mkdir -p "$scratch/mac/work"; echo x > "$scratch/mac/work/n.txt"; git -C "$scratch" add mac/work; expect_commit rejected "mac/work directory"
+printf 'MZ\x90\x00' > "$scratch/tool.txt"; git -C "$scratch" add tool.txt; expect_commit "rejected:Windows executable header" "executable header"
+head -c 1100000 /dev/zero > "$scratch/big.txt"; git -C "$scratch" add big.txt; expect_commit "rejected:larger than 1048576 bytes" "new file over 1 MiB"
+mkdir -p "$scratch/mac/work"; echo x > "$scratch/mac/work/n.txt"; git -C "$scratch" add mac/work; expect_commit "rejected:local-only directory" "mac/work directory"
 rm -f "$scratch"/tool.txt "$scratch"/big.txt; rm -rf "$scratch/mac/work"
 for name in gamedata.scd shot.PNG LastGame.oscreplay mac/SupCom.gpr; do
-    echo x > "$scratch/$name"; git -C "$scratch" add "$name"; expect_commit rejected "new $name"; rm "$scratch/$name"
+    echo x > "$scratch/$name"; git -C "$scratch" add "$name"; expect_commit "rejected:game, analysis, screenshot, save or replay file type" "new $name"; rm "$scratch/$name"
 done
 code_of() { { printf '%s' "$2"; head -c $(($3 - ${#2})) /dev/zero | tr '\0' x; } > "$scratch/$1"; git -C "$scratch" add "$1"; }
 mkdir -p "$scratch/mac/tools"
 code_of mac/tools/fits.py '' 32000; expect_commit allowed "toolkit code at the 8,000-token budget"
-code_of mac/tools/big.lua '' 32001; expect_commit rejected "toolkit code over the budget"
-code_of mac/tools/run '#!/bin/sh' 32001; expect_commit rejected "extensionless script over the budget"
+code_of mac/tools/big.lua '' 32001; expect_commit "rejected:over the 8,000-token budget" "toolkit code over the budget"
+code_of mac/tools/run '#!/bin/sh' 32001; expect_commit "rejected:over the 8,000-token budget" "extensionless script over the budget"
 code_of mac/tools/notes '' 32001; code_of mac/tools/fix.patch '' 32001; code_of big.py '' 32001
 expect_commit allowed "data, patches and engine files over the toolkit code budget"
 rm -rf "$scratch/mac/tools" "$scratch/big.py"
@@ -116,37 +122,37 @@ rm -rf "$scratch/mac/tools" "$scratch/big.py"
 mkdir -p "$scratch/mac/scripts"; printf '#!/bin/sh\n' > "$scratch/mac/scripts/check"; chmod +x "$scratch/mac/scripts/check"
 echo /work/ > "$scratch/mac/.gitignore"
 receipt() { write_receipt "$scratch/mac" "$("$root/scripts/tree-snapshot" "$scratch/mac")" "$@"; }
-git -C "$scratch" add mac/scripts/check mac/.gitignore; expect_commit rejected "toolkit commit before any check"
+git -C "$scratch" add mac/scripts/check mac/.gitignore; expect_commit "rejected:check-last.txt: none at 0" "toolkit commit before any check"
 git -C "$scratch" add mac/scripts/check mac/.gitignore; receipt pass
 git -C "$scratch" commit -qm toolkit >/dev/null 2>&1 \
     || fail "pre-commit nested toolkit: a receipt taken inside mac/ must name paths from the checkout root"
 gate() { git -C "$scratch" add mac/gate.txt; }
 echo text > "$scratch/mac/gate.txt"; gate; receipt pass; git -C "$scratch" commit -qm gate
-gate; receipt pass; echo edited >> "$scratch/mac/gate.txt"; gate; expect_commit rejected "file edited after the check"
-gate; receipt fail 1; expect_commit rejected "failed check"
+gate; receipt pass; echo edited >> "$scratch/mac/gate.txt"; gate; expect_commit "rejected:Changed since the check" "file edited after the check"
+gate; receipt fail 1; expect_commit "rejected:check-last.txt: fail at" "failed check"
 gate; receipt pass; expect_commit allowed "fresh passing check"
 gate; receipt pass; echo more >> "$scratch/notes.txt"; expect_commit allowed "unrelated tracked file edited after the check"
 git -C "$scratch" checkout -q -- notes.txt
-gate; receipt pass; echo again >> "$scratch/mac/gate.txt"; expect_commit rejected "path-limited commit of a file edited after the check" -- mac/gate.txt
+gate; receipt pass; echo again >> "$scratch/mac/gate.txt"; expect_commit "rejected:Changed since the check" "path-limited commit of a file edited after the check" -- mac/gate.txt
 gate; receipt pass; expect_commit allowed "path-limited commit of the checked file" -- mac/gate.txt
-receipt pass; git -C "$scratch" rm -qf mac/gate.txt; expect_commit rejected "deletion after the check"
+receipt pass; git -C "$scratch" rm -qf mac/gate.txt; expect_commit "rejected:Changed since the check" "deletion after the check"
 git -C "$scratch" add -u mac/gate.txt; receipt pass; expect_commit allowed "deletion the check saw"
 git -C "$scratch" checkout -q HEAD -- mac/gate.txt
 git -C "$scratch" checkout -q -b side; echo side > "$scratch/mac/side.txt"; git -C "$scratch" add mac/side.txt; receipt pass
 git -C "$scratch" commit -qm side; git -C "$scratch" checkout -q -; receipt pass
 git -C "$scratch" merge -q --no-ff --no-commit side >/dev/null
-expect_commit rejected "merge commit before any check"; receipt pass; expect_commit allowed "merge commit after the check"
+expect_commit "rejected:must pass on exactly the content you commit" "merge commit before any check"; receipt pass; expect_commit allowed "merge commit after the check"
 mkdir -p "$scratch/mac/tool"; echo a > "$scratch/mac/tool/run"; echo b > "$scratch/mac/tool/hook.lua"; git -C "$scratch" add mac/tool/run
-receipt pass; expect_commit rejected "untracked file beside a committed one"
+receipt pass; expect_commit "rejected:untracked files sit in mac/ folders" "untracked file beside a committed one"
 rm -rf "$scratch/mac/side.txt" "$scratch/mac/tool"
 echo '@AGENTS.md' > "$scratch/CLAUDE.md"; git -C "$scratch" add CLAUDE.md
-receipt fail 1; expect_commit rejected "root CLAUDE.md after a failed check"
+receipt fail 1; expect_commit "rejected:check-last.txt: fail at" "root CLAUDE.md after a failed check"
 git -C "$scratch" add CLAUDE.md; receipt pass; expect_commit allowed "root CLAUDE.md after a passing check"
 rm "$scratch/CLAUDE.md"
 echo code > "$scratch/engine.cpp"; git -C "$scratch" add engine.cpp
 receipt fail 1; expect_commit allowed "engine commit needs no toolkit check"
 git -C "$scratch" add engine.cpp
-expect_commit rejected "engine commit naming an agent" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+expect_commit "rejected:touches engine files, which go upstream" "engine commit naming an agent" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
 rm "$scratch/engine.cpp"; echo x > "$scratch/mac/toolkit.txt"; git -C "$scratch" add mac/toolkit.txt; receipt pass
 expect_commit allowed "toolkit commit keeps its attribution" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
 rm "$scratch/mac/toolkit.txt"
@@ -158,25 +164,26 @@ git -C "$push" update-ref refs/remotes/upstream/main HEAD
 git init -q --bare "$scratch/origin.git"; mkdir -p "$scratch/push-hooks/claude"
 cp "$root/agents/githooks/pre-push" "$scratch/push-hooks/"; cp "$root/agents/hooks/guard-shell" "$scratch/push-hooks/claude/"
 git -C "$push" config core.hooksPath "$scratch/push-hooks"
-expect_push() { # EXPECTED LABEL BRANCH
+expect_push() { # EXPECTED (allowed or rejected:REASON) LABEL BRANCH
     local actual
-    if git -C "$push" push -q "$scratch/origin.git" "$3" >/dev/null 2>&1; then actual=allowed; else actual=rejected; fi
-    [[ $actual == "$1" ]] || fail "pre-push $2: expected $1, got $actual"
+    if git -C "$push" push -q "$scratch/origin.git" "$3" >/dev/null 2>"$scratch/err"; then actual=allowed; else actual=rejected; fi
+    [[ $actual == "${1%%:*}" ]] || fail "pre-push $2: expected ${1%%:*}, got $actual"
+    refused_for "pre-push $2" "$1" "$actual"
 }
 git -C "$push" checkout -q -b up/engine; echo b >> "$push/engine.cpp"; git -C "$push" commit -qam engine
 expect_push allowed "up/ branch with engine commits only" up/engine
 git -C "$push" checkout -q -b up/carries-mac; mkdir "$push/mac"; echo x > "$push/mac/notes.md"
 git -C "$push" add mac; git -C "$push" commit -qm toolkit; git -C "$push" rm -qr mac; git -C "$push" commit -qm "drop toolkit"
-expect_push rejected "up/ branch whose history carries a mac/ commit" up/carries-mac
+expect_push "rejected:carries fork-only commits" "up/ branch whose history carries a mac/ commit" up/carries-mac
 git -C "$push" checkout -q -b mac/side; expect_push allowed "fork branch with mac/ commits" mac/side
 git -C "$push" checkout -q -b up/agents up/engine; echo x > "$push/AGENTS.md"; git -C "$push" add AGENTS.md
-git -C "$push" commit -qm agents; expect_push rejected "up/ branch adding AGENTS.md" up/agents
+git -C "$push" commit -qm agents; expect_push "rejected:carries fork-only commits" "up/ branch adding AGENTS.md" up/agents
 git -C "$push" checkout -q -b up/nested up/engine; mkdir -p "$push/src"; echo x > "$push/src/AGENTS.md"
-git -C "$push" add src; git -C "$push" commit -qm nested; expect_push rejected "up/ branch adding a nested AGENTS.md" up/nested
-expect_push rejected "fork branch pushed to an up/ name" mac/side:up/renamed
+git -C "$push" add src; git -C "$push" commit -qm nested; expect_push "rejected:carries fork-only commits" "up/ branch adding a nested AGENTS.md" up/nested
+expect_push "rejected:carries fork-only commits" "fork branch pushed to an up/ name" mac/side:up/renamed
 git -C "$push" checkout -q -b up/named up/engine; echo c >> "$push/engine.cpp"
 git -C "$push" commit -qam "engine fix" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
-expect_push rejected "up/ commit message naming an agent" up/named
+expect_push "rejected:commit messages name an agent" "up/ commit message naming an agent" up/named
 git -C "$push" push -q --no-verify "$scratch/origin.git" up/named 2>/dev/null
 echo d >> "$push/engine.cpp"; git -C "$push" commit -qam "engine follow-up"
 expect_push allowed "up/ push whose named commit is already on the remote" up/named
@@ -292,7 +299,9 @@ play_args() { # FILE [PLAY ARGS]: the arguments the game got, one a line
     OSC_ROOT="$scratch/play" PLAY_ARGS="$file" "$root/scripts/play" "$@" >/dev/null 2>&1
     cat "$file"
 }
-play_args "$scratch/play/default" | grep -qx -- '--fps-cap\|--windowed\|--fullscreen' \
+play_args "$scratch/play/default" > "$scratch/play/default-args"
+[[ -s "$scratch/play/default-args" ]] || fail "play: the game did not start (no arguments recorded)"
+grep -qx -- '--fps-cap\|--windowed\|--fullscreen' "$scratch/play/default-args" \
     && fail "play: by default the Video options decide (no window or frame-cap arguments)"
 [[ $(play_args "$scratch/play/full" --full | grep -cx -- --fullscreen) == 1 ]] || fail "play: --full overrides full screen"
 
@@ -351,7 +360,11 @@ printf "warning: SND: Error initializing 3D audio.\ninfo: Run time: 0h01m00s\n" 
 printf "warning: Unable to reset selection sets: call expected but got nil\n         stack traceback:\ninfo: Run time: 0h01m00s\n" > "$scratch/allow.log"
 "$root/scripts/game-log-check" "$scratch/good.log" >/dev/null || fail "game-log-check rejected a clean log"
 "$root/scripts/game-log-check" "$scratch/bad.log" >/dev/null && fail "game-log-check accepted a failing log"
-"$root/scripts/game-log-check" "$scratch/good.log" --expect "absent" >/dev/null && fail "game-log-check ignored --expect"
+"$root/scripts/game-log-check" "$scratch/good.log" --expect "Run time" >/dev/null \
+    || fail "game-log-check refused a present --expect text"
+"$root/scripts/game-log-check" "$scratch/good.log" --expect "absent" > "$scratch/expect.out"; code=$?
+[[ $code == 1 ]] && grep -qx "FAIL missing: absent" "$scratch/expect.out" \
+    || fail "game-log-check ignored --expect (exit $code, expected 1 and its missing line)"
 "$root/scripts/game-log-check" "$scratch/allow.log" >/dev/null && fail "game-log-check accepted a Lua stack trace"
 "$root/scripts/game-log-check" "$scratch/allow.log" --allow "Unable to reset selection sets" >/dev/null \
     || fail "game-log-check ignored --allow"
