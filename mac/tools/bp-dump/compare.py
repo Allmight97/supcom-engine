@@ -179,6 +179,7 @@ def main():
 
 B1 = "BPDUMP|uel0001|{a=1}\n"
 B2 = "BPDUMP|uel0002|{a=1}\n"
+B3 = B1.replace("a=1", "a=2")
 
 
 def self_test():
@@ -197,6 +198,8 @@ def self_test():
         assert disjoint.returncode == 1 and len(disjoint.stderr.splitlines()) == 1, disjoint
         same = run(B1, B1)
         assert same.returncode == 0, same
+        changed = run(B1, B3)
+        assert changed.returncode == 0 and '`a`: 1' in changed.stdout, changed
     print('compare.py self-test ok')
 
 

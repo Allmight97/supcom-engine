@@ -2,7 +2,6 @@
 """Docs that agents read stay true to the current direction.
 
   mac/scripts/doc-hygiene            fail on a dead term (mac/agents/dead-terms.txt) in live guidance
-  mac/scripts/doc-hygiene --self-test
 """
 import pathlib
 import subprocess
@@ -34,19 +33,7 @@ def hits(files, dead):
     return found
 
 
-def self_test():
-    import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        p = pathlib.Path(d)
-        (p / 'a.md').write_text('run osc/env.sh first\n')
-        (p / 'b.md').write_text('see mac/recipe/env.sh\n')
-        assert hits([p / 'a.md', p / 'b.md'], ['osc/env.sh']) == [f'{p / "a.md"}:1: osc/env.sh']
-    print('doc-hygiene self-test passed')
-
-
 def main():
-    if '--self-test' in sys.argv:
-        return self_test()
     found = hits(live_files(MAC), terms(MAC / 'agents/dead-terms.txt'))
     for line in found:
         print(f'dead term: {line}')

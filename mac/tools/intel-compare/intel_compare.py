@@ -65,6 +65,7 @@ def main():
 
 I1 = "INTEL 10 1 e1 bp radar 1 sonar 0 omni 0 seen 1 seenever 1 fake 0\n"
 I2 = I1.replace("INTEL 10", "INTEL 20")
+I3 = I1.replace("seen 1 seenever 1", "seen 0 seenever 0")
 
 
 def self_test():
@@ -77,6 +78,7 @@ def self_test():
                     f.write(text)
             return subprocess.run([sys.executable, '-I', __file__, f'{tmp}/a.log', f'{tmp}/b.log', *extra],
                                   capture_output=True, text=True)
+        assert run(I1, I3, '--check').returncode == 1, 'blip counts that differ must fail --check'
         for extra in ((), ('--check',)):
             for a, b in (('', ''), (I1, I2)):
                 bad = run(a, b, *extra)

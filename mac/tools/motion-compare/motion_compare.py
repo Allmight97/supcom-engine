@@ -142,24 +142,27 @@ def main():
 
 M1 = "MOTION 5 1 uel0001 1 0 0 0 0 Land 1\n"
 M2 = "MOTION 5 2 uel0002 1 0 0 0 0 Land 1\n"
+M3 = M1.replace(" 1 0 0 0 0 Land", " 1 100 0 0 0 Land")
 
 
 def self_test():
     import subprocess
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
-        def run(a, b):
+        def run(a, b, *extra):
             for name, text in (('a.log', a), ('b.log', b)):
                 with open(f'{tmp}/{name}', 'w') as f:
                     f.write(text)
-            return subprocess.run([sys.executable, '-I', __file__, f'{tmp}/a.log', f'{tmp}/b.log'],
+            return subprocess.run([sys.executable, '-I', __file__, f'{tmp}/a.log', f'{tmp}/b.log', *extra],
                                   capture_output=True, text=True)
         empty = run('', '')
         assert empty.returncode == 1 and len(empty.stderr.splitlines()) == 1, empty
         disjoint = run(M1, M2)
         assert disjoint.returncode == 1 and len(disjoint.stderr.splitlines()) == 1, disjoint
-        same = run(M1, M1)
+        same = run(M1, M1, '--max-drift', '1=10')
         assert same.returncode == 0, same
+        drifted = run(M1, M3, '--max-drift', '1=10')
+        assert drifted.returncode == 1 and 'worst drift' in drifted.stderr, drifted
     print('motion_compare self-test ok')
 
 

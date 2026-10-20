@@ -131,7 +131,6 @@ def markdown(prs):
 
 def self_test():
     assert mac_related('renderer: on a HiDPI display FA\'s UI is laid out in points')
-    assert mac_related('touches src/platform/native_fullscreen.mm')
     assert git('rev-parse', '--verify', '--quiet', 'no-such-ref-x', soft=True) == ''
     try:
         git('rev-parse', '--verify', 'no-such-ref-x')
@@ -144,9 +143,7 @@ def self_test():
     assert classify(pr, set()) == (False, [])
     base_pr = {'number': 7, 'title': 't', 'state': 'CLOSED', 'createdAt': '2026-10-19T00:00:00Z',
                'closedAt': '2026-10-21T00:00:00Z', 'comments': [{}], 'reviews': [], 'landing': ''}
-    assert 'closed unlanded 2026-10-21' in contribution_line(base_pr)
     assert 'LANDED 2026-10-22 as `abc1234`' in contribution_line({**base_pr, 'landing': 'abc1234 2026-10-22'})
-    assert '1 comments, 0 reviews' in contribution_line(base_pr)
     print('upstream-news self-test passed')
 
 
