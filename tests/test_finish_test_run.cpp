@@ -67,7 +67,7 @@ TEST_CASE("A test mode's Lua LOG line naming PASS counts as a check", "[app][tes
     lua_pushstring(lua.raw(), "Bone test 1: PASS");
     osc::log::l_LOG(lua.raw());
     osc::test_status::set_count_lua_failures(false);
-    CHECK(osc::test_status::check_count() == 1);
+    CHECK(osc::test_status::pass_count() == 1);
     CHECK(osc::test_status::failure_count() == 0);
     osc::test_status::reset();
 }
@@ -77,7 +77,6 @@ TEST_CASE(
     "[app][test-status]") {
     osc::test_status::reset();
     osc::test_status::fail("the one check failed");
-    CHECK(osc::test_status::check_count() == 1);
     std::ostringstream log;
     const auto previous = spdlog::default_logger();
     spdlog::set_default_logger(std::make_shared<spdlog::logger>(

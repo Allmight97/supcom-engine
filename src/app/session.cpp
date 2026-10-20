@@ -26,7 +26,7 @@ int finish_test_run(const char* mode, osc::u32 smoke_issues, bool needs_a_check)
     }
     const int failures = osc::test_status::failure_count();
     if (needs_a_check && failures == 0) {
-        const bool none = osc::test_status::check_count() == 0;
+        const bool none = osc::test_status::pass_count() == 0;
         const bool listed = std::getenv("OSC_NO_CHECK_BASELINE") != nullptr;
         if (none && !listed) {
             spdlog::error("=== {}: FAIL (no check ran) ===", mode);

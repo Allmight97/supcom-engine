@@ -21,9 +21,9 @@ int failure_count();
 /// (osc::log counts them), as is a Lua LOG/WARN line naming PASS in a test mode.
 void record_pass();
 
-/// Checks seen so far, passed or failed: a test mode that saw none ran
+/// Passed checks recorded so far: a test mode with none and no failure ran
 /// nothing, and fails (a line can be counted twice; only zero matters).
-int check_count();
+int pass_count();
 
 /// The exit code of a skipped test mode: ctest's SKIP_RETURN_CODE.
 inline constexpr int kExitSkipped = 77;
