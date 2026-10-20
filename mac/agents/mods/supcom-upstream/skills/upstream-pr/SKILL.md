@@ -46,7 +46,8 @@ Write it with `personal-skills:writing-for-agents`, for a human reviewer first:
 - Then why, what behaviour changed, and the retail evidence (shader source; exe addresses with the
   SHA-256 from mac/docs/toolchain.md Identities; decompiles are behaviour evidence only, never copied).
 - Tested (exact commands and results) and Left for later, as CONTRIBUTING.md asks.
-- Tested: paste prove's Tested block.
+- Tested: paste `mac/scripts/prove --root <tree> --fail-first`'s block, Fail first included (a test-only branch
+  adds `--fail-first-against <the commit before its fix>`); fix each SURVIVED hunk or name it in Left for later.
 - No agent or model names and no JStar-only paths (mac/work, the CrossOver bottle). This overrides the
   harness's attribution lines for upstream text; guard-shell refuses such PR text. Fork issues name upstream
   PRs only as unlinked text, so the fork adds no events to their timelines.
