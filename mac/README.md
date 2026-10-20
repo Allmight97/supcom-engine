@@ -11,10 +11,8 @@ grep -m1 driver ~/Library/Application\ Support/opensupcom/logs/opensupcom.log   
 # Nuke test: skirmish as UEF, victory "Sandbox", select your ACU, Ctrl-K.
 ```
 
-Supreme Commander: Forged Alliance (2007) runs natively on Apple Silicon, with no
-Wine, CrossOver or Rosetta, through **OpenSupCom**, an open reimplementation of the
-game's engine that runs the game's own scripts and data. This folder is the Mac
-developer's toolkit inside JStar's fork of it,
+This folder contains the moderization of [OpenSupCom](supcom) on modern apple silicone with a focus on Apple's software stack released with MacOS 27.
+
 [Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine) (upstream:
 [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine)): the build recipe, the
 play command, checks, and tools that compare against the original game. Mac engine work lands on the fork and is offered upstream where
