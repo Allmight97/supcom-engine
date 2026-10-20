@@ -1,22 +1,18 @@
-# Supreme Commander: Forged Alliance and FAF on a Mac with CrossOver
+# Supreme Commander: Forged Alliance and FAF in CrossOver
 
-A recipe for players. It was checked on an Apple silicon Mac (macOS 27.2)
-with CrossOver 26.3, the GOG release of Forged Alliance (1.5.3599) and FAF
-game version 3839, in October 2026. You need your own copy of the game.
+Guidance for running the original game (and FAF's) in a CrossOver bottle, to make reference captures for
+OpenSupCom. CrossOver is not the product's target; the Mac target is OpenSupCom itself. Checked on an Apple
+silicon Mac (macOS 27.2) with CrossOver 26.3, the GOG release of Forged Alliance (1.5.3599) and FAF game
+version 3839, in October 2026. You need your own copy of the game.
 
 ## What works
 
-- The original game: main menu, a skirmish against the built-in AI with the
-  mouse (select, box-select, move, build), save, reload, exit through the menu.
-- FAF's game: the same, run offline from its own Skirmish menu, and a skirmish
-  against the M28AI mod from FAF's mod vault.
-- The FAF client itself (signed in, chat, mod vault). It behaves like a normal
-  Mac app.
-- A private game hosted from the FAF client with the M28AI mod, in fullscreen
-  at 2560×1440 (120 Hz) on a 5K display: mouse on target, normal exit, and a
-  second launch the same way (October 2026, two 3-minute sessions). The Mac
-  display was at "looks like" 2880×1620, so the game did not fill the screen;
-  section 5 has the setup that fills it.
+- The original game: main menu, a skirmish against the built-in AI with the mouse, save, reload, exit
+  through the menu.
+- FAF's game: the same, run offline from its own Skirmish menu, and a skirmish against the M28AI mod.
+- The FAF client (signed in, chat, mod vault), and a private game hosted from it with the M28AI mod in
+  fullscreen at 2560×1440 (120 Hz) on a 5K display: mouse on target, normal exit (October 2026, two
+  3-minute sessions). Section 5 has the setup.
 
 ## 1. Make the bottle
 
@@ -98,19 +94,10 @@ To play offline without the client, run FAF's `ForgedAlliance.exe` from
 `~/.faforever/bin` with `/init init.lua /windowed 1680 1050`, then use
 Skirmish in its main menu.
 
-## 5. Play through FAF: walkthrough and test checklist
+## 5. Fullscreen size and mouse on target
 
-The goal: play through the FAF client in fullscreen, with mods, and note every
-problem. The original GOG game is the baseline that tells CrossOver problems
-from FAF problems. Only one game can run in the bottle at a time.
-
-### Before you start
-
-1. Close any running copy of the game. In Terminal,
-   `pgrep -fl 'ForgedAlliance[.]exe|SupremeCommander[.]exe'` prints nothing
-   when none is running.
-2. Note your starting settings in `Game.prefs`: `primary_adapter` (the
-   fullscreen size) and `active_mods` (should be `{ }`).
+Measured findings for reference captures. Only one game can run in the bottle at a time; close any running copy
+first (`pgrep -fl 'ForgedAlliance[.]exe|SupremeCommander[.]exe'` prints nothing when none runs).
 
 ### Choose the fullscreen size
 
@@ -165,89 +152,6 @@ CaptureDisplaysForFullscreen setting.
 These runs used CrossOver's Auto graphics backend with MSync on, and High
 Resolution mode off.
 
-### Turn on a mod
-
-Install the mod in the FAF client: Mods tab → search → install (for example
-M28AI).
-
-- **In the client (works):** tick the mod in the client's Create Game
-  dialog. The game then starts with the mod active, so the broken in-game
-  Mods Manager does not matter.
-- **In the file (for offline play without the client):** close the game and
-  set `active_mods` in `Game.prefs` as in section 4.
-
-### Game speed on a Mac keyboard
-
-The default keys are keypad `+`, keypad `-` and keypad `*` (reset). Without a
-keypad, press F10 → Key Bindings and assign other keys to "Increase game
-speed", "Decrease game speed" and "Reset game speed". The lobby option "Game
-Speed" must be "Adjustable" for speed changes to work.
-
-### Host a private game and play
-
-1. In the client: Play → Custom Games → Create Game. Choose a title, set a
-   password, choose friends-only visibility if offered, pick a map (for
-   example Daroza's Sanctuary) and the mod.
-2. Host. The game should open fullscreen. Keep the lobby private: never chat,
-   and if anyone joins, close the lobby.
-3. In the lobby, add an AI to slot 2 ("AI: Easy" or "AI: M28 Easy"), then
-   Launch.
-
-### Checklist
-
-Run it for each of the three versions below and tick each item, or write
-what happened:
-
-- [ ] The game window goes fullscreen on its own.
-- [ ] Lobby: the mod is active and its AI is listed.
-- [ ] The map loads (note the time).
-- [ ] Mouse: select, box-select, right-click move, place a building.
-- [ ] In fullscreen, clicks land where the pointer is (watch dialogs).
-- [ ] Sound plays.
-- [ ] Speed feels right (note any stutter).
-- [ ] Save: pause first (typing can drop letters), then F10 → Save Game.
-- [ ] Quit: F10 → Exit to Windows.
-- [ ] Reload: start again → Skirmish → Load → your save.
-- [ ] Cmd-Tab away and back: the game recovers.
-- [ ] Normal exit.
-
-The three versions:
-
-1. **FAF through the client** (the main target).
-2. **FAF offline, no client** (separates client problems from game
-   problems): run FAF's `ForgedAlliance.exe` from `~/.faforever/bin` with
-   `/init init.lua /nobugreport` and no `/windowed` (fullscreen), then use
-   Skirmish in its main menu.
-3. **The original GOG game** (baseline, no mods), started from CrossOver,
-   with `/nomovie`.
-
-### Note each problem
-
-For each problem, write down:
-
-- Where: FAF client, FAF offline, or GOG.
-- Step: the checklist item.
-- Did: what you did.
-- Saw: what happened.
-- Expected: what should have happened.
-- Also in GOG: yes, no, or not tried.
-- Log: `~/.faforever/logs/game_<id>.log` (client) or the log file you passed
-  with `/log`.
-
-### When you are done
-
-- If you used the file fallback for mods, set `active_mods = { }` again.
-- Decide whether to keep the new fullscreen size.
-
-Already known, no need to note again: FAF's Campaign is broken, FAF's in-game
-Mods Manager OK button does not work, and resizing a window breaks clicking.
-
-On JStar's Mac the repository has shortcuts: `mac/scripts/game-prefs show`,
-`mac/scripts/game-prefs mods M28AI` (and `mods` alone to clear),
-`mac/scripts/game-log-check LOG` to flag known failures in a log,
-`mac/agents/faf-crossover game ~/.faforever/bin/ForgedAlliance.exe /init init.lua /nobugreport`
-(run from `~/.faforever/bin`) and `mac/agents/faf-crossover original /nomovie`.
-
 ## Known problems and untested parts
 
 - FAF's Campaign stops with a Lua error and a black screen.
@@ -259,7 +163,7 @@ On JStar's Mac the repository has shortcuts: `mac/scripts/game-prefs show`,
 - Escape on the game's main screen closes open dialogs and then offers to
   quit the game; that is the game's normal behavior.
 - Typing into the save-name field can drop letters while the game runs.
-- Untested: save and reload through the client, long sessions, online
+- Untested: long sessions, online
   multiplayer, CrossOver's High Resolution mode (it shows the game the full
   pixel size, for example 5120×2880, so the game's mode list changes and its
   interface gets very small).
