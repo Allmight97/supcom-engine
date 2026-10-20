@@ -135,7 +135,8 @@ bool mp_attach_session(osc::sim::SimState& sim) {
         sim.set_pause_timeouts(source, s.army_of(source) >= 0 ? timeouts : 0);
     sim.set_source_army(s.local_source, s.local_army());
     auto* session = s.session.get();
-    const osc::sim::GameSpeedOption speed = osc::sim::lobby_game_speed(sim.recorded_replay().setup.options);
+    const osc::sim::GameSpeedOption speed =
+        osc::sim::lobby_game_speed(sim.recorded_replay().setup.options);
     session->set_speed_option(speed.rate, speed.adjustable);
     // Route local human orders through the session (broadcast + schedule).
     sim.set_local_command_sink(

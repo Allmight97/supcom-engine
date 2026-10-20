@@ -195,7 +195,9 @@ TEST_CASE("The sim rate: an integer game speed, 10^(rate/10) times normal", "[ui
 
     // A lobby's Normal or Fast fixes the speed: requests change nothing
     mgr.set_speed_option(4, false);
-    CHECK(rate_after("ConExecute('WLD_IncreaseSimRate') SetGameSpeed(0) ConExecute('WLD_GameSpeed 9')") == 4);
+    CHECK(rate_after(
+              "ConExecute('WLD_IncreaseSimRate') SetGameSpeed(0) ConExecute('WLD_GameSpeed 9')") ==
+          4);
     // A new game starts adjustable at normal
     mgr.transition_to(osc::GameState::SCORE, nullptr);
     mgr.transition_to(osc::GameState::GAME, nullptr);
