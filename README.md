@@ -1,5 +1,5 @@
  **[MacOS focus](https://github.com/Allmight97/supcom-engine):** of [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine) - see [mac/README.md](mac/README.md) for toolkit, status and play instructions.
- **Goal of this fork**: Optimize for modern MacOS tech stack and improve [FAF client integration]([url](https://github.com/FAForever/downlords-faf-client.git)).
+ **Goal of this fork**: Optimize for modern MacOS tech stack and improve [FAF client integration](https://github.com/FAForever/downlords-faf-client.git).
 
 # OpenSupCom
 
