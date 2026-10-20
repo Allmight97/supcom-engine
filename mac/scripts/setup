@@ -97,15 +97,18 @@ def plan(osc):
     hooks_dir = os.path.realpath(os.path.join(git_dir, 'mac-hooks'))
     changes = []
     trees = worktrees(osc)
+    # Every worktree shares one hooks folder: install the main checkout's copies, so a worktree on an older
+    # branch does not swap them for its own.
+    source = os.path.join(trees[0], 'mac') if os.path.isdir(os.path.join(trees[0], 'mac/agents')) else TOOLKIT
     for tree in [t for t in trees if os.path.realpath(t) != os.path.realpath(osc)]:
         up_tree = not os.path.isdir(os.path.join(tree, 'mac'))
         changes += [(f'(other worktree) {d}', a) for d, a in
                     settings_change(tree, {'hooks': hooks(os.path.join(hooks_dir, 'claude'), up_tree, trees[0])})]
     claude_dir = os.path.join(hooks_dir, 'claude')
     changes += [c for c in
-               [copy_change(os.path.join(TOOLKIT, 'agents/githooks', name), os.path.join(hooks_dir, name))
+               [copy_change(os.path.join(source, 'agents/githooks', name), os.path.join(hooks_dir, name))
                 for name in GIT_HOOKS] +
-               [copy_change(os.path.join(TOOLKIT, 'agents/hooks', name), os.path.join(claude_dir, name))
+               [copy_change(os.path.join(source, 'agents/hooks', name), os.path.join(claude_dir, name))
                 for name in CLAUDE_HOOKS] if c]
 
     settings = load_settings(osc)
