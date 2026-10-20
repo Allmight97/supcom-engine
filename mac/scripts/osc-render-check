@@ -8,7 +8,7 @@ cd "$osc" && source "$toolkit/recipe/env.sh" || exit 1
 mkdir -p .local || exit 1
 log="$PWD/.local/mac-render-check.log"
 capture="$PWD/.local/mac-render-check.png"
-rm -f "$log" || exit 1
+rm -f "$log" "$capture" || exit 1
 echo "Render log: $log"
 echo "Render capture: $capture"
 OSC_VK_VALIDATION=1 VK_ADD_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d" \
@@ -18,7 +18,8 @@ OSC_VK_VALIDATION=1 VK_ADD_LAYER_PATH="$VULKAN_SDK/share/vulkan/explicit_layer.d
 code=$?
 driver='\[info\] Vulkan loader [0-9]+\.[0-9]+\.[0-9]+, driver KosmicKrisp \('
 [[ -d mac ]] || driver="$driver|\[info\] Vulkan GPU: "
-if [[ $code != 0 ]] || [[ ! -f "$log" ]] || grep -q '\[error\]' "$log" || ! grep -Eq "$driver" "$log"; then
+if [[ $code != 0 ]] || [[ ! -f "$log" ]] || [[ ! -s "$capture" ]] || grep -q '\[error\]' "$log" \
+    || ! grep -Eq "$driver" "$log"; then
     echo RENDER_CHECK_FAIL >&2
     exit 1
 fi

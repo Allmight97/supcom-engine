@@ -3,7 +3,8 @@
 # Every commit: refuse game content, screenshots, saves, replays, Windows executables, new files over 1 MiB,
 # anything under mac/work/, and mac/ code (scripts and .py, .sh, .lua, .swift, .cmake) over 8,000 tokens, so an
 # agent can read any toolkit file whole. A commit that touches mac/, AGENTS.md, CLAUDE.md or README.md also needs
-# mac/scripts/check to have passed on exactly the staged content, deletions included.
+# mac/scripts/check to have passed on exactly the toolkit this commit writes (mac/, AGENTS.md, CLAUDE.md, README.md),
+# deletions and edits left out of the commit included.
 set -euo pipefail
 max_bytes=1048576
 rejected=0
@@ -62,11 +63,11 @@ if [[ -n $protected && -x "$toolkit/scripts/check" ]]; then
         rejected=1
     fi
     read -r checked result _ 2>/dev/null < "$toolkit/work/check-last.txt" || { checked=0; result=none; }
-    unchecked=$(git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r git --literal-pathspecs ls-files -s -- \
-        | LC_ALL=C sort | LC_ALL=C comm -23 - <(LC_ALL=C sort "$toolkit/work/check-last.manifest" 2>/dev/null))
-    deleted=$(git diff --cached --name-only --diff-filter=D | LC_ALL=C sort \
-        | LC_ALL=C comm -12 - <(cut -f2 "$toolkit/work/check-last.manifest" 2>/dev/null | LC_ALL=C sort))
-    [[ -n $deleted ]] && unchecked=$(printf '%s\n%s' "$unchecked" "$(sed 's/^/deleted\t/' <<< "$deleted")" | sed '/^$/d')
+    # The toolkit as committed (the index this commit writes), against the tree the check ran on: a file the
+    # check saw edited but this commit leaves out differs as much as one edited after the check.
+    toolkit_paths() { awk -F'\t' '$2 ~ /^mac\// || $2 == "AGENTS.md" || $2 == "CLAUDE.md" || $2 == "README.md"' | LC_ALL=C sort; }
+    unchecked=$(LC_ALL=C comm -3 <(git ls-files -s | toolkit_paths) \
+        <(toolkit_paths 2>/dev/null < "$toolkit/work/check-last.manifest") | sed 's/^\t//' | LC_ALL=C sort -u -t$'\t' -k2,2)
     if [[ $result != pass || -n $unchecked ]]; then
         printf 'pre-commit: mac/scripts/check must pass on exactly the content you commit (mac/work/check-last.txt: %s at %s).\n' "$result" "$checked" >&2
         if [[ -n $unchecked ]]; then

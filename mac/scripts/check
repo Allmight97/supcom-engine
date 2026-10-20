@@ -138,6 +138,11 @@ gate; receipt pass; expect_commit allowed "path-limited commit of the checked fi
 receipt pass; git -C "$scratch" rm -qf mac/gate.txt; expect_commit "rejected:Changed since the check" "deletion after the check"
 git -C "$scratch" add -u mac/gate.txt; receipt pass; expect_commit allowed "deletion the check saw"
 git -C "$scratch" checkout -q HEAD -- mac/gate.txt
+echo helper > "$scratch/mac/helper.txt"; git -C "$scratch" add mac/helper.txt; receipt pass; git -C "$scratch" commit -qm helper
+echo edited >> "$scratch/mac/helper.txt"; echo caller > "$scratch/mac/caller.txt"; git -C "$scratch" add mac/caller.txt; receipt pass
+expect_commit "rejected:Changed since the check" "commit leaving out an edit the check ran with"
+git -C "$scratch" add mac/caller.txt mac/helper.txt; expect_commit allowed "commit carrying every edit the check ran with"
+git -C "$scratch" checkout -q -- mac/helper.txt; rm "$scratch/mac/caller.txt"
 git -C "$scratch" checkout -q -b side; echo side > "$scratch/mac/side.txt"; git -C "$scratch" add mac/side.txt; receipt pass
 git -C "$scratch" commit -qm side; git -C "$scratch" checkout -q -; receipt pass
 git -C "$scratch" merge -q --no-ff --no-commit side >/dev/null
@@ -270,10 +275,14 @@ OSC_ROOT="$scratch/smoke" SMOKE_EXIT=7 "$root/scripts/osc-smoke" >/dev/null 2>&1
 
 cat > "$scratch/smoke/build/play/opensupcom" <<'SH'
 #!/bin/sh
-while [ "$1" != --log ]; do shift; done
+while [ $# -gt 0 ]; do
+    case $1 in --screenshot) shot=$2 ;; --log) log=$2 ;; esac
+    shift
+done
 if [ "${RENDER_NO_LOG:-0}" != 1 ]; then
-    printf '%s\n' "${RENDER_LINE:-[info] Vulkan loader 1.4.363, driver KosmicKrisp (Mesa test), driverID 28}" > "$2"
+    printf '%s\n' "${RENDER_LINE:-[info] Vulkan loader 1.4.363, driver KosmicKrisp (Mesa test), driverID 28}" > "$log"
 fi
+[ "${RENDER_NO_IMAGE:-0}" = 1 ] || printf 'png' > "$shot"
 exit "${RENDER_EXIT:-0}"
 SH
 OSC_ROOT="$scratch/smoke" "$root/scripts/osc-render-check" > "$scratch/render-result" \
@@ -290,6 +299,8 @@ OSC_ROOT="$scratch/smoke" RENDER_EXIT=7 "$root/scripts/osc-render-check" >/dev/n
     && fail "osc-render-check accepted a non-zero exit"
 OSC_ROOT="$scratch/smoke" RENDER_NO_LOG=1 "$root/scripts/osc-render-check" >/dev/null 2>&1 \
     && fail "osc-render-check accepted a stale or missing log"
+OSC_ROOT="$scratch/smoke" RENDER_NO_IMAGE=1 "$root/scripts/osc-render-check" >/dev/null 2>&1 \
+    && fail "osc-render-check accepted a run that drew no new image"
 
 mkdir -p "$scratch/play/build/play"
 printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$PLAY_ARGS"\n' > "$scratch/play/build/play/opensupcom"
