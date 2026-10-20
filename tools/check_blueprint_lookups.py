@@ -28,6 +28,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import scan_guard
+
 OWNER = "src/blueprints/blueprint_store.cpp"
 # Files that may name the global, and why.
 NAME_ALLOWED = {
@@ -136,16 +138,13 @@ def problems_in(rel: str, text: str) -> list[str]:
 
 def check(root: Path) -> list[str]:
     problems = []
-    scanned = set()
+    scanned = []
     for path in sorted((root / "src").rglob("*")):
         if path.suffix in SUFFIXES:
             rel = path.relative_to(root).as_posix()
-            scanned.add(rel)
+            scanned.append(rel)
             problems += problems_in(rel, path.read_text(encoding="utf-8", errors="replace"))
-    if OWNER not in scanned:
-        problems.append(f"{OWNER} was not scanned ({len(scanned)} files read under {root / 'src'}); "
-                        "is this the repository root?")
-    return problems
+    return scan_guard.unscanned(root, scanned, OWNER) + problems
 
 
 def self_test() -> int:

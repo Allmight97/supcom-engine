@@ -1,0 +1,5 @@
+# Integration modes that skip as a pass, found when tools/check_test_skips.py landed.
+# Each goes when its mode skips through osc::test_status::skip.
+tests/integration/runner/integration_tests.cpp: pass++; // skip if no live projectiles (already validated in test 1)
+tests/integration/runner/integration_tests.cpp: spdlog::warn("[SKIP] Test 8: no FA sound data");
+tests/integration/runner/integration_tests.cpp: spdlog::error("[SKIP] Beam test: need at least 2 units");

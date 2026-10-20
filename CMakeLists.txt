@@ -253,11 +253,19 @@ if(OSC_BUILD_TESTS)
                          --installed ${CMAKE_SOURCE_DIR} $<TARGET_FILE:opensupcom>)
         set_tests_properties(data.shader_names PROPERTIES
                              LABELS "data;gate" SKIP_RETURN_CODE 77 TIMEOUT 300)
+        # An integration mode skips through osc::test_status::skip, never as a pass.
+        add_test(NAME arch.test_skips
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_test_skips.py
+                         ${CMAKE_SOURCE_DIR})
+        add_test(NAME arch.test_skips_self_test
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_test_skips.py
+                         --self-test)
         set_tests_properties(arch.retail_hooks arch.retail_hooks_self_test
                              arch.lua_stubs arch.lua_stubs_self_test
                              arch.blueprint_fields arch.blueprint_fields_self_test
                              arch.blueprint_lookups arch.blueprint_lookups_self_test
                              arch.shader_names arch.shader_names_self_test
+                             arch.test_skips arch.test_skips_self_test
                              PROPERTIES LABELS "arch" TIMEOUT 60)
 
         # retail_ref.py, which asks retail FA itself for references: its config,
