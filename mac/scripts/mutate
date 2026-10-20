@@ -95,6 +95,43 @@ def is_test_hunk(path, hunk):
     return False
 
 
+def touched_lines(hunk):
+    """The new-side line numbers a hunk adds, or removes lines at."""
+    m = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)', hunk)
+    line, out = int(m.group(1)) if m else 1, set()
+    for text in hunk.splitlines()[1:]:
+        if text.startswith('+'):
+            out.add(line)
+            line += 1
+        elif text.startswith('-'):
+            out.add(line)
+        elif not text.startswith('\\'):
+            line += 1
+    return out
+
+
+def include_only(hunk):
+    """Every changed line is an #include, a comment or blank: reverting it is no mutation."""
+    return all(not t.strip() or re.match(r'\s*(#include\b|//|/\*|\*)', t) for t in changed(hunk, '+') + changed(hunk, '-'))
+
+
+def changed_cases(test_hunks, unit_cases):
+    """The unit test cases whose lines (from one case's start to the next's) a test hunk touches."""
+    touched = {}
+    for p, _, h in test_hunks:
+        touched.setdefault(p, set()).update(touched_lines(h))
+    by_file = {}
+    for name, file, line in unit_cases:
+        by_file.setdefault(file, []).append((line, name))
+    out = []
+    for file, cases in by_file.items():
+        lines = next((touched[p] for p in touched if file.endswith('/' + p)), set())
+        cases.sort()
+        ends = [start for start, _ in cases[1:]] + [float('inf')]
+        out += [name for (start, name), end in zip(cases, ends) if any(start <= n < end for n in lines)]
+    return sorted(out)
+
+
 def select(test_hunks, registered, unit_cases):
     """(ctest names, unit test case names) the branch's test hunks add or change."""
     words = lambda lines: {w for line in lines for w in re.findall(r'[\w.-]+', line)}
@@ -109,8 +146,7 @@ def select(test_hunks, registered, unit_cases):
         elif re.match(r'(tests/integration/runner|src/app)/\w+_test\.cpp$', p):
             wanted.add(f'data.{stem.replace("_", "-")}')
     ctest = sorted(n for n in registered if n in wanted or n.split('.', 1)[-1] in added and n.startswith('data.'))
-    unit = sorted(name for name, file in unit_cases if any(file.endswith('/' + p) for p in paths))
-    return ctest, unit
+    return ctest, changed_cases(test_hunks, unit_cases)
 
 
 def registered_tests(tree):
@@ -119,11 +155,11 @@ def registered_tests(tree):
 
 
 def unit_cases(tree, spec=None):
-    """[(test case name, source file)] of the tree's unit tests, or of those SPEC (a Catch2 test spec) selects."""
+    """[(test case name, source file, line)] of the tree's unit tests, or of those SPEC (a Catch2 spec) selects."""
     out = sh(tree, ['build/play/tests/osc_tests', '--list-tests', '--reporter', 'xml'] + ([spec] if spec else [])).stdout
     root = ET.fromstring(out[out.index('<'):]) if '<' in out else None
-    return [] if root is None else [(t.findtext('Name'), t.findtext('SourceInfo/File') or '')
-                                    for t in root.iter('TestCase')]
+    return [] if root is None else [(t.findtext('Name'), t.findtext('SourceInfo/File') or '',
+                                     int(t.findtext('SourceInfo/Line') or 0)) for t in root.iter('TestCase')]
 
 
 def catch2_spec(name):
@@ -283,7 +319,9 @@ def run_sweep(root, base, env, allowed=0):
             started = time.time()
             original = snapshot(root, path)
             try:
-                if sh(root, ['git', 'apply', '-R', '--whitespace=nowarn', '-'], stdin=header + hunk).returncode:
+                if include_only(hunk):
+                    outcome = 'include-only, not a mutation'
+                elif sh(root, ['git', 'apply', '-R', '--whitespace=nowarn', '-'], stdin=header + hunk).returncode:
                     outcome = 'NOT JUDGED: does not revert alone'
                 elif not build(root, env)[0]:
                     outcome = 'failed at build'
@@ -327,7 +365,7 @@ def judge_cases(root, cases, env):
     for case in cases:
         say(f'case {case["name"]}')
         ctest = case.get('ctest', [])
-        unit = [name for spec in case.get('unit', []) for name, _ in unit_cases(root, spec)]
+        unit = [name for spec in case.get('unit', []) for name, *_ in unit_cases(root, spec)]
         commands = case.get('run', [])
         engine = not case['file'].startswith('mac/')
         if engine:
@@ -454,7 +492,8 @@ def self_test():
                                                  ('tests/test_mesh.cpp', '@@ -1,1 +')]
     registered = ['data.ai-test', 'data.gpu-pass-timing-test', 'arch.shader_names', 'arch.shader_names_self_test',
                   'data.shader_names', 'arch.version']
-    cases = [('A mesh', '/r/tests/test_mesh.cpp'), ('Other', '/r/tests/test_map.cpp')]
+    cases = [('A mesh', '/r/tests/test_mesh.cpp', 1), ('Untouched mesh', '/r/tests/test_mesh.cpp', 50),
+             ('Other', '/r/tests/test_map.cpp', 1)]
     assert select(tests, registered, cases) == (['arch.shader_names', 'arch.shader_names_self_test',
                                                  'data.gpu-pass-timing-test', 'data.shader_names'], ['A mesh'])
     assert select([('tests/integration/runner/gpu_pass_timing_test.cpp', '', '@@\n+x\n')], registered, []) == \
@@ -463,6 +502,9 @@ def self_test():
                                                    'data.gpu-pass-timing-test': 'Skipped',
                                                    'data.crash-test': 'Exception: SegFault'}
     assert catch2_spec('a, b [c]') == r'a\, b \[c\]'
+    assert touched_lines('@@ -10,3 +12,4 @@\n ctx\n+new\n-old\n ctx\n') == {13, 14}
+    assert include_only('@@ -1,2 +1,3 @@\n #include <a>\n+#include <b>\n+\n-// old note\n')
+    assert not include_only('@@ -1,1 +1,1 @@\n-int a = 1;\n+int a = 2;\n')
     assert sweep_refusal(40, 9, 'main', 0) is None and sweep_refusal(41, 9, 'main', 41) is None
     assert sweep_refusal(237, 81, 'upstream/main', 0).startswith('- sweep: 237 hunks in 81 files against upstream/main')
     print('mutate self-test passed')
