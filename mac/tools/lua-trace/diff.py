@@ -2,12 +2,14 @@
 """Compare the engine calls of two Lua call traces (mac/tools/lua-trace logs).
 
 Usage: diff.py ORIGINAL.log OURS.log [--bindings mac/work/lua-bindings.json] [--kind user]
+       diff.py --self-test
 
 ORIGINAL is a trace of the original game (mac/tools/lua-trace/capture); OURS is a
 trace in the same format (OpenSupCom has no producer yet). Reports the functions only the
 original called, the functions only we called, the first point where the
 first-call order differs, and the call counts side by side. Counts depend on how
-long each run lasted, so compare them as orders of magnitude.
+long each run lasted, so compare them as orders of magnitude. Exits 1 when the two traces call no function
+in common: a report with nothing compared proves nothing.
 """
 import argparse
 import importlib.util
@@ -56,6 +58,8 @@ def report(original_path, ours_path, kind, bindings):
     only_original = sorted(set(original) - set(ours), key=lambda n: (-original[n], n))
     only_ours = sorted(set(ours) - set(original), key=lambda n: (-ours[n], n))
     both = set(original) & set(ours)
+    if not both:
+        sys.exit(f"diff.py: {original_path} and {ours_path} call no function in common ({len(original)} and {len(ours)} distinct)")
     same, common_original, common_ours = shared_prefix(original_first, ours_first, both)
 
     out = [f"# Lua call trace diff ({kind} side)", "",
@@ -75,7 +79,28 @@ def report(original_path, ours_path, kind, bindings):
     return "\n".join(out) + "\n"
 
 
+def self_test():
+    traces = {}
+    stub = lambda path, kind, bindings: traces[path]
+    globals()["calls"] = stub
+    traces["a"] = (["f", "g"], {"f": 2, "g": 1})
+    traces["b"] = (["g"], {"g": 5})
+    traces["c"] = (["h"], {"h": 1})
+    traces["empty"] = ([], {})
+    assert "agrees for the first 1 of 1" in report("a", "b", "user", [])
+    for other in ("c", "empty"):
+        try:
+            report("a", other, "user", [])
+        except SystemExit as stop:
+            assert "no function in common" in str(stop), stop
+        else:
+            raise AssertionError(f"a diff with no shared calls ({other}) reported success")
+    print("diff.py self-test ok")
+
+
 def main():
+    if sys.argv[1:] == ["--self-test"]:
+        return self_test()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("original")
     parser.add_argument("ours")

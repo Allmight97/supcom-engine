@@ -31,7 +31,7 @@ while IFS= read -r -d '' path; do
 done < <(git -C "$root" ls-files -z --cached --others --exclude-standard -- scripts tools agents recipe)
 (( syntax_checked > 0 )) || fail "syntax check found no scripts"
 
-for tool in scripts/upstream-news scripts/sync-upstream scripts/prove scripts/up-refresh tools/lib/capture.py \
+for tool in scripts/upstream-news scripts/sync-upstream scripts/prove scripts/up-refresh tools/lib/capture.py tools/lua-trace/diff.py \
             tools/motion-compare/motion_compare.py tools/intel-compare/intel_compare.py tools/bp-dump/compare.py; do
     python3 -I "$root/$tool" --self-test >/dev/null || fail "self-test: python3 -I mac/$tool --self-test"
 done
