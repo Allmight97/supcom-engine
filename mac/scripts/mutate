@@ -19,8 +19,9 @@ sweep: on DIR itself (its tracked engine files must be clean), each hunk of BASE
 that is not a test path is reverted alone, built, and the branch's tests run, then restored. Outcomes:
 did not apply, failed at build, killed, survived (no test notices: the finding).
 cases: FILE is a JSON list of {"name", "file", "find", "replace", "ctest": [...], "unit": [...],
-"env": {VAR: value or null to unset}}; "find" must occur exactly once. A case survives when its tests
-still pass with the code broken.
+"run": [argv, ...], "env": {VAR: value or null to unset}}; "find" must occur exactly once; a "run"
+command passes on exit 0. A case survives when its tests still pass with the code broken; a case on a
+mac/ file is not built.
 Every mode restores and rebuilds DIR; exit status is 1 when a test cannot fail (passed on the base,
 a surviving hunk or case) or a run could not be made.
 """
@@ -41,7 +42,7 @@ prove = importlib.util.module_from_spec(importlib.util.spec_from_loader('prove',
 _loader.exec_module(prove)
 DIFF_HEAD = re.compile(r'^diff --git a/(\S+) b/(\S+)$')
 REGISTERS = re.compile(r'add_test|set_tests_properties|OSC_DATA_TESTS')
-CTEST_LINE = re.compile(r'Test\s+#\d+: (\S+) \.+\s*(?:\*\*\*)?(\w[\w ]*?)\s+[\d.]+ sec')
+CTEST_LINE = re.compile(r'Test\s+#\d+: (\S+) \.+\s*(?:\*\*\*)?(\S.*?)\s+[\d.]+ sec')
 
 
 def say(text):
@@ -132,7 +133,7 @@ def run_tests(tree, ctest, unit, env):
         out = sh(tree, ['ctest', '--test-dir', 'build/play', '--no-tests=error', '-R', f'^({names})$'], env).stdout
         for name, status in CTEST_LINE.findall(out):
             results[name] = 'passed' if status == 'Passed' else \
-                'skipped' if status in ('Skipped', 'Not Run') else 'failed'
+                'skipped' if status in ('Skipped', 'Not Run') else 'failed'  # Failed, Timeout, Exception: ...
     if unit:
         spec = os.path.join(tree, '.local', 'fail-first-unit.txt')
         os.makedirs(os.path.dirname(spec), exist_ok=True)
@@ -189,7 +190,8 @@ def run_base(root, base, env):
     tree_env = prove.tree_env(tree)
     built, log = build(tree, tree_env)
     if not built:
-        say(f'base build failed:\n{log}')
+        open(os.path.join(tree, '.local/fail-first-build.log'), 'w').write(log)
+        say(f'base build failed: {tree}/.local/fail-first-build.log')
         return True, [f'- {n}: failed at build (needs the branch\'s engine code)' for n in ctest + unit]
     results = run_tests(tree, ctest, unit, tree_env)
     lines = [f'Tests alone on `{merge_base[:8]}`:']
@@ -211,8 +213,13 @@ def restore(root, path, data):
         os.remove(full)
 
 
-def baseline(root, ctest, unit, env):
-    results = run_tests(root, ctest, unit, env)
+def run_commands(root, commands, env):
+    """{command: passed | failed} for each argv, run from the tree's root."""
+    return {' '.join(c): 'passed' if sh(root, c, env).returncode == 0 else 'failed' for c in commands}
+
+
+def baseline(root, ctest, unit, env, commands=()):
+    results = run_tests(root, ctest, unit, env) | run_commands(root, commands, env)
     bad = {n: r for n, r in results.items() if r != 'passed'}
     return not bad, [f'- baseline: `{n}` {r}, so a mutant cannot be judged' for n, r in bad.items()]
 
@@ -259,8 +266,11 @@ def run_cases(root, path, names, env):
         say(f'case {case["name"]}')
         ctest = case.get('ctest', [])
         unit = [name for spec in case.get('unit', []) for name, _ in unit_cases(root, spec)]
-        build(root, env)
-        ok, why = baseline(root, ctest, unit, env)
+        commands = case.get('run', [])
+        engine = not case['file'].startswith('mac/')
+        if engine:
+            build(root, env)
+        ok, why = baseline(root, ctest, unit, env, commands)
         if not ok:
             lines += [f'- {case["name"]}: cannot judge'] + why
             survived += 1
@@ -273,10 +283,10 @@ def run_cases(root, path, names, env):
             else:
                 restore(root, case['file'], text.replace(case['find'], case['replace']).encode())
                 case_env = {k: v for k, v in {**env, **case.get('env', {})}.items() if v is not None}
-                if not build(root, env)[0]:
+                if engine and not build(root, env)[0]:
                     outcome = 'failed at build'
                 else:
-                    results = run_tests(root, ctest, unit, case_env)
+                    results = run_tests(root, ctest, unit, case_env) | run_commands(root, commands, case_env)
                     killers = [n for n, r in results.items() if r == 'failed']
                     skipped = [n for n, r in results.items() if r == 'skipped']
                     lost = [n for n, r in results.items() if r == 'not run']
@@ -287,7 +297,8 @@ def run_cases(root, path, names, env):
             restore(root, case['file'], original)
         survived += not outcome.startswith('killed')
         lines.append(f'- {case["name"]}: {outcome}')
-    build(root, env)
+    if any(not c['file'].startswith('mac/') for c in cases):
+        build(root, env)
     return survived == 0, lines
 
 
@@ -298,7 +309,7 @@ def main():
     parser.add_argument('--root', default=os.path.dirname(prove.TOOLKIT))
     parser.add_argument('--base', default='upstream/main')
     parser.add_argument('--self-test', action='store_true')
-    opt = parser.parse_args()
+    opt = parser.parse_intermixed_args()
     if opt.self_test:
         return self_test()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a killed run still restores the files it broke
@@ -360,6 +371,7 @@ CTEST_OUT = """\
 1/3 Test    #1: arch.shader_names ................   Passed    0.04 sec
 2/3 Test   #20: data.ai-test .....................***Failed    1.03 sec
 3/3 Test #1860: data.gpu-pass-timing-test ........***Skipped   0.01 sec
+4/4 Test #1861: data.crash-test ..................***Exception: SegFault  0.20 sec
 """
 
 
@@ -382,7 +394,8 @@ def self_test():
     assert select([('tests/integration/runner/gpu_pass_timing_test.cpp', '', '@@\n+x\n')], registered, []) == \
         (['data.gpu-pass-timing-test'], [])
     assert dict(CTEST_LINE.findall(CTEST_OUT)) == {'arch.shader_names': 'Passed', 'data.ai-test': 'Failed',
-                                                   'data.gpu-pass-timing-test': 'Skipped'}
+                                                   'data.gpu-pass-timing-test': 'Skipped',
+                                                   'data.crash-test': 'Exception: SegFault'}
     assert catch2_spec('a, b [c]') == r'a\, b \[c\]'
     print('mutate self-test passed')
 
