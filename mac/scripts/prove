@@ -17,14 +17,19 @@ source hunk reverted alone; --fail-first-against names the base's commit for a t
 "Fail first" in the block. It never builds: it stops if DIR/build/play's binaries are missing or
 report (--version) another revision than HEAD, if the tree has uncommitted engine edits, or if a mutate
 run left the build mid-mutation.
-Exit status is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
+A check over 45 minutes is stopped and fails (timeout); fail-first has 60 minutes for base and sweep.
+A heartbeat every 10 minutes names the phase and, in a sweep, the hunk. Exit status is non-zero if any
+check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
 """
 import argparse
 import fcntl
 import os
 import re
+import signal
 import subprocess
 import sys
+import threading
+import time
 
 TOOLKIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = ('src/', 'tests/', 'cmake/', 'third_party/')
@@ -115,6 +120,45 @@ def verdict(code, counts):
     return code == 0 and failed == 0, detail
 
 
+PHASE_BUDGET, FAIL_FIRST_BUDGET = 45 * 60, 60 * 60  # seconds; a check over budget is stopped and fails
+PROGRESS = {'phase': 'start', 'step': '', 'since': time.time()}
+
+
+def heartbeat(every=600):
+    """Every 10 minutes: the phase, the step within it (a sweep's hunk i of N) and the time since prove began."""
+    def beat():
+        while True:
+            time.sleep(every)
+            step = f", {PROGRESS['step']}" if PROGRESS['step'] else ''
+            print(f"prove: heartbeat: {PROGRESS['phase']}{step}, {int((time.time() - PROGRESS['since']) / 60)} min",
+                  flush=True)
+    threading.Thread(target=beat, daemon=True).start()
+
+
+def run_budgeted(argv, cwd, env, budget, on_line=None):
+    """(exit code, or None when the run outlived its budget and was stopped; its output)."""
+    run = subprocess.Popen(argv, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           start_new_session=True)
+    expired = []
+
+    def stop():
+        expired.append(True)
+        try:
+            os.killpg(run.pid, signal.SIGTERM)  # mutate restores its tree on SIGTERM
+        except ProcessLookupError:
+            pass
+    timer = threading.Timer(budget, stop)
+    timer.start()
+    out = []
+    for line in run.stdout:
+        out.append(line)
+        if on_line:
+            on_line(line)
+    code = run.wait()
+    timer.cancel()
+    return (None if expired else code), ''.join(out)
+
+
 def sh(root, argv, env=None):
     return subprocess.run(argv, cwd=root, text=True, capture_output=True, env=env)
 
@@ -133,17 +177,22 @@ def tree_env(root):
     return env
 
 
-def fail_first(root, mode, base):
+def fail_first(root, mode, base, budget):
     """(passed?, report lines) of mac/scripts/mutate MODE, its progress echoed as it runs."""
-    run = subprocess.Popen([sys.executable, f'{TOOLKIT}/scripts/mutate', mode, '--root', root, '--base', base],
-                           text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     lines = []
-    for line in run.stdout:
+
+    def on_line(line):
         if line.startswith('mutate: '):
             print(f'prove: {line[8:]}', end='', flush=True)
+            if line.startswith('mutate: hunk '):
+                PROGRESS['step'] = line[8:].split(':')[0]
         else:
             lines.append(line.rstrip('\n'))
-    return run.wait() == 0, lines
+    code, _ = run_budgeted([sys.executable, f'{TOOLKIT}/scripts/mutate', mode, '--root', root, '--base', base],
+                           root, None, budget, on_line)
+    if code is None:
+        lines.append(f'- fail-first {mode}: FAIL (timeout after {int(budget / 60)} min)')
+    return code == 0, lines
 
 
 def run_check(root, name, argv, env):
@@ -168,15 +217,18 @@ def after_rerun(counts, rerun):
 
 
 def run_suite(root, name, argv, env):
-    result = sh(root, argv, env)
-    out = result.stdout + result.stderr
+    code, out = run_budgeted(argv, root, env, PHASE_BUDGET)
+    if code is None:
+        return False, 'timeout'
     counts = catch2_counts(out) if name == 'unit' else ctest_counts(out) if name in SUITES else None
-    if result.returncode and name in ('mp', 'gate') and counts and counts[1]:
+    if code and name in ('mp', 'gate') and counts and counts[1]:
         print(f'prove: {name}: rerunning failures once (network tests flake under load)', flush=True)
-        result = sh(root, ['ctest', '--test-dir', 'build/play', '--rerun-failed', '--output-on-failure'], env)
-        counts = after_rerun(counts, ctest_counts(result.stdout + result.stderr))
-        out = result.stdout + result.stderr
-    ok, detail = verdict(result.returncode, counts) if name in SUITES else (result.returncode == 0, '')
+        code, out = run_budgeted(['ctest', '--test-dir', 'build/play', '--rerun-failed', '--output-on-failure'],
+                                 root, env, PHASE_BUDGET)
+        if code is None:
+            return False, 'timeout'
+        counts = after_rerun(counts, ctest_counts(out))
+    ok, detail = verdict(code, counts) if name in SUITES else (code == 0, '')
     if not ok:
         print('\n'.join(out.strip().splitlines()[-20:]), flush=True)
     return ok, detail
@@ -231,15 +283,19 @@ def main():
         sys.exit(f'prove: {problem}; commit or set aside engine edits, then rebuild (cmake --build build/play in {root})')
     built = version_revision(sh(root, [BINARIES[0], '--version']).stdout)
     results = {}
+    heartbeat()
     for name in chosen:
+        PROGRESS['phase'] = f'check {name}'
         print(f'prove: check {name}', flush=True)
         results[name] = run_check(root, name, cmds[name], env)
         print(f'prove: check {name}: {"pass" if results[name][0] else "FAIL"} {results[name][1]}'.rstrip(), flush=True)
     found = []
     if opt.fail_first:
+        deadline = time.time() + FAIL_FIRST_BUDGET
         for mode, against in (('base', opt.fail_first_against or base), ('sweep', base)):
+            PROGRESS['phase'], PROGRESS['step'] = f'fail-first {mode}', ''
             print(f'prove: fail-first {mode}', flush=True)
-            ok, lines = fail_first(root, mode, against)
+            ok, lines = fail_first(root, mode, against, max(1, deadline - time.time()))
             results[f'fail-first {mode}'] = ok, ''
             found += lines
     print(f'\n### Tested\n\nBase `{base}`, tree `{root}`, built from `{built}`.\n')
@@ -310,6 +366,8 @@ def self_test():
     assert verdict(0, ctest_counts(MIXED)) == (True, '2 passed, 1 skipped, 0 failed of 3')
     assert verdict(0, ctest_counts(NO_GAME)) == (False, 'mostly skipped (3 passed, 274 skipped, 0 failed of 277)')
     assert verdict(8, ctest_counts(FAILED)) == (False, '1 passed, 1 skipped, 1 failed of 3')
+    assert run_budgeted(['sleep', '5'], '.', None, 0.3) == (None, '')
+    assert run_budgeted(['sh', '-c', 'echo hi'], '.', None, 5) == (0, 'hi\n')
     assert after_rerun((3, 1, 0), (1, 0, 1)) == (3, 1, 0)
     assert after_rerun((3, 1, 0), (1, 0, 0)) == (3, 0, 0)
     assert after_rerun((3, 1, 0), None) == (3, 1, 0)

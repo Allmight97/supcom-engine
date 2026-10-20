@@ -7,6 +7,7 @@
   mac/scripts/mutate --self-test
 
 BASE defaults by branch as prove's does: main for main and mac/*, upstream/main for up/*.
+A sweep of more than 40 hunks stops before its first revert unless --hunks N allows that many.
 
 The branch's tests: the ctest names its test hunks add (OSC_DATA_TESTS_* lists, add_test lines), the
 data mode a changed test source is named for (runner/foo_bar_test.cpp -> data.foo-bar-test), the arch
@@ -37,6 +38,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -246,10 +248,26 @@ def baseline(root, ctest, unit, env, commands=()):
     return not bad, [f'- baseline: `{n}` {r}, so a mutant cannot be judged' for n, r in bad.items()]
 
 
-def run_sweep(root, base, env):
+SWEEP_CAP = 40
+
+
+def sweep_refusal(hunks, files, base, allowed):
+    """Why a sweep of `hunks` hunks is refused (over SWEEP_CAP without --hunks that many), or None."""
+    if hunks <= SWEEP_CAP or allowed >= hunks:
+        return None
+    return (f'- sweep: {hunks} hunks in {files} files against {base}, over the {SWEEP_CAP}-hunk cap; is {base} '
+            f'the base you meant? Pass --hunks {hunks} to run it')
+
+
+def run_sweep(root, base, env, allowed=0):
     _, _, source, ctest, unit = branch(root, base)
     if not source:
         return True, ['- hunk sweep: no source hunk under src/, nothing to sweep']
+    files = len({p for p, _, _ in source})
+    say(f'sweep: {len(source)} hunks in {files} files against {base}')
+    if refusal := sweep_refusal(len(source), files, base, allowed):
+        print(refusal)
+        sys.exit(2)
     if sh(root, ['git', 'status', '--porcelain', '--untracked-files=no', '--', 'src', 'tests', 'tools']).stdout:
         sys.exit(f'mutate: {root} has uncommitted engine changes; commit or set them aside first')
     built, log = build(root, env)
@@ -262,7 +280,7 @@ def run_sweep(root, base, env):
     try:
         for i, (path, header, hunk) in enumerate(source, 1):
             where = f'{path} {hunk.splitlines()[0].split("@@")[1].strip()}'
-            say(f'hunk {i}/{len(source)}: {where}')
+            started = time.time()
             original = snapshot(root, path)
             try:
                 if sh(root, ['git', 'apply', '-R', '--whitespace=nowarn', '-'], stdin=header + hunk).returncode:
@@ -278,6 +296,7 @@ def run_sweep(root, base, env):
             finally:
                 restore(root, path, original)
             failed += outcome.startswith(('SURVIVED', 'NOT JUDGED'))
+            say(f'hunk {i} of {len(source)}: {where} ... {outcome} ({int(time.time() - started)}s)')
             lines.append(f'- `{where}`: {outcome}')
     finally:
         rebuilt, why = marked_build(root, env)
@@ -349,6 +368,7 @@ def main():
     parser.add_argument('rest', nargs='*')
     parser.add_argument('--root', default=os.path.dirname(prove.TOOLKIT))
     parser.add_argument('--base')
+    parser.add_argument('--hunks', type=int, default=0)
     parser.add_argument('--self-test', action='store_true')
     opt = parser.parse_intermixed_args()
     if opt.self_test:
@@ -364,7 +384,7 @@ def main():
     if opt.mode == 'base':
         ok, lines = run_base(root, opt.base, env)
     elif opt.mode == 'sweep':
-        ok, lines = run_sweep(root, opt.base, env)
+        ok, lines = run_sweep(root, opt.base, env, opt.hunks)
     elif opt.mode == 'cases' and opt.rest:
         ok, lines = run_cases(root, os.path.abspath(opt.rest[0]), opt.rest[1:], env)
     else:
@@ -443,6 +463,8 @@ def self_test():
                                                    'data.gpu-pass-timing-test': 'Skipped',
                                                    'data.crash-test': 'Exception: SegFault'}
     assert catch2_spec('a, b [c]') == r'a\, b \[c\]'
+    assert sweep_refusal(40, 9, 'main', 0) is None and sweep_refusal(41, 9, 'main', 41) is None
+    assert sweep_refusal(237, 81, 'upstream/main', 0).startswith('- sweep: 237 hunks in 81 files against upstream/main')
     print('mutate self-test passed')
 
 
