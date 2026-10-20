@@ -13,7 +13,6 @@ extern "C" {
 
 #include <spdlog/spdlog.h>
 
-#include <cctype>
 #include <string>
 
 namespace osc::lua {
@@ -112,25 +111,6 @@ osc::i32 game_timeouts(osc::sim::SimState& sim) {
     return out;
 }
 
-/// The game's GameSpeed option, as Moho's LaunchGame reads it: 'fast' is
-/// +4, 'adjustable' lets the players change it, anything else is 'normal'.
-void set_game_speed(osc::sim::SimState& sim, osc::sim::LockstepSession& session) {
-    lua_State* L = sim.lua_state();
-    osc::i32 rate = 0;
-    bool adjustable = false;
-    if (L) {
-        push_game_option(L, "GameSpeed");
-        if (lua_type(L, -1) == LUA_TSTRING) {
-            std::string name = lua_tostring(L, -1);
-            for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (name == "fast") rate = 4;
-            adjustable = name == "adjustable";
-        }
-        lua_pop(L, 1);
-    }
-    session.set_speed_option(rate, adjustable);
-}
-
 } // namespace
 
 bool mp_attach_session(osc::sim::SimState& sim) {
@@ -155,7 +135,8 @@ bool mp_attach_session(osc::sim::SimState& sim) {
         sim.set_pause_timeouts(source, s.army_of(source) >= 0 ? timeouts : 0);
     sim.set_source_army(s.local_source, s.local_army());
     auto* session = s.session.get();
-    set_game_speed(sim, *session);
+    const osc::sim::GameSpeedOption speed = osc::sim::lobby_game_speed(sim.recorded_replay().setup.options);
+    session->set_speed_option(speed.rate, speed.adjustable);
     // Route local human orders through the session (broadcast + schedule).
     sim.set_local_command_sink(
         [session](const std::vector<osc::u32>& ids,

@@ -31,7 +31,7 @@ bool GameStateManager::transition_to(GameState new_state, lua_State* ui_L) {
     if (new_state == GameState::GAME) {
         paused_ = false;
         game_over_ = false;
-        set_sim_rate(0); // a new session starts at normal speed
+        set_speed_option(0, true);
     }
     return true;
 }

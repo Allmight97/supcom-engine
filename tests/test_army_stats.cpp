@@ -747,9 +747,10 @@ TEST_CASE("SessionManager seeds native lobby build rules", "[session][rules]") {
     auto setup = lua.do_string("ScenarioInfo = {}");
     REQUIRE(setup.ok());
 
+    // As retail's lobby sends it: a string
     osc::lua::GameOptionsConfig options;
     options.configured = true;
-    options.set_number("UnitCap", 42);
+    options.set_string("UnitCap", "42");
     mgr.set_game_options(options);
 
     auto result = mgr.start_session(lua, osc::vfs::VirtualFileSystem{}, sim, meta);
@@ -760,6 +761,36 @@ TEST_CASE("SessionManager seeds native lobby build rules", "[session][rules]") {
         REQUIRE(brain != nullptr);
         CHECK(brain->unit_cap() == 42);
     }
+}
+
+TEST_CASE("A lobby option reads as Lua reads it, and GameSpeed as Moho's lobby launch",
+          "[session][rules]") {
+    osc::sim::GameOptionsConfig options;
+    options.set_string("UnitCap", "500");
+    options.set_string("NoRushOption", "Off");
+    options.set_string("Timeouts", " -1 ");
+    options.set_number("CheatMult", 1.5);
+    options.set_string("Victory", "sandbox");
+    CHECK(options.number("UnitCap") == 500.0);
+    CHECK_FALSE(options.number("NoRushOption"));
+    CHECK(options.number("Timeouts") == -1.0);
+    CHECK(options.number("CheatMult") == 1.5);
+    CHECK_FALSE(options.number("Missing"));
+    CHECK(*options.string("Victory") == "sandbox");
+    CHECK(options.string("CheatMult") == nullptr);
+    options.set_string("UnitCap", "750"); // the last wins
+    CHECK(options.number("UnitCap") == 750.0);
+
+    const auto speed = [](const char* name) {
+        osc::sim::GameOptionsConfig o;
+        o.set_string("GameSpeed", name);
+        const osc::sim::GameSpeedOption s = osc::sim::lobby_game_speed(o);
+        return std::pair{s.rate, s.adjustable};
+    };
+    CHECK(speed("normal") == std::pair{0, false});
+    CHECK(speed("fast") == std::pair{4, false});
+    CHECK(speed("Adjustable") == std::pair{0, true});
+    CHECK(osc::sim::lobby_game_speed({}).adjustable == false);
 }
 
 TEST_CASE("Sandbox victory option suppresses automatic army defeat", "[session][rules]") {

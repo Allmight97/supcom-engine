@@ -35,6 +35,13 @@ public:
     /// normal). The sim runs at 10^(rate / 10) times normal.
     i32 sim_rate() const { return sim_rate_; }
     void set_sim_rate(i32 rate);
+    /// The session's speed option (Moho's client manager's): its rate, and
+    /// whether players may change it. A new game starts adjustable at normal.
+    void set_speed_option(i32 rate, bool adjustable) {
+        set_sim_rate(rate);
+        speed_adjustable_ = adjustable;
+    }
+    bool speed_adjustable() const { return speed_adjustable_; }
     static constexpr i32 kMinSimRate = -10;
     static constexpr i32 kMaxSimRate = 50;
     /// The sim's speed, from the rate.
@@ -55,6 +62,7 @@ private:
     bool game_over_ = false;
     bool sim_stopped_ = false;
     i32 sim_rate_ = 0;
+    bool speed_adjustable_ = true;
     f64 speed_ = 1.0;
     static void call_setup_ui(lua_State* ui_L);
 };
