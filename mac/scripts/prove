@@ -63,8 +63,9 @@ def recipe_env(root):
 
 
 def run_check(root, name, argv, env):
-    if name in ('mp', 'gate'):
-        # One tree at a time: parallel suites on one Mac fail network and render tests under load.
+    if name in ('unit', 'mp', 'gate'):
+        # One tree at a time: parallel suites on one Mac fail network and render tests under load
+        # (the unit tests include LAN lobby waits).
         with open(os.path.expanduser('~/.cache/osc-prove.lock'), 'w') as lock:
             print(f'prove: {name}: waiting for other trees\' heavy checks', flush=True)
             fcntl.flock(lock, fcntl.LOCK_EX)
