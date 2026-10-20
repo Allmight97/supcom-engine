@@ -15,7 +15,7 @@
 
 namespace osc::app {
 
-int finish_test_run(const char* mode, osc::u32 smoke_issues) {
+int finish_test_run(const char* mode, osc::u32 smoke_issues, bool needs_a_check) {
     if (smoke_issues > 0) {
         osc::test_status::record_failure(
             fmt::format("{} smoke issue(s) reported (see smoke report)", smoke_issues));
@@ -25,7 +25,7 @@ int finish_test_run(const char* mode, osc::u32 smoke_issues) {
         osc::test_status::record_failure(fmt::format("{} Vulkan validation error(s)", errors));
     }
     const int failures = osc::test_status::failure_count();
-    if (failures == 0) {
+    if (needs_a_check && failures == 0) {
         const bool none = osc::test_status::check_count() == 0;
         const bool listed = std::getenv("OSC_NO_CHECK_BASELINE") != nullptr;
         if (none && !listed) {

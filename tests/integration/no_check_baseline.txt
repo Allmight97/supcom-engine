@@ -16,23 +16,9 @@ data.smoke-test
 data.focus-army-test
 data.full-smoke-test
 data.lobby-flow-test
-# AI-skirmish and flow runs that a script judges (checksums, saves, replays)
-# or that report failures only (GPGnet lobby and games).
-data.determinism
-data.determinism_moho_random
-data.replay_roundtrip
-data.replay_roundtrip_moho_random
-data.replay_roundtrip_moho_pathing
-data.save_load
-data.save_load_replay
-data.save_load_moho_pathing
-data.save_load_replay_moho_pathing
-data.save_load_moho_random
+# Flow runs that report failures only: a campaign save and load, and the
+# GPGnet lobby and games.
 data.save_load_campaign
-data.save_load_faf
-data.save_load_replay_faf
-data.replay_flow
-data.load_flow
 data.gpgnet_lobby
 data.gpgnet_game
 data.gpgnet_game_relayed

@@ -39,7 +39,9 @@ std::string parse_string_arg(int argc, char* argv[], const char* flag,
 /// that counted no check fails, unless tests/integration/no_check_baseline.txt
 /// lists its test (ctest sets OSC_NO_CHECK_BASELINE=1 for those; a listed run
 /// that counts a check warns, since one test can run several processes).
-int finish_test_run(const char* mode, u32 smoke_issues = 0);
+/// `needs_a_check` false: an AI-skirmish game, which its caller's script
+/// judges (bench, replays, saves), not a test mode.
+int finish_test_run(const char* mode, u32 smoke_issues = 0, bool needs_a_check = true);
 
 /// The UI state reaches the sim through a registry pointer; clear it before
 /// the sim is destroyed so UI scripts see "no sim" rather than freed memory.

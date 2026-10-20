@@ -4,9 +4,15 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "app/support.hpp"
+#include "core/log.hpp"
 #include "core/test_status.hpp"
+#include "lua/lua_state.hpp"
 
 #include <cstdlib>
+
+extern "C" {
+#include <lua.h>
+}
 
 namespace {
 void set_listed(bool listed) {
@@ -19,7 +25,8 @@ void set_listed(bool listed) {
 }
 } // namespace
 
-TEST_CASE("finish_test_run: a run with no check fails; one passed check passes", "[app][test-status]") {
+TEST_CASE("finish_test_run: a run with no check fails; one passed check passes",
+          "[app][test-status]") {
     osc::test_status::reset();
     CHECK(osc::app::finish_test_run("no-check") == 1);
     osc::test_status::record_pass();
@@ -37,5 +44,25 @@ TEST_CASE("finish_test_run: a listed run passes with no check; a failure still f
     osc::test_status::fail("a failed check");
     CHECK(osc::app::finish_test_run("listed, one failure") == 1);
     set_listed(false);
+    osc::test_status::reset();
+}
+
+TEST_CASE("finish_test_run: an AI game its caller judges needs no check", "[app][test-status]") {
+    osc::test_status::reset();
+    CHECK(osc::app::finish_test_run("ai game", 0, false) == 0);
+    osc::test_status::fail("a script error");
+    CHECK(osc::app::finish_test_run("ai game", 0, false) == 1);
+    osc::test_status::reset();
+}
+
+TEST_CASE("A test mode's Lua LOG line naming PASS counts as a check", "[app][test-status]") {
+    osc::test_status::reset();
+    osc::test_status::set_count_lua_failures(true);
+    osc::lua::LuaState lua;
+    lua_pushstring(lua.raw(), "Bone test 1: PASS");
+    osc::log::l_LOG(lua.raw());
+    osc::test_status::set_count_lua_failures(false);
+    CHECK(osc::test_status::check_count() == 1);
+    CHECK(osc::test_status::failure_count() == 0);
     osc::test_status::reset();
 }
