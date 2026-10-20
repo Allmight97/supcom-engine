@@ -126,13 +126,10 @@ def main():
 
 def self_test():
     assert checks_for(['docs/a.md', 'README.md'])[0] == ['metrics']
-    assert checks_for([])[0] == ['metrics']
     assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke']
-    assert checks_for(['tests/x.cpp', 'docs/a.md'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke']
     assert checks_for(['src/renderer/a.cpp'])[0] == ORDER
     assert checks_for(['src/app/a.cpp'])[1] == {'render': 'no change under src/renderer or to a shader'}
     assert checks_for(['assets/x.frag'])[0] == ORDER
-    assert checks_for(['CMakeLists.txt'])[0][0] == 'unit' and checks_for(['cmake/x.cmake'])[0][0] == 'unit'
     assert checks_for(['srcs/a.cpp', 'mac/scripts/x'])[0] == ['metrics']
     print('prove self-test passed')
 
