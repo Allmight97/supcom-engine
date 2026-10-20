@@ -24,6 +24,13 @@ root `AGENTS.md` holds the rules for every agent; this file routes toolkit work.
 - Start from what a player feels and an observed failure: frame pacing (the worst frames, not the average),
   interface scale, input latency, first-use hitches. Go narrow and deep; widen only when a measurement points.
 - Measure before tuning: `mac/scripts/play` (Metal HUD on) and upstream's `--render-bench`.
+- Upstream moves fast (tens of PRs a day). Before engine work, check overlap with its open PRs
+  (`mac/scripts/upstream-news`, `/supcom-upstream:shape`) and build on theirs, not beside it.
+- Design a bug's class away at its source (a deep module, an enforced boundary, a ratchet) before patching one
+  case. A loop of narrow fix-and-test rounds is the sign to step back and redesign.
+- A repeated procedure or a fixed rule becomes a script, hook or check that agents run; prose keeps judgement.
+- Rendering work starts from the current KosmicKrisp, Metal 4 and Vulkan documentation and driver behaviour
+  (they move fast), and aims at Retina displays, 2K to 5K at 120 Hz without upscaling (#6).
 - Every human observation becomes a command that reproduces it (a replay plus a screenshot at a tick, or a
   capture of the original plus a comparator), so agents check it without a person.
 - When OSC and the original disagree, a capture of the original decides, not a decompile or a guess. Tie
