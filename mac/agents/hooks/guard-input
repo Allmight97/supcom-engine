@@ -9,12 +9,80 @@ mode, which skips a hook's ask: refused until he agrees in chat and the agent re
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
-INPUT = re.compile(r'osascript|cliclick|game-window[^|;&]* (click|drag|scroll|key|type|wait)|game-window/input')
-WINDOW = re.compile(r'scripts/play\b|mouse-probe/run|faf-crossover\s+(original|game|client)|\bopen\s+-a\b')
 INPUT_TOOL = re.compile(r'mcp__(computer-use|cua)')
+INLINE_INPUT = re.compile(r'osascript|cliclick|game-window')
+SEPARATORS = ';&|\n()'
+WRAPPERS = {'env', 'command', 'nohup', 'time', 'xargs', 'sudo', 'exec'}
+SHELLS = {'bash', 'sh', 'zsh', 'dash', 'ksh'}
+INTERPRETERS = {'python', 'python3', 'perl', 'ruby', 'node'}
+INPUT_WORDS = {'click', 'drag', 'scroll', 'key', 'type', 'wait'}
+WINDOW_WORDS = {'original', 'game', 'client'}
+
+
+def without_heredocs(text):
+    """Heredoc bodies are data, not commands (as in guard-shell)."""
+    out, end = [], None
+    for line in text.split('\n'):
+        if end is not None:
+            end = None if line.strip() == end else end
+            continue
+        out.append(line)
+        match = re.search(r'<<-?\s*[\'"]?(\w+)[\'"]?', line)
+        end = match.group(1) if match else None
+    return '\n'.join(out)
+
+
+def commands(text):
+    """The words of each command in text, split at separators as guard-shell does."""
+    lexer = shlex.shlex(without_heredocs(text), posix=True, punctuation_chars=SEPARATORS)
+    lexer.whitespace = ' \t\r'
+    lexer.whitespace_split = True
+    words = []
+    for token in lexer:
+        if token and all(c in SEPARATORS for c in token):
+            if words:
+                yield words
+            words = []
+        else:
+            words.append(token)
+    if words:
+        yield words
+
+
+def launches(command):
+    """(input, window): whether a command word actually run is an input tool or a window launcher.
+
+    A word that only appears as an argument (grep, cat, echo) launches nothing. Inline code or a script
+    given to a shell is read the same way; inline code for another interpreter is searched as text."""
+    found_input = found_window = False
+    for words in commands(command):
+        while words and (re.fullmatch(r'\w+=.*', words[0]) or os.path.basename(words[0]) in WRAPPERS):
+            words = words[1:]
+        if not words:
+            continue
+        name, args = words[0], words[1:]
+        base = os.path.basename(name)
+        if base in SHELLS | INTERPRETERS:
+            inline = [args[i + 1] for i, a in enumerate(args[:-1]) if a in ('-c', '-e')]
+            if base in SHELLS and inline:
+                nested = [launches(code) for code in inline]
+            elif inline:
+                nested = [(bool(INLINE_INPUT.search(code)), False) for code in inline]
+            else:
+                script = [a for a in args if not a.startswith('-')]
+                nested = [launches(' '.join(shlex.quote(w) for w in script))] if script else []
+            found_input |= any(i for i, _ in nested)
+            found_window |= any(w for _, w in nested)
+            continue
+        found_input |= base in ('osascript', 'cliclick') or name.endswith('game-window/input') or \
+            (base == 'game-window' and bool(INPUT_WORDS & set(args)))
+        found_window |= name.endswith(('scripts/play', 'mouse-probe/run')) or \
+            (base == 'faf-crossover' and bool(WINDOW_WORDS & set(args))) or (base == 'open' and '-a' in args)
+    return found_input, found_window
 
 
 def granted():
@@ -40,9 +108,13 @@ if re.search(r'supcom-input-ok|input-grant', command):
     deny('only JStar grants real input, in his own terminal')
 if granted():
     sys.exit(0)
-if INPUT_TOOL.match(tool) or INPUT.search(command):
+try:
+    runs_input, opens_window = launches(command)
+except ValueError:
+    deny('the command could not be parsed')
+if INPUT_TOOL.match(tool) or runs_input:
     deny('real input is off; use scripted, hidden validation')
-if WINDOW.search(command):
+if opens_window:
     if payload.get('permission_mode') == 'bypassPermissions' and 'JSTAR_SAID_YES=1' not in command:
         deny('this opens a window on JStar\'s display. Ask JStar; if he agrees, rerun as: JSTAR_SAID_YES=1 <command>')
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
