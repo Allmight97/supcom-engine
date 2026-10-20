@@ -50,6 +50,11 @@ constexpr Control kControls[] = {
     {"shift", -1, GLFW_KEY_LEFT_SHIFT, GLFW_MOD_SHIFT},
     {"ctrl", -1, GLFW_KEY_LEFT_CONTROL, GLFW_MOD_CONTROL},
     {"alt", -1, GLFW_KEY_LEFT_ALT, GLFW_MOD_ALT},
+    {"equals", -1, GLFW_KEY_EQUAL, 0},
+    {"minus", -1, GLFW_KEY_MINUS, 0},
+    {"numplus", -1, GLFW_KEY_KP_ADD, 0},
+    {"numminus", -1, GLFW_KEY_KP_SUBTRACT, 0},
+    {"numstar", -1, GLFW_KEY_KP_MULTIPLY, 0},
 };
 
 i32 mod_of(i32 key) {
