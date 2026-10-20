@@ -78,9 +78,8 @@ void test_gpu_pass_timing(TestContext& ctx) {
     for (const Pass p : {Pass::Shadow, Pass::Normals, Pass::Reflection, Pass::Main,
                          Pass::RefractionCopy, Pass::Bloom, Pass::Composite}) {
         const auto i = static_cast<size_t>(p);
-        t.check(split.pass_marked[i],
-                fmt::format("Test 5b: the {} pass was marked",
-                            renderer::GpuFrameQueries::kPassNames[i]));
+        t.check(split.pass_marked[i], fmt::format("Test 5b: the {} pass was marked",
+                                                  renderer::GpuFrameQueries::kPassNames[i]));
     }
 
     r.set_timing_passes(false);

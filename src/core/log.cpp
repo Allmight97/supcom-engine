@@ -73,7 +73,8 @@ void init() {
     g_file_sink = std::make_shared<DeferredFileSink>();
 
     auto logger = std::make_shared<spdlog::logger>(
-        "osc", spdlog::sinks_init_list{console_sink, g_file_sink, std::make_shared<PassLineSink>()});
+        "osc",
+        spdlog::sinks_init_list{console_sink, g_file_sink, std::make_shared<PassLineSink>()});
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
     logger->set_level(spdlog::level::debug);
     // Warnings and errors reach the file immediately, so a crash (whose
