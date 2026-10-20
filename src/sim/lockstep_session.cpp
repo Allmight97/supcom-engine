@@ -172,7 +172,9 @@ void LockstepSession::receive_and_advance() {
             const u32 source = r.u32v();
             const u32 clock = r.u32v();
             const auto rate = static_cast<i32>(r.u32v());
-            if (r.ok() && participant(source) && source != local_source_ && !has_dropped(source))
+            // As a request is asked: only where the speed is adjustable, and by a player
+            if (r.ok() && adjustable_speed_ && participant(source) && source != local_source_ &&
+                !has_dropped(source) && sim_.army_of_source(source) >= 0)
                 apply_speed(clock, source, rate);
             continue;
         }
