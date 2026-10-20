@@ -11,7 +11,7 @@ grep -m1 driver ~/Library/Application\ Support/opensupcom/logs/opensupcom.log   
 # Nuke test: skirmish as UEF, victory "Sandbox", select your ACU, Ctrl-K.
 ```
 
-This folder contains the moderization of [OpenSupCom](supcom) on modern apple silicone with a focus on Apple's software stack released with MacOS 27.
+This folder contains the moderization of [OpenSupCom](https://github.com/bwiemz/supcom-engine) on modern apple silicone with a focus on Apple's software stack released with MacOS 27.
 
 [Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine) (upstream:
 [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine)): the build recipe, the

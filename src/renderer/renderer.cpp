@@ -43,6 +43,7 @@ extern "C" {
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <ostream>
 #include <unordered_map>
 
