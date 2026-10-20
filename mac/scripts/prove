@@ -30,6 +30,7 @@ ENGINE_FILES = ('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json')
 SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
 ORDER = ['unit', 'arch', 'mp', 'gate', 'format', 'metrics', 'smoke', 'render']
 SUITES = ('unit', 'arch', 'mp', 'gate')
+LIGHT = ('arch', 'format', 'metrics')  # the checks that never start the game run beside other trees'
 REVISION_HEADER = 'build/play/src/core/generated/osc_revision.hpp'
 
 
@@ -129,9 +130,9 @@ def fail_first(root, mode, base):
 
 def run_check(root, name, argv, env):
     """(passed?, detail or '')."""
-    if name in ('unit', 'mp', 'gate'):
+    if name not in LIGHT:
         # One tree at a time: parallel suites on one Mac fail network and render tests under load
-        # (the unit tests include LAN lobby waits).
+        # (the unit tests include LAN lobby waits; smoke and render run the game).
         with open(os.path.expanduser('~/.cache/osc-prove.lock'), 'w') as lock:
             print(f'prove: {name}: waiting for other trees\' heavy checks', flush=True)
             fcntl.flock(lock, fcntl.LOCK_EX)
@@ -259,6 +260,7 @@ def self_test():
     assert checks_for(['assets/x.frag'])[0] == ORDER
     assert checks_for(['srcs/a.cpp', 'mac/scripts/x'])[0] == ['metrics']
     assert checks_for(['tools/check_blueprint_lookups.py'])[0] == ['arch', 'metrics']
+    assert [c for c in ORDER if c not in LIGHT] == ['unit', 'mp', 'gate', 'smoke', 'render']
     assert all('--no-tests=error' in argv for name, argv in commands('b').items() if argv[0] == 'ctest')
     assert ctest_counts(ALL_SKIPPED) == (1, 0, 1)
     assert verdict(0, ctest_counts(ALL_SKIPPED)) == (False, 'nothing ran (0 passed, 1 skipped, 0 failed of 1)')
