@@ -141,7 +141,9 @@ def self_test():
     open(log, 'a').write('warning: Error running lua script: Unknown unit type: uel1101\n')
     assert watch(log, state, [], [], now=100).startswith('error')
     open(log, 'a').write('info: SETUP|ARMY|1|ARMY_1|true||3|false\ninfo: SETUP|SEED|7\ninfo: SETUP|OPTIONS|A=1,B=x\n')
+    open(os.path.join(d, 'hook.lua'), 'w').write('-- hook\n')
     m = json.load(open(setup(log, d, 'marker', ['/map', 'X'])))
+    assert m['hashes'] == {'hook.lua': hashlib.sha256(b'-- hook\n').hexdigest()}, m['hashes']
     assert m['armies'][0]['faction'] == '3' and m['seed'] == '7' and m['options'] == {'A': '1', 'B': 'x'}
     assert m['last_tick'] == 2500 and m['end'] == 'marker'
     os.makedirs(os.path.join(d, 'mods', 'm'))
