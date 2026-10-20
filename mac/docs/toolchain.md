@@ -17,61 +17,30 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   set `VULKAN_SDK` first to use another SDK). It does not choose a driver: the build
   ships both and the game prefers KosmicKrisp (Metal 4, Apple Silicon, macOS 26+).
   `VK_LOADER_DEBUG=driver` prints the driver the game loads.
-- `mac/scripts/upstream-news`: fetches upstream, lists what landed since the fork's `main`
-  (Mac-area items marked `MAC`) and the open upstream PRs that matter to the fork: `MAC` (a
-  Mac area) or `OVERLAP` (touches an engine file the fork changed, listed), and prints the
-  merge command. Run it before starting any Mac change. Its `--brief` form runs at every
-  session start (a hook `mac/scripts/setup` writes); its `--markdown` form is the body of the
-  fork's issue "Upstream Mac watch", rewritten daily by `.github/workflows/mac-upstream-watch.yml`.
-  `/supcom-upstream:shape [topic]` has a Sonnet agent map those PRs against our commits before an
-  upstream PR is shaped.
-- `mac/scripts/sync-upstream`: merges upstream main into the fork on a sync branch (named in the script),
-  resolves conflicts in `docs/current-state.md`'s metric lines itself, stops on any other conflict
-  (resolve keeping both sides' intent, then `--resume`), builds, recomputes the metrics, runs the
-  unit tests, `ctest -L mp` and `-L gate` (rerunning failures once: network tests flake under load),
-  the smoke, the render check and the format ratchet, and prints the merge into main. It never pushes.
-  A sync that changes the sim stops older replays and saves from playing back: replay what you need
-  before syncing. `mac/scripts/play` prints a one-line note
-  when `main` is behind upstream.
-- `mac/recipe/build.sh`: configures and builds `build/play` (Ninja, RelWithDebInfo,
-  arm64, triplet `arm64-osx`, upstream's own vcpkg ports). It prints `BUILD_OK` or
-  `BUILD_FAIL`; logs are `.local/configure.log` and `.local/build.log`. After
-  the SDK moves, delete `build/play/CMakeCache.txt` first: CMake
-  keeps the old paths.
-- `mac/scripts/play` builds (`--build`) and starts the game; its header lists the options. By default it passes no window or frame-cap arguments: the game's Video options decide, and on
-  macOS a full-screen mode's refresh below the display's (60 on a 120 Hz panel) caps the frame rate.
-  The Metal HUD is on (`--no-hud` turns it off). `--full`/`--size` override the Video option, which
-  then shows "Command Line Override"; `-- --fps-cap N` sets a cap (`-2`: 2 below the refresh rate).
-  Each game writes its checksum trace to `checksum-trace.txt` beside its log. If its `LastGame`
-  replay diverges, run that replay with `--replay ... --checksum-trace`, then compare the two traces
-  with `tools/checksum_diff.py`. It names the first domain that differs.
-  The game log is `~/Library/Application Support/opensupcom/logs/opensupcom.log` (upstream #746; settings stay in `~/.config/opensupcom` when it exists).
-- `mac/scripts/setup` (idempotent; `--check` reports differences and writes
-  nothing) installs the guards outside the tree, so they also run on branches
-  without `mac/`: it copies `mac/agents/githooks/` (`pre-commit`, `pre-push`) to
-  `.git/mac-hooks/` and sets `core.hooksPath` there, and copies the Claude hooks
-  in `mac/agents/hooks/` to `.git/mac-hooks/claude/`. It writes those Claude
-  hooks, Apple's game-porting-skills and the `supcom` plugin marketplace into
-  `.claude/settings.local.json` (other keys kept), adds `.local/` and `/mac/work/`
-  to `.git/info/exclude`, and disables pushes to upstream. Rerun it after a
-  hook changes or the checkout moves; `mac/scripts/check` fails until then.
-- The pre-commit hook refuses game files, PNG/JPG images, saves and replays,
-  Windows executables, new files over 1 MiB, and anything under `mac/work/`. A commit that touches `mac/`, `AGENTS.md`,
-  `CLAUDE.md` or `README.md` also needs `mac/scripts/check` to have passed on
-  exactly the staged content. The pre-push hook refuses an `up/*` branch when any
-  commit in `upstream/main..` touches `mac/`, `AGENTS.md` or `CLAUDE.md`.
+- `mac/scripts/upstream-news`: lists what upstream landed since the fork's `main` and the open upstream PRs
+  that matter to the fork (`MAC` or `OVERLAP`). Run it before starting any Mac change; its header lists the
+  forms. `/supcom-upstream:shape [topic]` maps those PRs against our commits before an upstream PR is shaped.
+- `mac/scripts/sync-upstream`: merges upstream main into the fork on a sync branch, runs every check and prints
+  the merge into main; it never pushes and stops on any conflict outside `docs/current-state.md`'s metric
+  lines (resolve keeping both sides' intent, then `--resume`). A sync that changes the sim stops older
+  replays and saves from playing back: replay what you need before syncing.
+- `mac/recipe/build.sh`: configures and builds `build/play` and prints `BUILD_OK` or `BUILD_FAIL`; logs are
+  `.local/configure.log` and `.local/build.log`. After the SDK moves, delete `build/play/CMakeCache.txt`
+  first: CMake keeps the old paths.
+- `mac/scripts/play` builds (`--build`) and starts the game; its header lists the options. By default it passes
+  no window or frame-cap arguments: the game's Video options decide, and on macOS a full-screen mode's
+  refresh below the display's (60 on a 120 Hz panel) caps the frame rate. Each game writes its checksum
+  trace to `checksum-trace.txt` beside its log. If its `LastGame` replay diverges, run that replay with
+  `--replay ... --checksum-trace`, then compare the two traces with `tools/checksum_diff.py`. The game log is
+  `~/Library/Application Support/opensupcom/logs/opensupcom.log`.
+- `mac/scripts/setup` (idempotent; `--check` reports differences) installs the guards outside the tree, so
+  they also run on branches without `mac/`. Rerun it after a hook changes or the checkout moves;
+  `mac/scripts/check` fails until then. What the hooks refuse is listed in the root
+  `AGENTS.md`; the code is in `mac/agents/githooks/` and `mac/agents/hooks/`.
 
-Engine changes are proven by OSC's own tests, not by `mac/scripts/check`.
-OSC's CONTRIBUTING.md names them: Catch2 unit tests (no game data, run in
-CI), `ctest -L mp` (two-process multiplayer), and the regression gate
-`ctest -L gate` on machines with the game, to run before every PR:
-
-```sh
-source mac/recipe/env.sh
-build/play/tests/osc_tests
-ctest --test-dir build/play -L mp --output-on-failure
-ctest --test-dir build/play -L gate --output-on-failure
-```
+Engine changes are proven by OSC's own tests (CONTRIBUTING.md names them), not by `mac/scripts/check`.
+Run `mac/scripts/prove`: it picks the checks the change needs, serializes heavy ones behind the machine-wide
+lock and prints the Tested block for the PR text. Do not run the test binaries by hand.
 
 `mac/scripts/osc-render-check` renders the hidden SCMP_009 capture and fails unless the game's log line names the KosmicKrisp
 driver and has no `[error]` lines. The smoke below does not touch the driver.
@@ -133,9 +102,8 @@ errors. SDK installation and driver-selection details:
 Upgrading the SDK upgrades KosmicKrisp and MoltenVK: they ship as one version. Install the new
 SDK beside the pinned one (same steps, new version), point `VULKAN_SDK` at it,
 then run `mac/scripts/osc-smoke`, `mac/scripts/osc-render-check`, and a play test by
-JStar. Only when all three pass, change the version in `mac/recipe/env.sh` and in the
-`mac/scripts/check` pin, and keep the old folder until the new one has been played.
-On this Mac (Modern level) the game must log KosmicKrisp; MoltenVK serves only
+JStar. Only when all three pass, change the version in `mac/recipe/env.sh` and keep the old folder until
+the new one has been played. On this Mac (Modern level) the game must log KosmicKrisp; MoltenVK serves only
 Apple Silicon on macOS 14-25 (Compatibility level).
 
 ## Identities
@@ -158,29 +126,29 @@ apart, so FAF addresses never apply directly.
 
 ## Fresh setup
 
-1. Clone the fork to `~/Projects/OpenSupCom`
+1. `brew install innoextract openjdk@21 cmake ninja`.
+2. Clone the fork to `~/Projects/OpenSupCom`
    (`git clone https://github.com/Allmight97/supcom-engine.git ~/Projects/OpenSupCom`),
    add upstream (`git remote add upstream https://github.com/bwiemz/supcom-engine.git`),
    and run `mac/scripts/setup`: it installs the commit and push guards before anything is staged.
-2. Supply your own game: place the three GOG installer parts in `mac/work/downloads/`,
+3. Supply your own game: place the three GOG installer parts in `mac/work/downloads/`,
    compare their SHA-256 with [Identities](#identities) (`shasum -a 256
    mac/work/downloads/setup_*`), and extract into an absent directory:
 
    ```sh
+   mkdir -p mac/work/logs
    innoextract --extract --gog --output-dir mac/work/game 'mac/work/downloads/setup_supreme_commander_forged_alliance_1.5_(38101).exe' > mac/work/logs/extraction.log 2>&1
    ```
 
-3. Install `brew install innoextract openjdk@21`, unpack the official Ghidra
-   12.1.4 release into `~/Applications/` (verify its digest in [Identities](#identities), keep the
-   execute bits), and build its Mac components:
+4. Unpack the official Ghidra 12.1.4 release into `~/Applications/` (verify its digest in
+   [Identities](#identities), keep the execute bits), and build its Mac components:
 
    ```sh
    cd "$HOME/Applications/ghidra_12.1.4_PUBLIC/support/gradle"
    JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home" ./gradlew buildNatives --no-daemon
    ```
 
-4. Install the Mac build tools: `brew install cmake ninja` and the Vulkan SDK
-   using **KosmicKrisp setup** above, then provision vcpkg in the checkout:
+5. Install the Vulkan SDK using **KosmicKrisp setup** above, then provision vcpkg in the checkout:
 
    ```sh
    mkdir -p .local
@@ -189,7 +157,7 @@ apart, so FAF addresses never apply directly.
    ```
 
    Then `mac/scripts/play --build`.
-5. Run `mac/scripts/check`.
+6. Run `mac/scripts/check`.
 
 ## The saved Ghidra project
 
@@ -305,56 +273,23 @@ For the client path, mods, missing textures and sound failures, use
 
 ### Shared launcher for capture tools
 
-`mac/tools/lib/game-run.sh` is the one place that starts a game in the bottle for
-`mac/tools/lua-trace/capture`, `mac/tools/bp-dump/capture`, `mac/tools/sim-capture/capture`,
-`mac/tools/ref-shot/capture` and `mac/agents/faf-autorun/run`; each tool sources it
-and keeps its own command line. `game_run_start original|faf INIT LOG ARGS…`
-refuses if a game is running and starts the GOG game (1680×1050 window) or
-FAF's game (1024×768) with the tool's init file; `game_run_wait_marker TEXT
-TIMEOUT [HOOK]` waits for an end marker (ref-shot's hook captures each READY
-shot); `game_run_wait_exit LIMIT` waits for a self-exiting game; and
-`game_run_finish` stops the game and renames the log. `game_run_shoot_ready
-PREFIX [SUFFIX]` (a wait hook) saves the unscaled window for each
-`REFSHOT|READY|NAME` log line as `PREFIXNAMESUFFIX.png`. `game_run_prefs FILE`
-swaps in a `Game.prefs` for one run and restores the original on exit. An
-exit trap always stops the game this run started (matched by its own log
-name, never another game). Wine's stderr stays in
-`~/.faforever/logs/wine-<time>.log`.
+`mac/tools/lib/game-run.sh` is the one place that starts a game in the bottle; its header lists the functions.
+Each capture tool (`lua-trace`, `bp-dump`, `sim-capture`, `ref-shot`, `faf-autorun`) sources it and keeps its
+own command line. Each run:
 
-Each run also:
+- takes `mac/work/bottle.lock` before touching `Game.prefs`; an original-game run refuses when `active_mods`
+  names a mod the original would load; mods only FAF has, such as JStar's M28AI, are ignored;
+- copies `mac/tools/` and `mac/agents/faf-autorun` to `mac/work/capture-run/NAME/` and runs from there, so
+  editing a hook during a run changes nothing;
+- checks itself every 5 s and stops on the first Lua error or unknown unit type, or when a hook the game loaded
+  has not logged `HOOKCHECK|/<mount>/<path>|ok` within 90 s (every hook ends with that line);
+- writes `NAME.setup` (JSON) next to the finished log: arguments, git HEAD and dirty flag, sha256 of every
+  snapshot file, the resolved armies, options, seed, last tick and how it ended;
+- writes the log as `NAME.log.partial` and renames it only when the run ends. A leftover `.partial` means the
+  run failed or is still going.
 
-- takes `mac/work/bottle.lock` before touching `Game.prefs` (a stale lock of a
-  dead process is cleared); an original-game run refuses when `active_mods`
-  names a mod the original would load (its `Documents` mods folder or
-  `gamedata/mods.scd`); mods only FAF has, such as JStar's M28AI, are ignored;
-- copies `mac/tools/` and `mac/agents/faf-autorun` to `mac/work/capture-run/NAME/` and
-  runs from there, so editing a hook during a run changes nothing; capture
-  scripts run from `main() { …; }; main "$@"` for the same reason;
-- checks itself every 5 s (`mac/tools/lib/capture.py watch`): it stops on the
-  first Lua error or unknown unit type, when a hook the game loaded has not
-  logged `HOOKCHECK|/<mount>/<path>|ok` within 90 s (every hook ends with
-  that line), or when a checkpoint fails (`GAME_RUN_CHECKPOINTS="TEXT@TICK;…"`;
-  sim-capture sets FIRE, INTEL, ECON and SIMSCRIPT checkpoints from its
-  options); `mac/tools/lib/capture-hook` logs `SETUP|TICK|n` every 100 ticks;
-- writes `NAME.setup` (JSON) next to the finished log: arguments, git HEAD
-  and dirty flag, sha256 of every snapshot file, the resolved armies
-  (including civilians), options, seed, last tick and how it ended.
-
-The `supcom-capture` plugin (`mac/agents/mods`) offers the captures as
-`/supcom-capture:capture` and the comparisons as `/supcom-capture:compare` (see "Comparisons"), with a skill
-on when a capture is worth it and how to read a divergence.
-`python3 -I mac/tools/lib/capture.py --self-test` tests the preflight and manifest
-logic.
-
-### Capture outputs are complete when they exist
-
-`mac/tools/lua-trace/capture`, `mac/tools/bp-dump/capture`, `mac/tools/ref-shot/capture`,
-`mac/tools/sim-capture/capture` and `mac/agents/faf-autorun/run` have the game log to `NAME.log.partial` (and
-`ref-shot` writes each image as `NAME.png.partial`) and rename to the final
-name only after the run ends: end marker or time limit, game stopped. A
-reader that finds `NAME.log` or `NAME.png` sees a finished file; a leftover
-`.partial` means the run failed or is still going. `faf-autorun` also renames
-after a time-limit kill; its log check reports that run as failed.
+`python3 -I mac/tools/lib/capture.py --self-test` tests the preflight and manifest logic. The `supcom-capture`
+plugin offers the captures as slash commands, with a skill on when a capture is worth it.
 
 ### Scripted FAF runs (no mouse or keyboard)
 
@@ -397,196 +332,81 @@ JStar can keep working, and each run ends in a pass/fail log check.
 
 ### Driving the game window without a person
 
-`mac/scripts/game-window` screenshots the Wine game window and sends clicks, drags,
-keys and text (`shot NAME`, `click X Y [right]`, `drag X1 Y1 X2 Y2`,
-`scroll X Y LINES`, `key CODE`, `type TEXT`, `wait [SECONDS]`; coordinates are pixels of the
-800-px-wide screenshot it writes to `mac/work/logs/screens/`).
-Every action except `shot` takes JStar's real mouse and focus, so it runs only
-while JStar's grant lasts (he runs `mac/scripts/input-grant MINUTES`, or `input-grant off` to take control
-back; agents never run it); otherwise it exits 4. Prefer input-free
-validation: `mac/agents/faf-autorun/run` for the original and FAF, scripted input
-and OpenSupCom's offscreen test modes.
-`GAME_WINDOW_OWNER` selects another window owner by process name: `ForgedAlliance` for FAF's game, `java` for the FAF client. It needs
-macOS Screen Recording and Accessibility permission for the app running the
-shell. The game window belongs to a bare Wine process, so Claude's
-computer-use tools cannot see it; this script can. Bring-to-front (native,
-no AppleScript, so no Automation prompts) is automatic; macOS uses the first
-click only to activate. It activates the process that owns the window it
-measured (by PID), checks before each event that this process is still
-frontmost, and stops (exit 3) as soon as it is not. It sets the Accessibility
-`AXFrontmost` attribute:
-on 2026-10-12, with Claude in front and no Java process running,
-`NSRunningApplication.activate` alone left FAF's game behind (exit 3) and
-`AXFrontmost` brought it to front. Input is refused (exit 3) unless the target app is
-confirmed frontmost, so keys never land in another app. Only the 800-px copy of a screenshot is kept. Synthetic clicks do
-not reach macOS permission prompts, and a prompt over the game swallows clicks
-in its area. Typing into the game's text fields can drop letters while the
-simulation runs at high speed. Keys: 36 Return, 53 Escape, 69 keypad plus
-(game speed up), 109 F10 (game menu).
+`mac/scripts/game-window` screenshots the Wine game window and sends clicks, drags, keys and text; its header
+lists the actions. Every action except `shot` takes JStar's real mouse and focus, so it runs only while JStar's
+grant lasts (he issues it; agents never do); otherwise it exits 4. It exits 3
+when the target app is not frontmost, so keys never land in another app. Prefer input-free validation:
+`mac/agents/faf-autorun/run` and OpenSupCom's offscreen test modes. `GAME_WINDOW_OWNER` selects another window
+owner (`ForgedAlliance` for FAF's game, `java` for the FAF client). It needs macOS Screen Recording and
+Accessibility permission for the app running the shell. The game window belongs to a bare Wine process, so
+Claude's computer-use tools cannot see it; this script can. On 2026-10-12, with no Java process running,
+`NSRunningApplication.activate` alone left FAF's game behind; setting the Accessibility `AXFrontmost` attribute
+brought it to front. Synthetic clicks do not reach macOS permission prompts, and a prompt over the game
+swallows clicks in its area. Typing into the game's text fields can drop letters while the simulation runs at
+high speed.
 
 ### Claude mods for this project
 
-Claude Code plugins live in `mac/agents/mods/`, a folder marketplace named
-`supcom`. `mac/scripts/setup` declares it in `.claude/settings.local.json`; install
-each plugin for this checkout from its root:
-`claude plugin marketplace add "$PWD/mac/agents/mods"`, then
-`claude plugin install supcom-capture@supcom --scope local`. Installed plugins
-run from a cache copy keyed by version. After editing a
-plugin, bump `version` in its `plugin.json`, then uninstall and reinstall it from this checkout
-(`update` can pick another worktree's install); after removing one, run
-`claude plugin uninstall NAME@supcom --scope local`. `mac/scripts/check` fails
-while an installed supcom plugin differs from its source in version or content.
+Claude Code plugins live in `mac/agents/mods/`, a folder marketplace named `supcom`; `mac/scripts/setup`
+declares it. Install each plugin for this checkout with `claude plugin marketplace add "$PWD/mac/agents/mods"`
+then `claude plugin install NAME@supcom --scope local`; the update rules are in
+[mac/agents/AGENTS.md](../agents/AGENTS.md). Plugins:
 
-- `supcom-capture` adds `/supcom-capture:capture`, `/supcom-capture:compare` (see "Comparisons")
-  and `/supcom-capture:game shot [name] | click X Y | key CODE | wait [SECONDS]` with
-  `--owner java|ForgedAlliance`, which runs `mac/scripts/game-window` (input
-  actions need JStar's `mac/scripts/input-grant`; exit 3 means the frontmost guard refused).
-- Apple's `game-porting-skills` (marketplace `game-porting-toolkit`) is enabled
-  by `mac/scripts/setup` for Mac renderer work.
+- `supcom-capture`: `/supcom-capture:capture`, `/supcom-capture:compare` and `/supcom-capture:game`
+  (runs `mac/scripts/game-window`; input actions need JStar's grant).
+- `supcom-docs`, `supcom-upstream`: `/supcom-docs:doc-audit` and `/supcom-upstream:shape`.
+- Apple's `game-porting-skills` (marketplace `game-porting-toolkit`) is enabled by `mac/scripts/setup`.
 
 ### Comparisons
 
-`/supcom-capture:compare KIND ORIGINAL OSC` runs one comparator on a capture of the original
-and the matching OpenSupCom file:
-
-- `motion`: `python3 -I mac/tools/motion-compare/motion_compare.py ORIGINAL.log OSC.log`
-- `intel`: `python3 -I mac/tools/intel-compare/intel_compare.py ORIGINAL.log OSC.log [--check]`
-- `bp`: `python3 -I mac/tools/bp-dump/compare.py ORIGINAL.log OSC.log`
-- `image`: `uv run -q mac/tools/image-compare/compare.py REF.png OSC.png`
-
-Motion and intel read `MOTION` and `INTEL` lines in the mac/tools/sim-capture
-format. OpenSupCom writes no such log yet, so those two have only the
-original's side today.
+`/supcom-capture:compare KIND ORIGINAL OSC` runs one comparator (`motion`, `intel`, `bp`, `image`); the command
+file lists each one's options. Motion and intel read `MOTION` and `INTEL` lines in the `mac/tools/sim-capture`
+format. OpenSupCom writes no such log yet, so those two have only the original's side today.
 
 ### Reference screenshots of the original
 
-`mac/tools/ref-shot/capture SET [GAME ARGS]` (default `/map X1MP_006`) starts the
-original with a hook that, at the first sim tick, hides the UI, pauses, and
-for each shot in `mac/tools/ref-shot/shots/SET.lua` (`name`, focus `pos`, `hpr`
-in radians, `zoom`) snaps the world camera, waits 3 s and logs
-`REFSHOT|SETTINGS` (the camera's `SaveSettings` plus `GetMaxZoom`/`GetMinZoom`:
-the focus height follows the terrain and the focus can move inward) and
-`REFSHOT|READY`. The script then saves the unscaled window as
-`mac/work/logs/screens/ref-SET-NAME$REFSHOT_SUFFIX.png` (2x on a Retina display,
-title bar included) and closes the game. `/refshadows 0` runs the console
-command `shadow_Fidelity 0` first (shadows off). `/refwait N` lets the game
-run N seconds before the pause (the ACU needs about 15 s to warp in), and a
-`simInit.lua` hook logs each commander's pose every 10 ticks as
-`REFSHOT|ACU|tick|army|entity|blueprint|x,y,z|qx,qy,qz,qw` (the last line
-before the pause is the pose in the images). `/reffactions 1,4,1,2` sets the
-armies' factions in order (1 UEF, 2 Aeon, 3 Cybran, 4 Seraphim; otherwise the
-AIs' factions are random) and `REFSHOT|ARMY` lines log them. `/refui` keeps the
-game UI (no `HideGameUI`); a shot's `select = 'COMMAND'` (any
-`UISelectionByCategory` expression) or `select = false` sets the selection
-before the snap; a shot without `pos` keeps the game's current camera.
-`shots/ui.lua` frames the bottom bar and the selected ACU with its build bar,
-`shots/hud.lua` uses the default camera, `shots/faction-acu.lua` frames army
-1's ACU. SETTINGS lines end with the user-side `GameTime` in seconds. A shot's
-`sim = { action = 'move'|'build'|'kill', dx, dz, blueprint }` orders army 1's ACU
-through `SimCallback` (a `SimCallbacks.lua` hook; `kill` kills it at once; `emitters` sets emitter blueprints
-down beside it, optionally with a lifetime or scale: `shots/emitter-probe.lua`), and `resume = S` runs the
-game S seconds before the shot (`pause = false` leaves it running for the shot) (`shots/hud-move.lua`,
-`shots/build-progress.lua`, `shots/nuke.lua`: the UEF ACU's death nuke, captured with
-`GAME_RUN_WINDOW="1600 900"` to match OSC). The sim hook logs each ACU's pose and
-`REFSHOT|BUILD|tick|army|entity|blueprint|fraction` every tick; `/refemitters TEXT` logs each
-`CreateAttachedEmitter` whose blueprint path contains TEXT, with the bone's position and the result
-(`REFSHOT|EMITTER`). `shots/build-at.lua` takes `/refzoom Z` and `/reflive` (its second shot unpaused).
-`/refdump DIR` (a Windows path, such as `Z:\Users\…\screens\dump`) also saves each shot with the game's own
-`dump_Frame` console command as `DIR/SCFrame_*.bmp`: it needs no macOS screen capture, so it works while the
-Mac is locked, when `screencapture` returns black.
+`mac/tools/ref-shot/capture SET` (default `/map X1MP_006`) hides the UI, pauses, snaps the camera for each shot
+in `mac/tools/ref-shot/shots/SET.lua` and saves the unscaled window (2x on a Retina display, title bar
+included) as `mac/work/logs/screens/ref-SET-NAME.png`. Its options (`/refclean`, `/refbare`, `/nofog`, `/refwait`,
+`/reffactions`, `/refdump`) are in the script's header; shot-file fields are in the shot files. No mouse or
+keyboard; the window may sit on another Space (`winid --all` finds it). Log: `mac/work/traces/ref-SET.log`.
+`/refdump DIR` saves frames with the game's own `dump_Frame`, which works while the Mac is locked, when
+`screencapture` returns black. For no fog of war use `/nofog`; the console variable `ren_FogOfWar` took effect
+only intermittently.
+
 Emitter particles: on 2026-10-18 the original in this bottle drew no emitter particles at all (build effects,
 the nuke's smoke ring, six emitters set beside the ACU, fog on or off, zoom 10 to 30, paused or running);
 light particles, beams, meshes and decals drew. Wine logged `wined3d_device_context_map Map box is invalid`
 about 29,000 times in one short run (a zero-size lock; D3D9 reads that as the whole buffer), the suspected
-cause. Until that is fixed, these captures cannot show what the original's emitters look like. `/refclean` hides the
-overlays `HideGameUI` leaves: range rings (`ren_Ranges false`), icons
-(`ui_RenderIcons false`), the faction map-border panels (`ren_MapBorderClear`),
-the playable boundary (`ren_PlayableBoundary false`) and the deposit icons
-(world view `EnableResourceRendering(false)`); deposit pads at close zoom are
-terrain decals. `/refbare` also runs `ren_Decals false` (all terrain decals)
-and `ren_MeshStatic false` (props such as rocks) before each shot. For no fog
-of war pass the game's own `/nofog` (game option FogOfWar = 'none'); the
-console variable `ren_FogOfWar` took effect only intermittently. A shot set may give a
-top-level `RefConsole` list and per-shot `console` lists of console commands,
-run in order and kept for later shots. No mouse or keyboard; the
-window may sit on another Space (`winid --all` finds it). Log:
-`mac/work/traces/ref-SET.log`.
+cause. Until that is fixed, these captures cannot show what the original's emitters look like.
 
-`mac/tools/ref-shot/osc-shot SET NAME FRAME MAP [REF ARGS]` renders the same shot
-in OSC: an init file mounts the same hooks, OSC runs `--map` offscreen at
-1600x900 and saves frame FRAME as `mac/work/logs/screens/osc-SET-NAME.png` (log
-`mac/work/traces/osc-SET-NAME.log`). The hook's waits run on OSC's fixed frame
-clock, so a shot keeps its frame; the script fails unless the log puts the frame
-after `REFSHOT|READY|NAME` and before the next shot. It runs
-`build/play/opensupcom` from `OSC_ROOT` (default the checkout above `mac/`). In
-OSC, `HideGameUI` leaves the HUD up and `/refclean` leaves some icons: compare with
-`--region`. `shots/nuke.lua` lists its frames.
+`mac/tools/ref-shot/osc-shot SET NAME FRAME MAP` renders the same shot in OSC offscreen at 1600x900 and saves
+`mac/work/logs/screens/osc-SET-NAME.png`. In OSC, `HideGameUI` leaves the HUD up and `/refclean` leaves some
+icons: compare with `--region`.
 
 ### Unit motion and threat capture of the original
 
-`mac/tools/sim-capture/capture NAME [GAME ARGS]` (default `/map X1MP_006`: the
-player plus three "rush" AIs) starts the original with a `/lua/simInit.lua`
-hook that, from the start of the session, logs one line per live unit every 5
-ticks, `MOTION tick entity blueprint army x y z heading layer moving`
-(`Entity:GetHeading()`, moving 0/1; the format `mac/tools/motion-compare` reads),
-and at ticks 600, 1200, 1800, 2400 and 3000, for each AI brain,
-`THREAT tick army type (x,z,threat),…` for `GetThreatsAroundPosition(start,
-16, true, type)` with types Overall, Land, Structures, Commander, Unknown and
-`HIGHEST tick army (x,y,z) threat` for `GetHighestThreatPosition(16, true,
-'Overall')`. It stops at `SIMCAP|END|3000` (5 game minutes, about 6 minutes of
-wall time). The log has CRLF line endings and an `info: ` prefix per line.
-Captures include the map's civilian armies. A lobby launch creates them from
-the scenario's `customprops.ExtraArmies` (for example `ARMY_9
-NEUTRAL_CIVILIAN` on X1MP_006); the command-line launch every capture tool
-uses reads only `teams.ExtraArmies` (in the GOG game and in FAF), so it
-created none. `mac/tools/lib/capture-hook` (mounted first by ref-shot, lua-trace,
-sim-capture, bp-dump and faf-autorun) makes `maputil.GetExtraArmies` read
-`customprops` too and drops repeated army names; `/nocivilians` leaves them
-out; motion-unit runs leave them out to stay comparable. Captures made before
-2026-10-14 15:00 have no civilian armies. Options (game args): `/simfactions 3,1,1,1`, `/simbots` (all armies AI,
-`/ai KEY`), `/simticks N` (end tick), `/siminterval N` (MOTION every N ticks),
-`/simvel` (`VEL tick entity vx vy vz`), `/simthreat N`, `/simecon N`
-(`ECON tick army mass income requested stored ratio energy … units bp=n,…`),
-`/simintel N` (`INTEL tick army entity blueprint radar sonar omni seen
-seenever fake [blip x,y,z]` for each enemy unit an AI army has a blip for),
-`/simcombat` (`FIRE tick unit weapon target projectile muzzleBone` and
-`DAMAGE tick target instigator healthChange` from the engine methods
-`CreateProjectile` and `AdjustHealth`, wrapped in a `globalInit.lua` hook
-before Lua classes copy them; `DEATH tick unit blueprint killer`),
-`/simscript NAME` (runs `mac/tools/sim-capture/scripts/NAME.lua`'s `SimScript()`
-in the sim; it logs `SIMSCRIPT` lines; `gallery` spawns every tech 2, tech 3
-and experimental unit and structure per faction with `/simfactions 1,2,3,4`,
-orders upgrades, sets the galleries fighting and logs `SHIELD tick unit
-health max`; `motion-unit` scripts single-unit moves; both leave civilians
-out), `/simspeed N` (game speed N, set by `mac/tools/lib/capture-hook`; about 6 to
-8 times real time is held at speed 10 while recording) and `/simtrace` (adds
-the lua-trace call tracer to the same run). Captures without screenshots run
-in a 640x480 window (`GAME_RUN_WINDOW`).
+`mac/tools/sim-capture/capture NAME` (default `/map X1MP_006`) logs `MOTION`, `THREAT`, `HIGHEST` and the
+optional `ECON`, `INTEL`, `FIRE`, `DAMAGE`, `DEATH`, `VEL` and `SIMSCRIPT` lines from the original's sim, and
+stops at `SIMCAP|END|3000` (about 6 minutes of wall time). Options and line formats are in the capture
+script's header and `mac/tools/motion-compare`. The log has CRLF line endings and an `info: ` prefix per line.
+
+Civilian armies: a lobby launch creates them from the scenario's `customprops.ExtraArmies`, but the
+command-line launch every capture tool uses reads only `teams.ExtraArmies` (in the GOG game and in FAF), so it
+created none. `mac/tools/lib/capture-hook` makes `maputil.GetExtraArmies` read `customprops` too; `/nocivilians`
+leaves them out, and motion-unit runs leave them out to stay comparable. Captures made before 2026-10-14 15:00
+have no civilian armies.
 
 ### Lua call trace of the original
 
-`mac/tools/lua-trace/capture NAME SECONDS [/map X1MP_006]` launches the original
-with `/init …/tools/lua-trace/init-trace.lua`: the game's normal mounts plus a
-`/tracehook` hook folder, whose `hook/lua/globalInit.lua` runs `trace.lua` in
-every user and sim Lua state. It wraps every global engine function, the
-`moho.*` method tables and each class's `__spec` table (Lua classes copy
-methods from it). `mac/tools/lua-trace/summarize.py` writes first-call order and
-counts to `mac/work/traces/summary-NAME.md`. Calls before the hook runs, and the
-blueprint-loading state, are not traced. `/tracemenuskirmish` (no `/map`)
-drives main menu → skirmish lobby → launch with no input: it calls the
-menu's own `ButtonSkirmish` (hides the menu, hosts a lobby on the profile's
-`LastScenario`), adds easy AIs (`/tracemenuais N`, default 1), saves the lobby as
-`mac/work/logs/screens/ref-lobby.png`, then presses Launch through a reference
-kept by a `uiutil.lua` hook; SECONDS count from the sim's start.
-`mac/tools/lua-trace/diff.py mac/work/traces/menu-boot.log OTHER.log` compares two
-traces.
+`mac/tools/lua-trace/capture NAME SECONDS` wraps every global engine function, the `moho.*` method tables and each
+class's `__spec` table in every user and sim Lua state. Calls before the hook runs, and the blueprint-loading
+state, are not traced. `mac/tools/lua-trace/summarize.py` writes first-call order and counts;
+`mac/tools/lua-trace/diff.py` compares two traces. Options (`/tracemenuskirmish`, `/autosave`, `/autoload`) are in
+the capture script's header.
 
 ### Blueprint dump of the original
 
-`mac/tools/bp-dump/capture NAME [/map X1MP_006]` launches the original with
-`mac/tools/bp-dump/init-dump.lua`, whose `/lua/simInit.lua` hook logs every
-`__blueprints` entry of the sim state as `BPDUMP|<id>|<value>` (keys sorted),
-waits for `BPDUMP|END`, stops the game and leaves `mac/work/traces/NAME.log`
-(about 9 MB; 3,778 blueprints on GOG 1.5.3599). `mac/tools/bp-dump/compare.py
-ORIGINAL.log OTHER.log` lists blueprints and fields only one side has and values
-that differ.
+`mac/tools/bp-dump/capture NAME` logs every `__blueprints` entry of the sim state as `BPDUMP|<id>|<value>`
+to `mac/work/traces/NAME.log` (about 9 MB; 3,778 blueprints on GOG 1.5.3599). `mac/tools/bp-dump/compare.py`
+lists blueprints and fields only one side has and values that differ.
