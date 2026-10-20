@@ -8,6 +8,7 @@
 
 BASE defaults by branch as prove's does: main for main and mac/*, upstream/main for up/*.
 A sweep of more than 40 hunks stops before its first revert unless --hunks N allows that many.
+--accept 'FILE HUNK-HEADER=reason' (repeatable) reports that hunk as "accepted: reason" without reverting it.
 
 The branch's tests: the ctest names its test hunks add (OSC_DATA_TESTS_* lists, add_test lines), the
 data mode a changed test source is named for (runner/foo_bar_test.cpp -> data.foo-bar-test), the arch
@@ -320,10 +321,28 @@ def sweep_refusal(hunks, files, base, allowed):
             f'the base you meant? Pass --hunks {hunks} to run it')
 
 
-def run_sweep(root, base, env, allowed=0):
+def hunk_where(path, hunk):
+    """How a hunk is named in the report and in --accept: its file and its header's ranges."""
+    return f'{path} {hunk.splitlines()[0].split("@@")[1].strip()}'
+
+
+def acceptances(pairs, wheres):
+    """{hunk: reason} from --accept 'FILE HUNK-HEADER=reason' values; exits on a reason left out or a hunk
+    the branch does not have, so an acceptance never goes stale unseen."""
+    accepted = {}
+    for pair in pairs:
+        where, _, reason = pair.partition('=')
+        if not reason.strip() or where not in wheres:
+            sys.exit(f'mutate: --accept {pair!r}: needs "FILE HUNK-HEADER=reason" naming one of the branch\'s hunks')
+        accepted[where] = reason.strip()
+    return accepted
+
+
+def run_sweep(root, base, env, allowed=0, accept=()):
     _, _, source, ctest, unit = branch(root, base)
     if not source:
         return True, ['- hunk sweep: no source hunk under src/, nothing to sweep']
+    accepted = acceptances(accept, {hunk_where(p, h) for p, _, h in source})
     files = len({p for p, _, _ in source})
     say(f'sweep: {len(source)} hunks in {files} files against {base}')
     if refusal := sweep_refusal(len(source), files, base, allowed):
@@ -340,11 +359,13 @@ def run_sweep(root, base, env, allowed=0):
     mark(root)
     try:
         for i, (path, header, hunk) in enumerate(source, 1):
-            where = f'{path} {hunk.splitlines()[0].split("@@")[1].strip()}'
+            where = hunk_where(path, hunk)
             started = time.time()
             original = snapshot(root, path)
             try:
-                if include_only(hunk):
+                if where in accepted:
+                    outcome = f'accepted: {accepted[where]}'
+                elif include_only(hunk):
                     outcome = 'include-only, not a mutation'
                 elif sh(root, ['git', 'apply', '-R', '--whitespace=nowarn', '-'], stdin=header + hunk).returncode:
                     outcome = 'NOT JUDGED: does not revert alone'
@@ -432,6 +453,7 @@ def main():
     parser.add_argument('--root', default=os.path.dirname(prove.TOOLKIT))
     parser.add_argument('--base')
     parser.add_argument('--hunks', type=int, default=0)
+    parser.add_argument('--accept', action='append', default=[])
     parser.add_argument('--self-test', action='store_true')
     opt = parser.parse_intermixed_args()
     if opt.self_test:
@@ -447,7 +469,7 @@ def main():
     if opt.mode == 'base':
         ok, lines = run_base(root, opt.base, env)
     elif opt.mode == 'sweep':
-        ok, lines = run_sweep(root, opt.base, env, opt.hunks)
+        ok, lines = run_sweep(root, opt.base, env, opt.hunks, opt.accept)
     elif opt.mode == 'cases' and opt.rest:
         ok, lines = run_cases(root, os.path.abspath(opt.rest[0]), opt.rest[1:], env)
     else:
@@ -536,6 +558,16 @@ def self_test():
     assert not include_only('@@ -1,1 +1,1 @@\n-*p = 1;\n+*p = 2;\n')
     assert not include_only('@@ -1,3 +1,3 @@\n /* a\n-   b */ run();\n+   b */ walk();\n')
     assert sweep_refusal(40, 9, 'main', 0) is None and sweep_refusal(41, 9, 'main', 41) is None
+    wheres = {hunk_where('src/app/cli.cpp', '@@ -129,6 +129,8 @@ void print_usage() {\n+x\n')}
+    assert wheres == {'src/app/cli.cpp -129,6 +129,8'}
+    assert acceptances(['src/app/cli.cpp -129,6 +129,8=help text only'], wheres) == \
+        {'src/app/cli.cpp -129,6 +129,8': 'help text only'}
+    for bad in ('src/app/cli.cpp -129,6 +129,8=', 'src/app/cli.cpp -1,1 +1,1=gone'):
+        try:
+            acceptances([bad], wheres)
+            raise AssertionError(f'--accept {bad!r} must stop the run')
+        except SystemExit:
+            pass
     stubs, touched = {'branch', 'build', 'sh', 'restore'}, []
     saved = {name: globals()[name] for name in stubs}
     globals().update(branch=lambda *a: ('m', [], [('src/a.cpp', 'h', '@@ -1 +1 @@\n-a\n+b\n')] * 41, [], []),
