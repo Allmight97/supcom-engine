@@ -6,6 +6,8 @@
   mac/scripts/mutate cases FILE [--root DIR] [NAME...] named mutations (JSON); each must be killed
   mac/scripts/mutate --self-test
 
+BASE defaults by branch as prove's does: main for main and mac/*, upstream/main for up/*.
+
 The branch's tests: the ctest names its test hunks add (OSC_DATA_TESTS_* lists, add_test lines), the
 data mode a changed test source is named for (runner/foo_bar_test.cpp -> data.foo-bar-test), the arch
 and data tests of a changed tools/check_*.py, and the unit test cases defined in a changed test file
@@ -346,13 +348,15 @@ def main():
     parser.add_argument('mode', nargs='?', choices=['base', 'sweep', 'cases'])
     parser.add_argument('rest', nargs='*')
     parser.add_argument('--root', default=os.path.dirname(prove.TOOLKIT))
-    parser.add_argument('--base', default='upstream/main')
+    parser.add_argument('--base')
     parser.add_argument('--self-test', action='store_true')
     opt = parser.parse_intermixed_args()
     if opt.self_test:
         return self_test()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a killed run still restores the files it broke
     root = os.path.abspath(opt.root)
+    opt.base = opt.base or prove.default_base(root)[0]
+    say(f'base {opt.base}')
     env = prove.tree_env(root)
     lock = open(os.path.expanduser('~/.cache/osc-prove.lock'), 'w')
     say('waiting for other trees\' heavy checks (prove\'s lock)')

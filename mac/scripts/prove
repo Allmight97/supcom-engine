@@ -4,8 +4,9 @@
   mac/scripts/prove [--root DIR] [--base REF] [--fail-first [--fail-first-against REF]]
   mac/scripts/prove --self-test
 
-From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout; BASE defaults to
-upstream/main) it picks the checks: any change under src/, tests/, cmake/, third_party/, CMake files,
+From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout) it picks the checks.
+BASE defaults by branch: `main` for main and mac/* (the fork's own work), `upstream/main` for up/* and
+for a tree without mac/; the first line and the Tested block name it. The checks: any change under src/, tests/, cmake/, third_party/, CMake files,
 vcpkg.json or a shader runs unit, arch, mp, gate (failures rerun once), format, metrics and smoke; a change
 under src/renderer or to a shader adds the render check; a change under tools/ runs arch and metrics;
 anything else (docs) runs metrics only.
@@ -34,6 +35,18 @@ SUITES = ('unit', 'arch', 'mp', 'gate')
 LIGHT = ('arch', 'format', 'metrics')  # the checks that never start the game run beside other trees'
 BINARIES = ('build/play/opensupcom', 'build/play/osc_integration')
 MUTATING = 'build/play/mutate-in-progress'  # mac/scripts/mutate's mark: the build may hold a mutant
+
+
+def base_for(branch, has_mac):
+    """The base a branch's changes are proven against when --base is not given."""
+    if branch.startswith('up/') or not has_mac:
+        return 'upstream/main'
+    return 'main'
+
+
+def default_base(root):
+    branch = sh(root, ['git', 'branch', '--show-current']).stdout.strip()
+    return base_for(branch, os.path.isdir(os.path.join(root, 'mac'))), branch or 'a detached HEAD'
 
 
 def is_engine(path):
@@ -197,14 +210,16 @@ def build_problem(root):
 def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--root', default=os.path.dirname(TOOLKIT))
-    parser.add_argument('--base', default='upstream/main')
+    parser.add_argument('--base')
     parser.add_argument('--fail-first', action='store_true')
     parser.add_argument('--fail-first-against')
     parser.add_argument('--self-test', action='store_true')
     opt = parser.parse_args()
     if opt.self_test:
         return self_test()
-    root, base = os.path.abspath(opt.root), opt.base
+    root = os.path.abspath(opt.root)
+    base, branch = (opt.base, 'the command line') if opt.base else default_base(root)
+    print(f'prove: base {base} (from {branch})', flush=True)
     diff = sh(root, ['git', 'diff', '--name-only', f'{base}...HEAD'])
     if diff.returncode:
         sys.exit(f'prove: cannot diff {base}...HEAD in {root}: {diff.stderr.strip()}')
@@ -277,6 +292,9 @@ The following tests FAILED:
 
 
 def self_test():
+    assert base_for('mac/fail-first', True) == 'main' and base_for('main', True) == 'main'
+    assert base_for('up/gpu-pass-timing', False) == 'upstream/main' and base_for('up/x', True) == 'upstream/main'
+    assert base_for('', False) == 'upstream/main'
     assert checks_for(['docs/a.md', 'README.md'])[0] == ['metrics']
     assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'arch', 'mp', 'gate', 'format', 'metrics', 'smoke']
     assert checks_for(['src/renderer/a.cpp'])[0] == ORDER
