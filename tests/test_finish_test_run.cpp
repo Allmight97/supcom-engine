@@ -77,6 +77,7 @@ TEST_CASE(
     "[app][test-status]") {
     osc::test_status::reset();
     osc::test_status::fail("the one check failed");
+    CHECK(osc::test_status::check_count() == 1);
     std::ostringstream log;
     const auto previous = spdlog::default_logger();
     spdlog::set_default_logger(std::make_shared<spdlog::logger>(
