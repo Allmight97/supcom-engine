@@ -1,7 +1,10 @@
 # mac/: the Mac toolkit for OpenSupCom
 
-Supreme Commander: Forged Alliance runs natively on the Mac through OpenSupCom (OSC), faithful to the original,
-with FAF. Mac work lands on the fork's `main` first and goes upstream as PRs where upstream can take it. The
+The goal: Supreme Commander: Forged Alliance runs natively on the Mac through OpenSupCom (OSC), faithful to the
+original and playable with FAF (its data, client and online games). Demonstrated today: OSC builds and plays retail
+data on Apple Silicon, and FAF's data boots and passes some flows (`docs/current-state.md` lists what is proven).
+Not demonstrated: FAF's client and online play on the Mac; FAF's own game runs only in CrossOver, for reference
+captures. Mac work lands on the fork's `main` first and goes upstream as PRs where upstream can take it. The
 root `AGENTS.md` holds the rules for every agent; this file routes toolkit work.
 
 ## Where things are
