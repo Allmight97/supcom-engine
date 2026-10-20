@@ -14,7 +14,9 @@ A suite passes only if tests ran: none found, none passed, or more skipped than 
 game: 3 passed, 274 skipped) is a failure, and the Tested block gives passed and skipped per suite.
 --fail-first adds mac/scripts/mutate's base and sweep runs (the branch's tests alone on the base, each
 source hunk reverted alone; --fail-first-against names the base's commit for a test-only branch) under
-"Fail first" in the block; --accept 'FILE HUNK-HEADER=reason' passes through to the sweep. It never builds: it stops if DIR/build/play's binaries are missing or
+"Fail first" in the block; --accept 'FILE HUNK-HEADER=reason' passes through to the sweep. A test-only
+branch (no hunk under src/) must name the mutations its tests catch with --cases FILE (mutate cases), each
+killed; without it, fail-first fails. It never builds: it stops if DIR/build/play's binaries are missing or
 embed another revision than HEAD (a -dirty build too), if the tree has uncommitted engine edits, or if a mutate
 run left the build mid-mutation.
 A check over 45 minutes is stopped and fails (timeout); fail-first has 60 minutes for base and sweep.
@@ -184,6 +186,16 @@ def tree_env(root):
     return env
 
 
+TEST_ONLY_WITHOUT_CASES = '- test-only branch: name the mutations its tests must catch (--cases)'
+
+
+def fail_first_runs(test_only, cases):
+    """The mutate runs fail-first makes: base and sweep, and the named cases when given; a test-only branch
+    (no hunk under src/) without cases gets none of its own proof, so it fails."""
+    runs = [('base',), ('sweep',)] + ([('cases', cases)] if cases else [])
+    return runs, (TEST_ONLY_WITHOUT_CASES if test_only and not cases else None)
+
+
 def fail_first(root, mode, base, budget, accept=()):
     """(passed?, report lines) of mac/scripts/mutate MODE, its progress echoed as it runs."""
     lines = []
@@ -195,10 +207,10 @@ def fail_first(root, mode, base, budget, accept=()):
                 PROGRESS['step'] = line[8:].split(':')[0]
         else:
             lines.append(line.rstrip('\n'))
-    argv = [sys.executable, f'{TOOLKIT}/scripts/mutate', mode, '--root', root, '--base', base]
+    argv = [sys.executable, f'{TOOLKIT}/scripts/mutate', *mode, '--root', root, '--base', base]
     code, _ = run_budgeted(argv + [f'--accept={a}' for a in accept], root, None, budget, on_line)
     if code is None:
-        lines.append(f'- fail-first {mode}: FAIL (timeout after {int(budget / 60)} min)')
+        lines.append(f'- fail-first {mode[0]}: FAIL (timeout after {int(budget / 60)} min)')
     return code == 0, lines
 
 
@@ -279,6 +291,7 @@ def main():
     parser.add_argument('--fail-first', action='store_true')
     parser.add_argument('--fail-first-against')
     parser.add_argument('--accept', action='append', default=[])
+    parser.add_argument('--cases')
     parser.add_argument('--self-test', action='store_true')
     opt = parser.parse_args()
     if opt.self_test:
@@ -306,13 +319,19 @@ def main():
     found = []
     if opt.fail_first:
         deadline = time.time() + FAIL_FIRST_BUDGET
-        for mode, against in (('base', opt.fail_first_against or base), ('sweep', base)):
-            PROGRESS['phase'], PROGRESS['step'] = f'fail-first {mode}', ''
-            print(f'prove: fail-first {mode}', flush=True)
+        test_only = not sh(root, ['git', 'diff', '--name-only', f'{base}...HEAD', '--', 'src/']).stdout.strip()
+        runs, refusal = fail_first_runs(test_only, opt.cases and os.path.abspath(opt.cases))
+        if refusal:
+            results['fail-first cases'] = False, ''
+            found.append(refusal)
+        for mode in runs:
+            against = opt.fail_first_against or base if mode[0] == 'base' else base
+            PROGRESS['phase'], PROGRESS['step'] = f'fail-first {mode[0]}', ''
+            print(f'prove: fail-first {mode[0]}', flush=True)
             ok, lines = fail_first(root, mode, against, max(1, deadline - time.time()),
-                                   opt.accept if mode == 'sweep' else ())
-            results[f'fail-first {mode}'] = ok, ''
-            found += lines
+                                   opt.accept if mode[0] == 'sweep' else ())
+            results[f'fail-first {mode[0]}'] = ok, ''
+            found += ([f'Named mutations ({mode[1]}):'] if mode[0] == 'cases' else []) + lines
     print(f'\n### Tested\n\nBase `{base}`, tree `{root}`, built from `{built}`.\n')
     for name in chosen:
         shown = f'mac/scripts/format {base}' if name == 'format' else \
@@ -363,6 +382,9 @@ The following tests FAILED:
 
 
 def self_test():
+    assert fail_first_runs(True, None) == ([('base',), ('sweep',)], TEST_ONLY_WITHOUT_CASES)
+    assert fail_first_runs(True, 'c.json') == ([('base',), ('sweep',), ('cases', 'c.json')], None)
+    assert fail_first_runs(False, None) == ([('base',), ('sweep',)], None)
     assert base_for('mac/fail-first', True) == 'main' and base_for('main', True) == 'main'
     assert base_for('up/gpu-pass-timing', False) == 'upstream/main' and base_for('up/x', True) == 'upstream/main'
     assert base_for('', False) == 'upstream/main'
