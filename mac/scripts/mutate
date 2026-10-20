@@ -26,6 +26,7 @@ Every mode restores and rebuilds DIR; exit status is 1 when a test cannot fail (
 a surviving hunk or case) or a run could not be made.
 """
 import argparse
+import fcntl
 import importlib.machinery
 import importlib.util
 import json
@@ -184,15 +185,21 @@ def run_base(root, base, env):
     for argv in (['git', 'checkout', '-q', '--detach', '-f', merge_base], ['git', 'clean', '-fdq']):
         if (r := sh(tree, argv)).returncode:
             sys.exit(f'mutate: {" ".join(argv)} in {tree}: {r.stderr.strip()}')
-    patch = ''.join(header + hunk for _, header, hunk in tests)
-    if (r := sh(tree, ['git', 'apply', '--whitespace=nowarn', '-'], stdin=patch)).returncode:
-        return False, [f'- the test hunks do not apply to {merge_base[:8]}: {r.stderr.strip()[:300]}']
     tree_env = prove.tree_env(tree)
     built, log = build(tree, tree_env)
     if not built:
         open(os.path.join(tree, '.local/fail-first-build.log'), 'w').write(log)
-        say(f'base build failed: {tree}/.local/fail-first-build.log')
-        return True, [f'- {n}: failed at build (needs the branch\'s engine code)' for n in ctest + unit]
+        return False, [f'- the base `{merge_base[:8]}` itself does not build ({tree}/.local/fail-first-build.log): '
+                       'nothing is proven']
+    patch = ''.join(header + hunk for _, header, hunk in tests)
+    if (r := sh(tree, ['git', 'apply', '--whitespace=nowarn', '-'], stdin=patch)).returncode:
+        return False, [f'- the test hunks do not apply to {merge_base[:8]}: {r.stderr.strip()[:300]}']
+    built, log = build(tree, tree_env)
+    if not built:
+        open(os.path.join(tree, '.local/fail-first-build.log'), 'w').write(log)
+        say(f'the base builds; with the test hunks it does not: {tree}/.local/fail-first-build.log')
+        return True, [f'- {n}: failed at build (the base builds; the test needs the branch\'s engine code)'
+                      for n in ctest + unit]
     results = run_tests(tree, ctest, unit, tree_env)
     lines = [f'Tests alone on `{merge_base[:8]}`:']
     report({n: 'failed at run' if r == 'failed' else r for n, r in results.items()}, lines)
@@ -213,6 +220,19 @@ def restore(root, path, data):
         os.remove(full)
 
 
+def marked_build(root, env):
+    """Rebuild the restored tree; prove refuses the build while mutate's mark is there."""
+    built, log = build(root, env)
+    if built and os.path.exists(os.path.join(root, prove.MUTATING)):
+        os.remove(os.path.join(root, prove.MUTATING))
+    return built, [] if built else [f'- the restored tree does not build, so build/play is unusable:\n{log}']
+
+
+def mark(root):
+    os.makedirs(os.path.join(root, 'build/play'), exist_ok=True)
+    open(os.path.join(root, prove.MUTATING), 'w').write('a mutate run is changing this build\n')
+
+
 def run_commands(root, commands, env):
     """{command: passed | failed} for each argv, run from the tree's root."""
     return {' '.join(c): 'passed' if sh(root, c, env).returncode == 0 else 'failed' for c in commands}
@@ -227,7 +247,7 @@ def baseline(root, ctest, unit, env, commands=()):
 def run_sweep(root, base, env):
     _, _, source, ctest, unit = branch(root, base)
     if not source:
-        return True, ['- no source hunk under src/']
+        return True, ['- hunk sweep: no source hunk under src/, nothing to sweep']
     if sh(root, ['git', 'status', '--porcelain', '--untracked-files=no', '--', 'src', 'tests', 'tools']).stdout:
         sys.exit(f'mutate: {root} has uncommitted engine changes; commit or set them aside first')
     built, log = build(root, env)
@@ -235,32 +255,53 @@ def run_sweep(root, base, env):
     if not ok:
         return False, lines
     lines = [f'Hunk sweep, each reverted alone; tests: {", ".join(f"`{n}`" for n in ctest + unit)}:']
-    survived = 0
-    for i, (path, header, hunk) in enumerate(source, 1):
-        where = f'{path} {hunk.splitlines()[0].split("@@")[1].strip()}'
-        say(f'hunk {i}/{len(source)}: {where}')
-        original = snapshot(root, path)
-        try:
-            if sh(root, ['git', 'apply', '-R', '--whitespace=nowarn', '-'], stdin=header + hunk).returncode:
-                outcome = 'did not apply alone'
-            elif not build(root, env)[0]:
-                outcome = 'failed at build'
-            else:
-                results = run_tests(root, ctest, unit, env)
-                killers = [n for n, r in results.items() if r == 'failed']
-                lost = [n for n, r in results.items() if r == 'not run']
-                outcome = f'killed by {", ".join(killers)}' if killers else \
-                    f'cannot judge: {", ".join(lost)} did not run' if lost else 'SURVIVED: no test notices'
-                survived += not killers
-        finally:
-            restore(root, path, original)
-        lines.append(f'- `{where}`: {outcome}')
-    build(root, env)
-    return survived == 0, lines
+    failed = 0
+    mark(root)
+    try:
+        for i, (path, header, hunk) in enumerate(source, 1):
+            where = f'{path} {hunk.splitlines()[0].split("@@")[1].strip()}'
+            say(f'hunk {i}/{len(source)}: {where}')
+            original = snapshot(root, path)
+            try:
+                if sh(root, ['git', 'apply', '-R', '--whitespace=nowarn', '-'], stdin=header + hunk).returncode:
+                    outcome = 'NOT JUDGED: does not revert alone'
+                elif not build(root, env)[0]:
+                    outcome = 'failed at build'
+                else:
+                    results = run_tests(root, ctest, unit, env)
+                    killers = [n for n, r in results.items() if r == 'failed']
+                    lost = [n for n, r in results.items() if r == 'not run']
+                    outcome = f'killed by {", ".join(killers)}' if killers else \
+                        f'NOT JUDGED: {", ".join(lost)} did not run' if lost else 'SURVIVED: no test notices'
+            finally:
+                restore(root, path, original)
+            failed += outcome.startswith(('SURVIVED', 'NOT JUDGED'))
+            lines.append(f'- `{where}`: {outcome}')
+    finally:
+        rebuilt, why = marked_build(root, env)
+    return failed == 0 and rebuilt, lines + why
 
 
 def run_cases(root, path, names, env):
-    cases = [c for c in json.load(open(path)) if not names or c['name'] in names]
+    every = json.load(open(path))
+    unknown = set(names) - {c['name'] for c in every}
+    if unknown:
+        sys.exit(f'mutate: no such case in {path}: {", ".join(sorted(unknown))}')
+    cases = [c for c in every if not names or c['name'] in names]
+    if not cases:
+        sys.exit(f'mutate: {path} holds no case')
+    engine_cases = any(not c['file'].startswith('mac/') for c in cases)
+    if engine_cases:
+        mark(root)
+    try:
+        lines, survived = judge_cases(root, cases, env)
+    finally:
+        rebuilt, why = marked_build(root, env) if engine_cases else (True, [])
+    return survived == 0 and rebuilt, lines + why
+
+
+def judge_cases(root, cases, env):
+    """(report lines, cases not killed)."""
     lines, survived = [], 0
     for case in cases:
         say(f'case {case["name"]}')
@@ -297,9 +338,7 @@ def run_cases(root, path, names, env):
             restore(root, case['file'], original)
         survived += not outcome.startswith('killed')
         lines.append(f'- {case["name"]}: {outcome}')
-    if any(not c['file'].startswith('mac/') for c in cases):
-        build(root, env)
-    return survived == 0, lines
+    return lines, survived
 
 
 def main():
@@ -315,6 +354,9 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a killed run still restores the files it broke
     root = os.path.abspath(opt.root)
     env = prove.tree_env(root)
+    lock = open(os.path.expanduser('~/.cache/osc-prove.lock'), 'w')
+    say('waiting for other trees\' heavy checks (prove\'s lock)')
+    fcntl.flock(lock, fcntl.LOCK_EX)  # held for the whole run: its builds, tests and the shared base tree
     if opt.mode == 'base':
         ok, lines = run_base(root, opt.base, env)
     elif opt.mode == 'sweep':

@@ -21,7 +21,8 @@ SHELLS = {'bash', 'sh', 'zsh', 'dash', 'ksh'}
 INTERPRETERS = {'python', 'python3', 'perl', 'ruby', 'node'}
 INPUT_WORDS = {'click', 'drag', 'scroll', 'key', 'type', 'wait'}
 WINDOW_WORDS = {'original', 'game', 'client'}
-READERS = {'cat', 'grep', 'rg', 'head', 'tail', 'less', 'more', 'wc', 'ls', 'file', 'stat', 'diff'}
+READERS = {'cat', 'grep', 'rg', 'head', 'tail', 'wc', 'ls', 'file', 'stat', 'diff'}
+RUNS_A_PROGRAM = re.compile(r'--pre(-glob)?(=|$)|--(diff-)?program|--search-zip$|^-z$')  # rg --pre, diff --diff-program
 
 
 def without_heredocs(text):
@@ -87,11 +88,11 @@ def launches(command):
 
 
 def reads_only(command):
-    """Every command run is a reader (grep, cat...) and nothing is redirected: naming the grant only reads it."""
+    """Every command is a reader (grep, cat...) given no option that runs a program, with no environment set and
+    nothing redirected: naming the grant only reads it."""
     for words in commands(command):
-        while words and (re.fullmatch(r'\w+=.*', words[0]) or os.path.basename(words[0]) in WRAPPERS):
-            words = words[1:]
-        if words and (os.path.basename(words[0]) not in READERS or any('>' in w for w in words)):
+        if words and (os.path.basename(words[0]) not in READERS or any('>' in w for w in words)
+                      or any(RUNS_A_PROGRAM.search(w) for w in words[1:])):
             return False
     return True
 

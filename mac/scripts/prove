@@ -13,8 +13,9 @@ A suite passes only if tests ran: none found, none passed, or more skipped than 
 game: 3 passed, 274 skipped) is a failure, and the Tested block gives passed and skipped per suite.
 --fail-first adds mac/scripts/mutate's base and sweep runs (the branch's tests alone on the base, each
 source hunk reverted alone; --fail-first-against names the base's commit for a test-only branch) under
-"Fail first" in the block. It never builds: it stops if DIR/build/play is missing or was
-built from another revision than the tree's (`git describe --always --dirty`, as the build embeds it).
+"Fail first" in the block. It never builds: it stops if DIR/build/play's binaries are missing or
+report (--version) another revision than HEAD, if the tree has uncommitted engine edits, or if a mutate
+run left the build mid-mutation.
 Exit status is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
 """
 import argparse
@@ -31,14 +32,18 @@ SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
 ORDER = ['unit', 'arch', 'mp', 'gate', 'format', 'metrics', 'smoke', 'render']
 SUITES = ('unit', 'arch', 'mp', 'gate')
 LIGHT = ('arch', 'format', 'metrics')  # the checks that never start the game run beside other trees'
-REVISION_HEADER = 'build/play/src/core/generated/osc_revision.hpp'
+BINARIES = ('build/play/opensupcom', 'build/play/osc_integration')
+MUTATING = 'build/play/mutate-in-progress'  # mac/scripts/mutate's mark: the build may hold a mutant
+
+
+def is_engine(path):
+    return path.startswith(ENGINE) or os.path.basename(path) in ENGINE_FILES or path.endswith(('.cmake',) + SHADERS)
 
 
 def checks_for(paths):
     """(checks to run, {skipped check: reason})."""
     shader = any(p.endswith(SHADERS) for p in paths)
-    engine = shader or any(p.startswith(ENGINE) or os.path.basename(p) in ENGINE_FILES
-                           or p.endswith('.cmake') for p in paths)
+    engine = any(is_engine(p) for p in paths)
     render = shader or any(p.startswith('src/renderer/') for p in paths)
     chosen = {'metrics'} | ({'arch'} if any(p.startswith('tools/') for p in paths) else set())
     if engine:
@@ -140,6 +145,15 @@ def run_check(root, name, argv, env):
     return run_suite(root, name, argv, env)
 
 
+def after_rerun(counts, rerun):
+    """A suite's (total, failed, skipped) once its failures ran again: one that failed and then skipped or
+    did not run on the rerun stays failed."""
+    if not rerun:
+        return counts
+    total, failed, skipped = rerun
+    return counts[0], failed + skipped + max(0, counts[1] - total), counts[2]
+
+
 def run_suite(root, name, argv, env):
     result = sh(root, argv, env)
     out = result.stdout + result.stderr
@@ -147,8 +161,7 @@ def run_suite(root, name, argv, env):
     if result.returncode and name in ('mp', 'gate') and counts and counts[1]:
         print(f'prove: {name}: rerunning failures once (network tests flake under load)', flush=True)
         result = sh(root, ['ctest', '--test-dir', 'build/play', '--rerun-failed', '--output-on-failure'], env)
-        rerun = ctest_counts(result.stdout + result.stderr)
-        counts = (counts[0], rerun[1] if rerun else counts[1], counts[2])
+        counts = after_rerun(counts, ctest_counts(result.stdout + result.stderr))
         out = result.stdout + result.stderr
     ok, detail = verdict(result.returncode, counts) if name in SUITES else (result.returncode == 0, '')
     if not ok:
@@ -156,13 +169,29 @@ def run_suite(root, name, argv, env):
     return ok, detail
 
 
-def built_revision(root):
-    """The revision build/play was built from, or None."""
-    try:
-        m = re.search(r'OSC_REVISION "([^"]*)"', open(os.path.join(root, REVISION_HEADER)).read())
-    except OSError:
-        return None
+def version_revision(out):
+    """The revision in a binary's --version line ("OpenSupCom 0.1.0 (709b8719-dirty)"), or None."""
+    m = re.search(r'^OpenSupCom \S+ \(([0-9a-f]+(?:-dirty)?)\)$', out, re.M)
     return m and m.group(1)
+
+
+def build_problem(root):
+    """Why build/play cannot prove the tree (its binaries' revision, uncommitted engine edits), or None."""
+    if os.path.exists(os.path.join(root, MUTATING)):
+        return f'{MUTATING} is there: a mutate run stopped before rebuilding the restored tree'
+    head = sh(root, ['git', 'rev-parse', 'HEAD']).stdout.strip()
+    for binary in BINARIES:
+        if not os.path.exists(os.path.join(root, binary)):
+            return f'{binary} is missing; build the tree first (OSC_ROOT={root} bash mac/recipe/build.sh)'
+        built = version_revision(sh(root, [binary, '--version']).stdout)
+        sha = built and sh(root, ['git', 'rev-parse', '--verify', '-q', built.removesuffix('-dirty')]).stdout.strip()
+        if sha != head:
+            return f'{binary} was built from {built or "an unknown revision"}, HEAD is {head[:8]}'
+    dirty = [line[3:] for line in sh(root, ['git', 'status', '--porcelain', '--untracked-files=no']).stdout.splitlines()]
+    engine = [p for p in dirty if is_engine(p.split(' -> ')[-1])]
+    if engine:
+        return f'uncommitted engine changes the build cannot be tied to: {" ".join(engine[:5])}'
+    return None
 
 
 def main():
@@ -183,14 +212,9 @@ def main():
     print(f'prove: {len(diff.stdout.split())} changed paths; checks: {" ".join(chosen)}', flush=True)
     cmds = commands(base)
     env = tree_env(root)
-    if not os.path.exists(os.path.join(root, 'build/play/opensupcom')):
-        sys.exit(f'prove: build/play/opensupcom is missing in {root}; build the tree first '
-                 f'(OSC_ROOT={root} bash mac/recipe/build.sh)')
-    built = built_revision(root)
-    tree = sh(root, ['git', 'describe', '--always', '--dirty']).stdout.strip()
-    if built != tree:
-        sys.exit(f'prove: build/play was built from {built or "an unknown revision"}, the tree is {tree}; '
-                 f'rebuild first (cmake --build build/play in {root})')
+    if problem := build_problem(root):
+        sys.exit(f'prove: {problem}; commit or set aside engine edits, then rebuild (cmake --build build/play in {root})')
+    built = version_revision(sh(root, [BINARIES[0], '--version']).stdout)
     results = {}
     for name in chosen:
         print(f'prove: check {name}', flush=True)
@@ -268,6 +292,12 @@ def self_test():
     assert verdict(0, ctest_counts(MIXED)) == (True, '2 passed, 1 skipped, 0 failed of 3')
     assert verdict(0, ctest_counts(NO_GAME)) == (False, 'mostly skipped (3 passed, 274 skipped, 0 failed of 277)')
     assert verdict(8, ctest_counts(FAILED)) == (False, '1 passed, 1 skipped, 1 failed of 3')
+    assert after_rerun((3, 1, 0), (1, 0, 1)) == (3, 1, 0)
+    assert after_rerun((3, 1, 0), (1, 0, 0)) == (3, 0, 0)
+    assert after_rerun((3, 1, 0), None) == (3, 1, 0)
+    assert version_revision('[info] x\nOpenSupCom 0.1.0 (709b8719-dirty)\n') == '709b8719-dirty'
+    assert version_revision('OpenSupCom 0.1.0 (unknown)\n') is None
+    assert is_engine('src/a.cpp') and is_engine('tests/integration/CMakeLists.txt') and not is_engine('mac/scripts/x')
     assert verdict(0, catch2_counts('All tests passed (60 assertions in 13 test cases)\n')) == \
         (True, '13 passed, 0 skipped, 0 failed of 13')
     assert verdict(2, catch2_counts('test cases: 5 | 3 passed | 1 failed | 1 skipped\n'))[0] is False

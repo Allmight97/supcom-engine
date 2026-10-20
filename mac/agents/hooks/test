@@ -126,6 +126,10 @@ expect_input_hook 0 Bash "cat $grant_script | head -5"
 expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "$grant_script 10"
 expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "cat $grant_script | sh"
 expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "cat x > ~/.$grant_word"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "rg --pre sh x $grant_script"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "rg --pre=sh x $grant_script"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "env LESSOPEN=x cat $grant_script"
+expect_input_hook 0 Bash "rg -n ${grant_script##*/} mac/AGENTS.md"
 expect_input_hook ask Bash "mac/scripts/play --full"
 expect_input_hook "2:this opens a window on JStar's display" Bash "mac/scripts/play --full" bypassPermissions
 expect_input_hook ask Bash "JSTAR_SAID_YES=1 mac/scripts/play --full" bypassPermissions
