@@ -6,13 +6,17 @@
 
 From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout; BASE defaults to
 upstream/main) it picks the checks: any change under src/, tests/, cmake/, third_party/, CMake files,
-vcpkg.json or a shader runs unit, mp, gate (failures rerun once), format, metrics and smoke; a change
+vcpkg.json or a shader runs unit, arch, mp, gate (failures rerun once), format, metrics and smoke; a change
 under src/renderer or to a shader adds the render check; anything else (docs) runs metrics only.
-It never builds: it stops if DIR/build/play is missing and notes a build older than HEAD. Exit status
-is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
+A suite passes only if tests ran: none found, all skipped or none passed is a failure, and the Tested
+block gives passed and skipped per suite. It never builds: it stops if DIR/build/play is missing or was
+built from another revision than the tree's (`git describe --always --dirty`, as the build embeds it).
+Exit status is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
 """
+import argparse
 import fcntl
 import os
+import re
 import subprocess
 import sys
 
@@ -20,7 +24,9 @@ TOOLKIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = ('src/', 'tests/', 'cmake/', 'third_party/')
 ENGINE_FILES = ('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json')
 SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
-ORDER = ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'render']
+ORDER = ['unit', 'arch', 'mp', 'gate', 'format', 'metrics', 'smoke', 'render']
+SUITES = ('unit', 'arch', 'mp', 'gate')
+REVISION_HEADER = 'build/play/src/core/generated/osc_revision.hpp'
 
 
 def checks_for(paths):
@@ -31,7 +37,7 @@ def checks_for(paths):
     render = shader or any(p.startswith('src/renderer/') for p in paths)
     chosen = {'metrics'}
     if engine:
-        chosen |= {'unit', 'mp', 'gate', 'format', 'smoke'}
+        chosen |= {'unit', 'arch', 'mp', 'gate', 'format', 'smoke'}
     if render:
         chosen.add('render')
     why = 'no engine change' if not engine else 'no change under src/renderer or to a shader'
@@ -40,9 +46,10 @@ def checks_for(paths):
 
 def commands(base):
     """check name -> argv, run from the tree's root."""
-    ctest = ['ctest', '--test-dir', 'build/play']
+    ctest = ['ctest', '--test-dir', 'build/play', '--no-tests=error']
     return {
         'unit': ['build/play/tests/osc_tests'],
+        'arch': ctest + ['-L', 'arch'],
         'mp': ctest + ['-L', 'mp'],
         'gate': ctest + ['-L', 'gate', '-j', '4'],
         'format': ['sh', f'{TOOLKIT}/scripts/format', base],
@@ -50,6 +57,37 @@ def commands(base):
         'smoke': [f'{TOOLKIT}/scripts/osc-smoke'],
         'render': [f'{TOOLKIT}/scripts/osc-render-check'],
     }
+
+
+def ctest_counts(out):
+    """(total, failed, not run) from a ctest run's summary; None when it has no summary (no tests found)."""
+    m = re.search(r'^\d+% tests passed(?:, (\d+) tests? failed)? out of (\d+)', out, re.M)
+    if not m:
+        return None
+    not_run = len(re.findall(r'^\s*\d+ - \S+ \((?:Skipped|Not Run|Disabled)\)\s*$', out, re.M))
+    return int(m.group(2)), int(m.group(1) or 0), not_run
+
+
+def catch2_counts(out):
+    """(total, failed, skipped) test cases from a Catch2 run's summary; None when it has none."""
+    if m := re.search(r'^All tests passed \(\d+ assertions? in (\d+) test cases?\)', out, re.M):
+        return int(m.group(1)), 0, 0
+    if m := re.search(r'^test cases:\s*(\d+)(.*)$', out, re.M):
+        part = lambda word: int(n.group(1)) if (n := re.search(rf'(\d+) {word}', m.group(2))) else 0
+        return int(m.group(1)), part('failed'), part('skipped')
+    return (0, 0, 0) if re.search(r'^No tests ran', out, re.M) else None
+
+
+def verdict(code, counts):
+    """(passed?, detail for the Tested line) for a suite's exit code and (total, failed, skipped)."""
+    if counts is None:
+        return False, 'no tests found'
+    total, failed, skipped = counts
+    passed = total - failed - skipped
+    detail = f'{passed} passed, {skipped} skipped, {failed} failed of {total}'
+    if total == 0 or passed == 0 or skipped == total:
+        return False, f'nothing ran ({detail})'
+    return code == 0 and failed == 0, detail
 
 
 def sh(root, argv, env=None):
@@ -63,6 +101,7 @@ def recipe_env(root):
 
 
 def run_check(root, name, argv, env):
+    """(passed?, detail or '')."""
     if name in ('unit', 'mp', 'gate'):
         # One tree at a time: parallel suites on one Mac fail network and render tests under load
         # (the unit tests include LAN lobby waits).
@@ -75,21 +114,38 @@ def run_check(root, name, argv, env):
 
 def run_suite(root, name, argv, env):
     result = sh(root, argv, env)
-    if result.returncode and name in ('mp', 'gate'):
+    out = result.stdout + result.stderr
+    counts = catch2_counts(out) if name == 'unit' else ctest_counts(out) if name in SUITES else None
+    if result.returncode and name in ('mp', 'gate') and counts and counts[1]:
         print(f'prove: {name}: rerunning failures once (network tests flake under load)', flush=True)
         result = sh(root, ['ctest', '--test-dir', 'build/play', '--rerun-failed', '--output-on-failure'], env)
-    if result.returncode:
-        print('\n'.join((result.stdout + result.stderr).strip().splitlines()[-20:]), flush=True)
-    return result.returncode == 0
+        rerun = ctest_counts(result.stdout + result.stderr)
+        counts = (counts[0], rerun[1] if rerun else counts[1], counts[2])
+        out = result.stdout + result.stderr
+    ok, detail = verdict(result.returncode, counts) if name in SUITES else (result.returncode == 0, '')
+    if not ok:
+        print('\n'.join(out.strip().splitlines()[-20:]), flush=True)
+    return ok, detail
+
+
+def built_revision(root):
+    """The revision build/play was built from, or None."""
+    try:
+        m = re.search(r'OSC_REVISION "([^"]*)"', open(os.path.join(root, REVISION_HEADER)).read())
+    except OSError:
+        return None
+    return m and m.group(1)
 
 
 def main():
-    args = sys.argv[1:]
-    if '--self-test' in args:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--root', default=os.path.dirname(TOOLKIT))
+    parser.add_argument('--base', default='upstream/main')
+    parser.add_argument('--self-test', action='store_true')
+    opt = parser.parse_args()
+    if opt.self_test:
         return self_test()
-    opt = dict(zip(args[::2], args[1::2]))
-    root = os.path.abspath(opt.get('--root', os.path.dirname(TOOLKIT)))
-    base = opt.get('--base', 'upstream/main')
+    root, base = os.path.abspath(opt.root), opt.base
     diff = sh(root, ['git', 'diff', '--name-only', f'{base}...HEAD'])
     if diff.returncode:
         sys.exit(f'prove: cannot diff {base}...HEAD in {root}: {diff.stderr.strip()}')
@@ -100,38 +156,81 @@ def main():
     if not os.path.isdir(os.path.join(root, 'mac')):
         # Upstream's code finds a driver only in ~/VulkanSDK or Homebrew; name the fork's pinned KosmicKrisp.
         env['VK_ADD_DRIVER_FILES'] = f"{env['VULKAN_SDK']}/share/vulkan/icd.d/libkosmickrisp_icd.json"
-    binary = os.path.join(root, 'build/play/opensupcom')
-    notes = []
-    if not os.path.exists(binary):
-        sys.exit(f'prove: {binary} is missing; build the tree first (OSC_ROOT={root} bash mac/recipe/build.sh)')
-    head_time = int(sh(root, ['git', 'log', '-1', '--format=%ct']).stdout.strip() or 0)
-    if os.path.getmtime(binary) < head_time:
-        notes.append('the build in build/play is older than HEAD; the results may not describe HEAD')
-        print(f'prove: warning: {notes[-1]}', flush=True)
+    if not os.path.exists(os.path.join(root, 'build/play/opensupcom')):
+        sys.exit(f'prove: build/play/opensupcom is missing in {root}; build the tree first '
+                 f'(OSC_ROOT={root} bash mac/recipe/build.sh)')
+    built = built_revision(root)
+    tree = sh(root, ['git', 'describe', '--always', '--dirty']).stdout.strip()
+    if built != tree:
+        sys.exit(f'prove: build/play was built from {built or "an unknown revision"}, the tree is {tree}; '
+                 f'rebuild first (cmake --build build/play in {root})')
     results = {}
     for name in chosen:
         print(f'prove: check {name}', flush=True)
         results[name] = run_check(root, name, cmds[name], env)
-        print(f'prove: check {name}: {"pass" if results[name] else "FAIL"}', flush=True)
-    print(f'\n### Tested\n\nBase `{base}`, tree `{root}`.\n')
+        print(f'prove: check {name}: {"pass" if results[name][0] else "FAIL"} {results[name][1]}'.rstrip(), flush=True)
+    print(f'\n### Tested\n\nBase `{base}`, tree `{root}`, built from `{built}`.\n')
     for name in chosen:
         shown = f'mac/scripts/format {base}' if name == 'format' else \
             ' '.join(cmds[name]).replace(f'{TOOLKIT}/scripts', 'mac/scripts')
-        print(f'- `{shown}`: {"pass" if results[name] else "FAIL"}')
+        ok, detail = results[name]
+        print(f'- `{shown}`: {"pass" if ok else "FAIL"}{f" ({detail})" if detail else ""}')
     for name, why in skipped.items():
         print(f'- skipped {name}: {why}')
-    for note in notes:
-        print(f'- note: {note}')
-    sys.exit(0 if all(results.values()) else 1)
+    sys.exit(0 if all(ok for ok, _ in results.values()) else 1)
+
+
+ALL_SKIPPED = """\
+1/1 Test #1860: data.move-test ...................***Skipped   0.34 sec
+
+100% tests passed out of 1
+
+The following tests did not run:
+\t1860 - data.move-test (Skipped)
+"""
+NONE_FOUND = """\
+Test project /tmp/build/play
+No tests were found!!!
+Errors while running CTest
+"""
+MIXED = """\
+1/3 Test    #1: arch.link_layers .................   Passed    0.04 sec
+2/3 Test   #20: arch.version .....................   Passed    0.03 sec
+3/3 Test #1860: data.move-test ...................***Skipped   0.01 sec
+
+100% tests passed out of 3
+
+The following tests did not run:
+\t1860 - data.move-test (Skipped)
+"""
+FAILED = """\
+67% tests passed, 1 tests failed out of 3
+
+The following tests did not run:
+\t  3 - sk (Skipped)
+
+The following tests FAILED:
+\t  2 - bad (Failed)
+"""
 
 
 def self_test():
     assert checks_for(['docs/a.md', 'README.md'])[0] == ['metrics']
-    assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke']
+    assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'arch', 'mp', 'gate', 'format', 'metrics', 'smoke']
     assert checks_for(['src/renderer/a.cpp'])[0] == ORDER
     assert checks_for(['src/app/a.cpp'])[1] == {'render': 'no change under src/renderer or to a shader'}
     assert checks_for(['assets/x.frag'])[0] == ORDER
     assert checks_for(['srcs/a.cpp', 'mac/scripts/x'])[0] == ['metrics']
+    assert all('--no-tests=error' in argv for name, argv in commands('b').items() if argv[0] == 'ctest')
+    assert ctest_counts(ALL_SKIPPED) == (1, 0, 1)
+    assert verdict(0, ctest_counts(ALL_SKIPPED)) == (False, 'nothing ran (0 passed, 1 skipped, 0 failed of 1)')
+    assert ctest_counts(NONE_FOUND) is None and verdict(8, None) == (False, 'no tests found')
+    assert verdict(0, ctest_counts(MIXED)) == (True, '2 passed, 1 skipped, 0 failed of 3')
+    assert verdict(8, ctest_counts(FAILED)) == (False, '1 passed, 1 skipped, 1 failed of 3')
+    assert verdict(0, catch2_counts('All tests passed (60 assertions in 13 test cases)\n')) == \
+        (True, '13 passed, 0 skipped, 0 failed of 13')
+    assert verdict(2, catch2_counts('test cases: 5 | 3 passed | 1 failed | 1 skipped\n'))[0] is False
+    assert verdict(0, catch2_counts('No tests ran\n'))[0] is False
     print('prove self-test passed')
 
 
