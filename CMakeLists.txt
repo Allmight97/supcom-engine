@@ -169,6 +169,8 @@ if(OSC_BUILD_TESTS)
     # Each directory that registers gate tests calls this after its last one.
     file(STRINGS ${CMAKE_SOURCE_DIR}/tests/integration/no_check_baseline.txt _osc_no_check
          REGEX "^[^#]")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                 ${CMAKE_SOURCE_DIR}/tests/integration/no_check_baseline.txt)
     function(osc_gate_test_environment)
         get_property(_tests DIRECTORY PROPERTY TESTS)
         foreach(_t IN LISTS _tests)
