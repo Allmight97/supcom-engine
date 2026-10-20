@@ -8,8 +8,8 @@ From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout
 upstream/main) it picks the checks: any change under src/, tests/, cmake/, third_party/, CMake files,
 vcpkg.json or a shader runs unit, arch, mp, gate (failures rerun once), format, metrics and smoke; a change
 under src/renderer or to a shader adds the render check; anything else (docs) runs metrics only.
-A suite passes only if tests ran: none found, all skipped or none passed is a failure, and the Tested
-block gives passed and skipped per suite. It never builds: it stops if DIR/build/play is missing or was
+A suite passes only if tests ran: none found, none passed, or more skipped than passed (a gate with no
+game: 3 passed, 274 skipped) is a failure, and the Tested block gives passed and skipped per suite. It never builds: it stops if DIR/build/play is missing or was
 built from another revision than the tree's (`git describe --always --dirty`, as the build embeds it).
 Exit status is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
 """
@@ -85,8 +85,10 @@ def verdict(code, counts):
     total, failed, skipped = counts
     passed = total - failed - skipped
     detail = f'{passed} passed, {skipped} skipped, {failed} failed of {total}'
-    if total == 0 or passed == 0 or skipped == total:
+    if total == 0 or passed == 0:
         return False, f'nothing ran ({detail})'
+    if skipped > passed:
+        return False, f'mostly skipped ({detail})'
     return code == 0 and failed == 0, detail
 
 
@@ -203,6 +205,8 @@ MIXED = """\
 The following tests did not run:
 \t1860 - data.move-test (Skipped)
 """
+NO_GAME = '100% tests passed out of 277\n\nThe following tests did not run:\n' + \
+    ''.join(f'\t{n} - data.mode-{n} (Skipped)\n' for n in range(274))
 FAILED = """\
 67% tests passed, 1 tests failed out of 3
 
@@ -226,6 +230,7 @@ def self_test():
     assert verdict(0, ctest_counts(ALL_SKIPPED)) == (False, 'nothing ran (0 passed, 1 skipped, 0 failed of 1)')
     assert ctest_counts(NONE_FOUND) is None and verdict(8, None) == (False, 'no tests found')
     assert verdict(0, ctest_counts(MIXED)) == (True, '2 passed, 1 skipped, 0 failed of 3')
+    assert verdict(0, ctest_counts(NO_GAME)) == (False, 'mostly skipped (3 passed, 274 skipped, 0 failed of 277)')
     assert verdict(8, ctest_counts(FAILED)) == (False, '1 passed, 1 skipped, 1 failed of 3')
     assert verdict(0, catch2_counts('All tests passed (60 assertions in 13 test cases)\n')) == \
         (True, '13 passed, 0 skipped, 0 failed of 13')
