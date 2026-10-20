@@ -71,7 +71,8 @@ void print_usage() {
               << "  --mouse \"<when> <verb> <what>\"  A player's mouse, a step at a time:\n"
               << "                     <when> a frame (as --screenshot-frame counts) or t<tick>;\n"
               << "                     move <x>,<y> (pixels) or w<x>,<z> (the ground there),\n"
-              << "                     press|release left|right|middle|shift|ctrl|alt.\n"
+              << "                     press|release left|right|middle|shift|ctrl|alt, or the\n"
+              << "                     key equals|minus|numplus|numminus|numstar.\n"
               << "                     Steps go in turn; one held stays held\n"
               << "  --binding-coverage <file>  Report engine API the scripts call but\n"
               << "                     the engine lacks (needs --map)\n"
@@ -338,7 +339,7 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
             if (!step) {
                 spdlog::error("--mouse '{}': give a step as '<frame>|t<tick> move "
                               "<x>,<y>|w<x>,<z>' or '<frame>|t<tick> press|release "
-                              "left|right|middle|shift|ctrl|alt'",
+                              "left|right|middle|shift|ctrl|alt|equals|minus|numplus|numminus|numstar'",
                               argv[i]);
                 return std::nullopt;
             }
