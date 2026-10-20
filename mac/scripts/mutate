@@ -39,6 +39,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 
@@ -97,18 +98,34 @@ def is_test_hunk(path, hunk):
 
 
 def touched_lines(hunk):
-    """The new-side line numbers a hunk adds, or removes lines at."""
+    """The new-side line numbers where a hunk adds or removes a line holding something (not blank or // only)."""
     m = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)', hunk)
     line, out = int(m.group(1)) if m else 1, set()
     for text in hunk.splitlines()[1:]:
+        holds = bool(text[1:].strip()) and not text[1:].lstrip().startswith('//')
         if text.startswith('+'):
-            out.add(line)
+            if holds:
+                out.add(line)
             line += 1
         elif text.startswith('-'):
-            out.add(line)
+            if holds:
+                out.add(line)
         elif not text.startswith('\\'):
             line += 1
     return out
+
+
+def case_start(file, line):
+    """The line of the TEST_CASE a case's reported line belongs to: Catch2 reports a macro spread over
+    several lines at its last."""
+    try:
+        lines = open(file, encoding='utf-8', errors='replace').read().splitlines()
+    except OSError:
+        return line
+    for at in range(min(line, len(lines)), max(0, line - 10), -1):
+        if 'TEST_CASE' in lines[at - 1]:
+            return at
+    return line
 
 
 def code_flags(lines):
@@ -148,7 +165,7 @@ def changed_cases(test_hunks, unit_cases):
         touched.setdefault(p, set()).update(touched_lines(h))
     by_file = {}
     for name, file, line in unit_cases:
-        by_file.setdefault(file, []).append((line, name))
+        by_file.setdefault(file, []).append((case_start(file, line), name))
     out = []
     for file, cases in by_file.items():
         lines = next((touched[p] for p in touched if file.endswith('/' + p)), set())
@@ -550,6 +567,17 @@ def self_test():
                                                    'data.crash-test': 'Exception: SegFault'}
     assert catch2_spec('a, b [c]') == r'a\, b \[c\]'
     assert touched_lines('@@ -10,3 +12,4 @@\n ctx\n+new\n-old\n ctx\n') == {13, 14}
+    with tempfile.TemporaryDirectory() as tmp:
+        cases_file = os.path.join(tmp, 'tests', 'test_install.cpp')
+        os.makedirs(os.path.dirname(cases_file))
+        open(cases_file, 'w').write('TEST_CASE("A", "[x]") {\n    CHECK(a);\n}\n\nTEST_CASE(\n    "B",\n'
+                                    '    "[x]") {\n    CHECK(b);\n}\n')
+        b_added = ('tests/test_install.cpp', '', '@@ -2,3 +2,8 @@\n     CHECK(a);\n }\n \n+TEST_CASE(\n'
+                   '+    "B",\n+    "[x]") {\n+    CHECK(b);\n+}\n')
+        a_b = [('A', cases_file, 1), ('B', cases_file, 7)]  # Catch2 reports B at its macro's last line
+        assert changed_cases([b_added], a_b) == ['B'], changed_cases([b_added], a_b)
+        blank_before = ('tests/test_install.cpp', '', '@@ -2,2 +2,3 @@\n     CHECK(a);\n }\n+\n')
+        assert changed_cases([blank_before], a_b) == []
     assert include_only('@@ -1,2 +1,3 @@\n #include <a>\n+#include <b>\n+\n-// old note\n')
     assert include_only('@@ -1,3 +1,4 @@\n /*\n+ * a note\n  */\n')
     assert not include_only('@@ -1,1 +1,1 @@\n-int a = 1;\n+int a = 2;\n')
