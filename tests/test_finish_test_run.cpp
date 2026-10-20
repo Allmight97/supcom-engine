@@ -8,7 +8,12 @@
 #include "core/test_status.hpp"
 #include "lua/lua_state.hpp"
 
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
+
 #include <cstdlib>
+#include <memory>
+#include <sstream>
 
 extern "C" {
 #include <lua.h>
@@ -72,7 +77,15 @@ TEST_CASE(
     "[app][test-status]") {
     osc::test_status::reset();
     osc::test_status::fail("the one check failed");
-    CHECK(osc::test_status::check_count() == 1);
-    CHECK(osc::app::finish_test_run("one failure") == 1);
+    std::ostringstream log;
+    const auto previous = spdlog::default_logger();
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>(
+        "capture", std::make_shared<spdlog::sinks::ostream_sink_st>(log)));
+    const int code = osc::app::finish_test_run("one failure");
+    spdlog::set_default_logger(previous);
+    CHECK(code == 1);
+    CHECK(log.str().find("one failure: FAIL (1 failed check(s))") != std::string::npos);
+    CHECK(log.str().find("the one check failed") != std::string::npos);
+    CHECK(log.str().find("no check ran") == std::string::npos);
     osc::test_status::reset();
 }

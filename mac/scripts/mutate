@@ -110,9 +110,34 @@ def touched_lines(hunk):
     return out
 
 
+def code_flags(lines):
+    """For each line, whether it holds code: not blank, an #include, a // comment or wholly inside /* */."""
+    flags, block = [], False
+    for text in lines:
+        rest, code = text.strip(), False
+        while rest and not code:
+            if block:
+                end = rest.find('*/')
+                rest, block = ('', True) if end < 0 else (rest[end + 2:].lstrip(), False)
+            elif rest.startswith('/*'):
+                rest, block = rest[2:], True
+            elif rest.startswith(('//', '#include')):
+                rest = ''
+            else:
+                code = True
+        flags.append(code)
+    return flags
+
+
 def include_only(hunk):
-    """Every changed line is an #include, a comment or blank: reverting it is no mutation."""
-    return all(not t.strip() or re.match(r'\s*(#include\b|//|/\*|\*)', t) for t in changed(hunk, '+') + changed(hunk, '-'))
+    """Every changed line is an #include, a comment or blank: reverting it is no mutation. Each side of the
+    hunk (context and removed lines; context and added lines) is read in order, so a block comment is tracked."""
+    body = hunk.splitlines()[1:]
+    for sign in '-+':
+        side = [t for t in body if t[:1] in (' ', sign)]
+        if any(code and t[:1] == sign for t, code in zip(side, code_flags(t[1:] for t in side))):
+            return False
+    return True
 
 
 def changed_cases(test_hunks, unit_cases):
@@ -504,8 +529,26 @@ def self_test():
     assert catch2_spec('a, b [c]') == r'a\, b \[c\]'
     assert touched_lines('@@ -10,3 +12,4 @@\n ctx\n+new\n-old\n ctx\n') == {13, 14}
     assert include_only('@@ -1,2 +1,3 @@\n #include <a>\n+#include <b>\n+\n-// old note\n')
+    assert include_only('@@ -1,3 +1,4 @@\n /*\n+ * a note\n  */\n')
     assert not include_only('@@ -1,1 +1,1 @@\n-int a = 1;\n+int a = 2;\n')
+    assert not include_only('@@ -1,0 +1,1 @@\n+*p = 1;\n')
+    assert not include_only('@@ -1,0 +1,1 @@\n+/* x */ run();\n')
+    assert not include_only('@@ -1,1 +1,1 @@\n-*p = 1;\n+*p = 2;\n')
+    assert not include_only('@@ -1,3 +1,3 @@\n /* a\n-   b */ run();\n+   b */ walk();\n')
     assert sweep_refusal(40, 9, 'main', 0) is None and sweep_refusal(41, 9, 'main', 41) is None
+    stubs, touched = {'branch', 'build', 'sh', 'restore'}, []
+    saved = {name: globals()[name] for name in stubs}
+    globals().update(branch=lambda *a: ('m', [], [('src/a.cpp', 'h', '@@ -1 +1 @@\n-a\n+b\n')] * 41, [], []),
+                     build=lambda *a: touched.append('build'), sh=lambda *a, **k: touched.append('sh'),
+                     restore=lambda *a: touched.append('restore'))
+    try:
+        run_sweep('/no/tree', 'main', {}, 0)
+        refused = None
+    except SystemExit as stop:
+        refused = stop.code
+    finally:
+        globals().update(saved)
+    assert refused == 2 and not touched, f'a 41-hunk sweep exits 2 before any revert or build: {refused}, {touched}'
     assert sweep_refusal(237, 81, 'upstream/main', 0).startswith('- sweep: 237 hunks in 81 files against upstream/main')
     print('mutate self-test passed')
 

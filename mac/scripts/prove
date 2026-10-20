@@ -15,7 +15,7 @@ game: 3 passed, 274 skipped) is a failure, and the Tested block gives passed and
 --fail-first adds mac/scripts/mutate's base and sweep runs (the branch's tests alone on the base, each
 source hunk reverted alone; --fail-first-against names the base's commit for a test-only branch) under
 "Fail first" in the block. It never builds: it stops if DIR/build/play's binaries are missing or
-report (--version) another revision than HEAD, if the tree has uncommitted engine edits, or if a mutate
+embed another revision than HEAD (a -dirty build too), if the tree has uncommitted engine edits, or if a mutate
 run left the build mid-mutation.
 A check over 45 minutes is stopped and fails (timeout); fail-first has 60 minutes for base and sweep.
 A heartbeat every 10 minutes names the phase and, in a sweep, the hunk. Exit status is non-zero if any
@@ -38,7 +38,7 @@ SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
 ORDER = ['unit', 'arch', 'mp', 'gate', 'format', 'metrics', 'smoke', 'render']
 SUITES = ('unit', 'arch', 'mp', 'gate')
 LIGHT = ('arch', 'format', 'metrics')  # the checks that never start the game run beside other trees'
-BINARIES = ('build/play/opensupcom', 'build/play/osc_integration')
+BINARIES = ('build/play/opensupcom', 'build/play/osc_integration', 'build/play/tests/osc_tests')
 MUTATING = 'build/play/mutate-in-progress'  # mac/scripts/mutate's mark: the build may hold a mutant
 
 
@@ -135,18 +135,25 @@ def heartbeat(every=600):
     threading.Thread(target=beat, daemon=True).start()
 
 
-def run_budgeted(argv, cwd, env, budget, on_line=None):
-    """(exit code, or None when the run outlived its budget and was stopped; its output)."""
+def run_budgeted(argv, cwd, env, budget, on_line=None, grace=60):
+    """(exit code, or None when the run outlived its budget and was stopped; its output). Over budget, the run's
+    process group gets SIGTERM (mutate restores its tree on it), then SIGKILL `grace` seconds later."""
     run = subprocess.Popen(argv, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            start_new_session=True)
     expired = []
 
-    def stop():
-        expired.append(True)
+    def kill(sig):
         try:
-            os.killpg(run.pid, signal.SIGTERM)  # mutate restores its tree on SIGTERM
+            os.killpg(run.pid, sig)
         except ProcessLookupError:
             pass
+
+    def stop():
+        expired.append(True)
+        kill(signal.SIGTERM)
+        killer = threading.Timer(grace, kill, (signal.SIGKILL,))
+        killer.daemon = True
+        killer.start()
     timer = threading.Timer(budget, stop)
     timer.start()
     out = []
@@ -234,24 +241,30 @@ def run_suite(root, name, argv, env):
     return ok, detail
 
 
-def version_revision(out):
-    """The revision in a binary's --version line ("OpenSupCom 0.1.0 (709b8719-dirty)"), or None."""
-    m = re.search(r'^OpenSupCom \S+ \(([0-9a-f]+(?:-dirty)?)\)$', out, re.M)
-    return m and m.group(1)
+def version_revision(data):
+    """The revision in the version line a binary embeds ("OpenSupCom 0.1.0 (709b8719-dirty)"), or None."""
+    m = re.search(rb'OpenSupCom [0-9.]+ \(([0-9a-f]+(?:-dirty)?)\)', data)
+    return m and m.group(1).decode()
+
+
+def binary_revision(root, binary):
+    with open(os.path.join(root, binary), 'rb') as f:
+        return version_revision(f.read())
 
 
 def build_problem(root):
-    """Why build/play cannot prove the tree (its binaries' revision, uncommitted engine edits), or None."""
+    """Why build/play cannot prove the tree, or None. prove proves committed trees: every binary must embed HEAD's
+    revision, not a -dirty one (its sources then cannot be identified), and no engine edit may be uncommitted."""
     if os.path.exists(os.path.join(root, MUTATING)):
         return f'{MUTATING} is there: a mutate run stopped before rebuilding the restored tree'
     head = sh(root, ['git', 'rev-parse', 'HEAD']).stdout.strip()
     for binary in BINARIES:
         if not os.path.exists(os.path.join(root, binary)):
             return f'{binary} is missing; build the tree first (OSC_ROOT={root} bash mac/recipe/build.sh)'
-        built = version_revision(sh(root, [binary, '--version']).stdout)
-        sha = built and sh(root, ['git', 'rev-parse', '--verify', '-q', built.removesuffix('-dirty')]).stdout.strip()
+        built = binary_revision(root, binary)
+        sha = built and sh(root, ['git', 'rev-parse', '--verify', '-q', built]).stdout.strip()
         if sha != head:
-            return f'{binary} was built from {built or "an unknown revision"}, HEAD is {head[:8]}'
+            return f'{binary} was built from {built or "an unknown revision"}, not HEAD {head[:8]}'
     dirty = [line[3:] for line in sh(root, ['git', 'status', '--porcelain', '--untracked-files=no']).stdout.splitlines()]
     engine = [p for p in dirty if is_engine(p.split(' -> ')[-1])]
     if engine:
@@ -281,7 +294,7 @@ def main():
     env = tree_env(root)
     if problem := build_problem(root):
         sys.exit(f'prove: {problem}; commit or set aside engine edits, then rebuild (cmake --build build/play in {root})')
-    built = version_revision(sh(root, [BINARIES[0], '--version']).stdout)
+    built = binary_revision(root, BINARIES[0])
     results = {}
     heartbeat()
     for name in chosen:
@@ -367,12 +380,15 @@ def self_test():
     assert verdict(0, ctest_counts(NO_GAME)) == (False, 'mostly skipped (3 passed, 274 skipped, 0 failed of 277)')
     assert verdict(8, ctest_counts(FAILED)) == (False, '1 passed, 1 skipped, 1 failed of 3')
     assert run_budgeted(['sleep', '5'], '.', None, 0.3) == (None, '')
+    started = time.time()
+    assert run_budgeted(['sh', '-c', 'trap "" TERM; sleep 30'], '.', None, 0.3, grace=0.3)[0] is None
+    assert time.time() - started < 10, 'a child that ignores SIGTERM is killed after the grace'
     assert run_budgeted(['sh', '-c', 'echo hi'], '.', None, 5) == (0, 'hi\n')
     assert after_rerun((3, 1, 0), (1, 0, 1)) == (3, 1, 0)
     assert after_rerun((3, 1, 0), (1, 0, 0)) == (3, 0, 0)
     assert after_rerun((3, 1, 0), None) == (3, 1, 0)
-    assert version_revision('[info] x\nOpenSupCom 0.1.0 (709b8719-dirty)\n') == '709b8719-dirty'
-    assert version_revision('OpenSupCom 0.1.0 (unknown)\n') is None
+    assert version_revision(b'\0x\0OpenSupCom 0.1.0 (709b8719-dirty)\0') == '709b8719-dirty'
+    assert version_revision(b'OpenSupCom 0.1.0 (unknown)') is None
     assert is_engine('src/a.cpp') and is_engine('tests/integration/CMakeLists.txt') and not is_engine('mac/scripts/x')
     assert verdict(0, catch2_counts('All tests passed (60 assertions in 13 test cases)\n')) == \
         (True, '13 passed, 0 skipped, 0 failed of 13')

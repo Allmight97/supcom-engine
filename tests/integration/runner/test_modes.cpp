@@ -848,7 +848,7 @@ std::optional<int> IntegrationModes::after_window() {
     if (!render_dump_path_.empty()) {
         if (!render_dump_->done())
             osc::test_status::fail("[FAIL] render-dump: the window closed before the dump ended");
-        return finish_test_run("render-dump");
+        return finish_test_run("render-dump", 0, false);
     }
     return std::nullopt;
 }
