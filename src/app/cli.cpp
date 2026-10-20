@@ -103,6 +103,9 @@ void print_usage() {
               << "                     as retail's lobby launches one, reporting what they did\n"
               << "  --mods-flow-lobby  ...through retail's lobby, picking Resource Rich in its\n"
               << "                     mod manager with a player's clicks\n"
+              << "  --lobby-options-test Offscreen: a game launched with --click, its speed keys\n"
+              << "                     pressed with --mouse; reports its speed and HUD\n"
+              << "  --lobby-options-rebind ...binding Equals and Minus to the speed first\n"
               << "  --campaign-flow-test Offscreen: the campaign through retail's screens, from\n"
               << "                     the main menu through X1CA_001 to X1CA_002's briefing\n"
               << "  --tutorial-flow-test Offscreen: the tutorial from operation select, through\n"
@@ -314,6 +317,9 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     o.load_flow_test = parse_flag(argc, argv, "--load-flow-test");
     // --mods-flow-test: a skirmish with the player's mods (M221b).
     o.mods_flow_test = parse_flag(argc, argv, "--mods-flow-test");
+    // --lobby-options-test: a lobby game's speed and HUD, reported.
+    o.lobby_options_test = parse_flag(argc, argv, "--lobby-options-test");
+    o.lobby_options_rebind = parse_flag(argc, argv, "--lobby-options-rebind");
     // --campaign-flow-test: the campaign through retail's screens (M209b).
     o.campaign_flow_test = parse_flag(argc, argv, "--campaign-flow-test");
     // --tutorial-flow-test: the same screens to the tutorial, played a while.
@@ -365,8 +371,9 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     if (o.gpgnet_endpoint.empty()) o.gpgnet_endpoint = parse_string_arg(argc, argv, "--gpgnet", "");
     o.gpgnet_scripted = !o.gpgnet_endpoint.empty() && parse_flag(argc, argv, "--gpgnet-scripted");
     o.scripted_window = request.windowed || o.replay_flow_test || o.load_flow_test ||
-                        o.mods_flow_test || o.campaign_flow_test || !o.clicks.empty() ||
-                        !o.mouse.empty() || o.lan_game_test() || o.gpgnet_scripted;
+                        o.mods_flow_test || o.lobby_options_test || o.campaign_flow_test ||
+                        !o.clicks.empty() || !o.mouse.empty() || o.lan_game_test() ||
+                        o.gpgnet_scripted;
     o.no_fog = parse_flag(argc, argv, "--no-fog");
     o.legacy_hud = parse_flag(argc, argv, "--legacy-hud");
     o.no_decals = parse_flag(argc, argv, "--no-decals");
@@ -428,8 +435,9 @@ const char* test_mode_flag(int argc, char* argv[]) {
         const std::string_view arg = argv[i];
         const bool test = arg.size() > 7 && arg.starts_with("--") && arg.ends_with("-test") &&
                           arg != "--replay-flow-test" && arg != "--load-flow-test" &&
-                          arg != "--mods-flow-test" && arg != "--campaign-flow-test" &&
-                          arg != "--tutorial-flow-test" && arg != "--outro-flow-test";
+                          arg != "--mods-flow-test" && arg != "--lobby-options-test" &&
+                          arg != "--campaign-flow-test" && arg != "--tutorial-flow-test" &&
+                          arg != "--outro-flow-test";
         if (test || arg == "--render-dump" || arg == "--mp-host" || arg == "--mp-join")
             return argv[i];
     }

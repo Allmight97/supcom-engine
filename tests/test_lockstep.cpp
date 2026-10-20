@@ -1085,6 +1085,37 @@ TEST_CASE("A fixed game speed can't be changed (M218i)", "[lockstep][speed]") {
     CHECK(g.sb.take_speed_changes().empty());
 }
 
+TEST_CASE("A peer's speed message changes nothing where the speed is fixed, or from an observer",
+          "[lockstep][speed]") {
+    PausePair g;
+    // A speed message from B, as its client would send one
+    const auto speed_from_b = [&](osc::u32 clock, osc::u32 rate) {
+        std::vector<osc::u8> msg;
+        osc::sim::ByteWriter w(msg);
+        w.u8v(4);  // a speed request
+        w.u32v(1); // from B
+        w.u32v(clock);
+        w.u32v(rate);
+        g.tb.broadcast(msg);
+        g.round();
+    };
+    g.sa.set_speed_option(4, false); // the lobby's 'fast'
+    speed_from_b(1, 9);
+    CHECK(g.sa.speed() == 4);
+    CHECK(g.sa.take_speed_changes().empty());
+
+    g.sa.set_speed_option(0, true);
+    g.a.set_source_army(1, -1); // B observes
+    speed_from_b(2, 9);
+    CHECK(g.sa.speed() == 0);
+    CHECK(g.sa.take_speed_changes().empty());
+
+    g.a.set_source_army(1, 1); // and a player's is taken
+    speed_from_b(3, 9);
+    CHECK(g.sa.speed() == 9);
+    CHECK_FALSE(g.sa.desynced());
+}
+
 TEST_CASE("A speed change reaches every peer; the newest wins, a tie the lower source (M218i)",
           "[lockstep][speed]") {
     PausePair g;

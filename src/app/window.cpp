@@ -401,6 +401,7 @@ std::optional<int> App::Window::start_flows() {
             return finish_test_run("mods-flow-test");
         }
     }
+    if (opt.lobby_options_test) lobby_options.emplace(opt.lobby_options_rebind);
     // --campaign-flow-test: the campaign through retail's screens (M209b)
     if (opt.campaign_flow_test) {
         using Route = osc::app::CampaignFlowTest::Route;
@@ -432,7 +433,7 @@ bool App::Window::running() const {
            !(render_bench && (render_bench->done() || render_bench->gave_up())) &&
            !replay_flow_done && !load_flow_done && !(lan_game && lan_game->done()) &&
            !gpgnet_done && !(mods_flow && mods_flow->done()) &&
-           !(campaign_flow && campaign_flow->done());
+           !(lobby_options && lobby_options->done()) && !(campaign_flow && campaign_flow->done());
 }
 
 std::optional<int> App::Window::finish() {
@@ -476,6 +477,10 @@ std::optional<int> App::Window::finish() {
     if (mods_flow) {
         mods_flow->finish();
         return finish_test_run("mods-flow-test");
+    }
+    if (lobby_options) {
+        lobby_options->finish();
+        return finish_test_run("lobby-options-test");
     }
     if (campaign_flow) {
         campaign_flow->finish();

@@ -331,7 +331,8 @@ Camera controls:
 The other keys are FA's own, from its key map (`keyNames.lua`,
 `defaultKeyMap.lua`): Esc for the menu, 1–0 and Ctrl-1 for control groups,
 M/A/S for move, attack and stop, Pause, NumPlus/NumMinus for game speed, and
-so on. Close the game from its menu or the window.
+so on. The speed keys act only in a game whose lobby chose Game Speed
+Adjustable; retail's default, Normal, fixes the speed, as Fast does. Close the game from its menu or the window.
 
 The simulation runs at 10 Hz (fixed timestep) decoupled from the render framerate.
 

@@ -76,7 +76,7 @@ void App::Window::handle_launch() {
                                                              : nullptr;
             lua_pushstring(uiL, "__osc_launch_lobby");
             lua_rawget(uiL, LUA_REGISTRYINDEX);
-            const bool lobby_launch = lua_toboolean(uiL, -1) && !recorded;
+            const bool lobby_launch = lua_toboolean(uiL, -1);
             lua_pop(uiL, 1);
             lua_pushstring(uiL, "__osc_launch_lobby");
             lua_pushnil(uiL);

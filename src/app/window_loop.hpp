@@ -8,6 +8,7 @@
 
 #include "app/app_internal.hpp"
 #include "app/lan_game_test.hpp"
+#include "app/lobby_options_test.hpp"
 #include "app/campaign_flow_test.hpp"
 #include "app/mods_flow_test.hpp"
 #include "app/render_bench.hpp"
@@ -244,6 +245,7 @@ private:
     /// front end, through retail's lobby and its mod manager (M221c), or a
     /// recorded one watched.
     std::optional<osc::app::ModsFlowTest> mods_flow;
+    std::optional<osc::app::LobbyOptionsTest> lobby_options;
     std::optional<osc::app::CampaignFlowTest> campaign_flow; ///< (M209b)
     std::optional<osc::app::UiClicks> ui_clicks;
     std::optional<osc::app::ScriptedMouse> scripted_mouse;

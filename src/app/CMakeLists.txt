@@ -10,6 +10,7 @@ add_library(osc_app STATIC
     frames.cpp
     headless.cpp
     lan_game_test.cpp
+    lobby_options_test.cpp
     log_bundle.cpp
     mods_flow_test.cpp
     campaign_flow_test.cpp
