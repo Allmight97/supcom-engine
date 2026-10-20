@@ -2325,7 +2325,7 @@ void test_enhance(TestContext& ctx) {
         LOG('ENHANCE TEST 5 PASSED: ACU is mobile again')
     )");
     if (!result) osc::test_status::fail("[FAIL] Enhance test: {}", result.error().message);
-    else spdlog::info("ENHANCE TEST: ALL PASSED");
+    else spdlog::info("[PASS] ENHANCE TEST: all checks");
 
     result = ctx.lua_state.do_string(R"(
         local acu = GetEntityById(__osc_test_acu_id(1))

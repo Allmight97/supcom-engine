@@ -1190,12 +1190,11 @@ std::optional<int> IntegrationModes::headless_first(Engine& e) {
         }
         osc::i32 result = sim_state->player_result();
         if (result == 3) {
-            spdlog::info("  PASS — simultaneous defeat returns Draw (3)");
+            spdlog::info("[PASS] simultaneous defeat returns Draw (3)");
         } else {
-            osc::test_status::fail("  FAIL — expected Draw (3), got {}", result);
-            return 1;
+            osc::test_status::fail("[FAIL] expected Draw (3), got {}", result);
         }
-        return 0;
+        return finish_test_run("draw-test");
     }
 
     // === Stress Test: 10000-tick AI-vs-AI stability validation ===
@@ -1244,7 +1243,7 @@ std::optional<int> IntegrationModes::headless_first(Engine& e) {
                          brain->get_stat("Economy_TotalProduced_Mass"));
         }
 
-        spdlog::info("  PASS — no crashes in {} ticks", tick_target);
+        spdlog::info("[PASS] no crashes in {} ticks", tick_target);
         return finish_test_run("stress-test");
     }
     return std::nullopt;
@@ -1495,7 +1494,7 @@ void IntegrationModes::headless(Engine& e) {
             end
         )");
         if (result.ok()) {
-            spdlog::info("=== M140 Construction Panel Test PASSED ===");
+            spdlog::info("[PASS] M140 construction panel test");
         } else {
             osc::test_status::fail("=== M140 Construction Panel Test FAILED ===");
         }

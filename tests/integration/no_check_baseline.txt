@@ -1,13 +1,38 @@
-# Integration modes that count no check (no "[PASS]" line, no failure): they
-# pass with a warning, so the gate can tell. A mode not listed here that counts
-# none fails ("no check ran"); a listed mode that counts one fails until it is
-# taken off. Each goes when its mode asserts what it exercises.
+# Gate tests whose runs count no check (no "[PASS]" line, no failure): they
+# pass with a warning, so the gate can tell. A test not listed here whose run
+# counts none fails ("no check ran"). A listed run that counts one warns (a test
+# can run several processes); take a test off once every run of it counts one.
+
+# Integration modes that assert nothing on their success path.
 data.ai-test
 data.build-test
 data.chain-test
 data.combat-test
-data.construction-test
 data.damage-test
 data.fire-test
 data.move-test
 data.smoke-test
+# Modes that compare or count issues but record no passed check.
+data.focus-army-test
+data.full-smoke-test
+data.lobby-flow-test
+# AI-skirmish and flow runs that a script judges (checksums, saves, replays)
+# or that report failures only (GPGnet lobby and games).
+data.determinism
+data.determinism_moho_random
+data.replay_roundtrip
+data.replay_roundtrip_moho_random
+data.replay_roundtrip_moho_pathing
+data.save_load
+data.save_load_replay
+data.save_load_moho_pathing
+data.save_load_replay_moho_pathing
+data.save_load_moho_random
+data.save_load_campaign
+data.save_load_faf
+data.save_load_replay_faf
+data.replay_flow
+data.load_flow
+data.gpgnet_lobby
+data.gpgnet_game
+data.gpgnet_game_relayed
