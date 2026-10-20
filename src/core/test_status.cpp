@@ -12,6 +12,7 @@ constexpr size_t kMaxKeptMessages = 50;
 
 std::mutex g_mutex;
 int g_count = 0;
+int g_checks = 0;
 std::vector<std::string> g_messages;
 std::atomic<bool> g_count_lua{false};
 
@@ -20,12 +21,23 @@ std::atomic<bool> g_count_lua{false};
 void record_failure(std::string message) {
     std::lock_guard lock(g_mutex);
     ++g_count;
+    ++g_checks;
     if (g_messages.size() < kMaxKeptMessages) g_messages.push_back(std::move(message));
 }
 
 int failure_count() {
     std::lock_guard lock(g_mutex);
     return g_count;
+}
+
+void record_pass() {
+    std::lock_guard lock(g_mutex);
+    ++g_checks;
+}
+
+int check_count() {
+    std::lock_guard lock(g_mutex);
+    return g_checks;
 }
 
 void skip(const std::string& reason) {
@@ -48,6 +60,7 @@ std::vector<std::string> failure_messages() {
 void reset() {
     std::lock_guard lock(g_mutex);
     g_count = 0;
+    g_checks = 0;
     g_messages.clear();
 }
 

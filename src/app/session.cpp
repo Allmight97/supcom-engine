@@ -10,11 +10,12 @@
 #include "sim/build_info.hpp"
 #include "lua/mp_net_state.hpp"
 
+#include <cstdlib>
 #include <random>
 
 namespace osc::app {
 
-int finish_test_run(const char* mode, osc::u32 smoke_issues) {
+int finish_test_run(const char* mode, osc::u32 smoke_issues, bool needs_a_check) {
     if (smoke_issues > 0) {
         osc::test_status::record_failure(
             fmt::format("{} smoke issue(s) reported (see smoke report)", smoke_issues));
@@ -24,6 +25,24 @@ int finish_test_run(const char* mode, osc::u32 smoke_issues) {
         osc::test_status::record_failure(fmt::format("{} Vulkan validation error(s)", errors));
     }
     const int failures = osc::test_status::failure_count();
+    if (needs_a_check && failures == 0) {
+        const bool none = osc::test_status::check_count() == 0;
+        const bool listed = std::getenv("OSC_NO_CHECK_BASELINE") != nullptr;
+        if (none && !listed) {
+            spdlog::error("=== {}: FAIL (no check ran) ===", mode);
+            return 1;
+        }
+        if (!none && listed) {
+            spdlog::error("=== {}: FAIL (it counts its checks now: take it off "
+                          "tests/integration/no_check_baseline.txt) ===",
+                          mode);
+            return 1;
+        }
+        if (none)
+            spdlog::warn("=== {}: no check counted (listed in "
+                         "tests/integration/no_check_baseline.txt) ===",
+                         mode);
+    }
     if (failures == 0) {
         spdlog::info("=== {}: PASS ===", mode);
         return 0;

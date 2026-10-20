@@ -36,7 +36,11 @@ std::string parse_string_arg(int argc, char* argv[], const char* flag,
 
 /// End a test-mode run: fold smoke-harness issues into the tally, print a
 /// summary, and return the process exit code (0 = all checks passed).
-int finish_test_run(const char* mode, u32 smoke_issues = 0);
+/// `needs_a_check`: an integration mode, which fails when it counted no
+/// check, unless tests/integration/no_check_baseline.txt lists it (ctest
+/// sets OSC_NO_CHECK_BASELINE=1 for those, and one that counts a check fails
+/// until it is taken off).
+int finish_test_run(const char* mode, u32 smoke_issues = 0, bool needs_a_check = false);
 
 /// The UI state reaches the sim through a registry pointer; clear it before
 /// the sim is destroyed so UI scripts see "no sim" rather than freed memory.

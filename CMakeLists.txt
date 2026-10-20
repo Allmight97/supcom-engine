@@ -164,14 +164,20 @@ if(OSC_BUILD_TESTS)
     find_package(Catch2 3 CONFIG REQUIRED)
     enable_testing()
     # The gate means "passes on retail FA 3599": its tests never fall back to
-    # FAF's files, and skip (exit 77) where no retail install is found. Each
-    # directory that registers gate tests calls this after its last one.
-    function(osc_gate_tests_retail_only)
+    # FAF's files, and skip (exit 77) where no retail install is found. The
+    # modes tests/integration/no_check_baseline.txt lists may count no check.
+    # Each directory that registers gate tests calls this after its last one.
+    file(STRINGS ${CMAKE_SOURCE_DIR}/tests/integration/no_check_baseline.txt _osc_no_check
+         REGEX "^[^#]")
+    function(osc_gate_test_environment)
         get_property(_tests DIRECTORY PROPERTY TESTS)
         foreach(_t IN LISTS _tests)
             get_test_property(${_t} LABELS _labels)
             if("${_labels}" MATCHES "(^|;)gate(;|$)")
                 set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT OSC_RETAIL_ONLY=1)
+            endif()
+            if(_t IN_LIST _osc_no_check)
+                set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT OSC_NO_CHECK_BASELINE=1)
             endif()
         endforeach()
     endfunction()
@@ -333,5 +339,5 @@ if(OSC_LINT AND OSC_BUILD_TESTS)
     set_tests_properties(lint.clang_tidy PROPERTIES LABELS "lint" TIMEOUT 3600)
 endif()
 if(OSC_BUILD_TESTS)
-    osc_gate_tests_retail_only()
+    osc_gate_test_environment()
 endif()

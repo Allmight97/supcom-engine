@@ -202,7 +202,7 @@ int App::run_headless() {
                                sim_state ? sim_state->tick_count() : 0, opt.save_at);
     }
     const bool checked = opt.any_test || opt.save_to_load || !opt.save_path.empty();
-    const int exit_code = checked ? finish_test_run("integration tests") : 0;
+    const int exit_code = checked ? finish_test_run("integration tests", 0, opt.any_test && !opt.ai_skirmish) : 0;
     recording_writer.write();
     osc::log::shutdown();
     return exit_code;

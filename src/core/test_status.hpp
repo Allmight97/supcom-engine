@@ -17,6 +17,14 @@ void record_failure(std::string message);
 /// Number of failures recorded so far.
 int failure_count();
 
+/// Record one check that passed. Every "[PASS] ..." log line is one
+/// (osc::log counts them), as is a Lua LOG/WARN line naming PASS in a test mode.
+void record_pass();
+
+/// Checks seen so far, passed or failed: a test mode that saw none ran
+/// nothing, and fails (a line can be counted twice; only zero matters).
+int check_count();
+
 /// The exit code of a skipped test mode: ctest's SKIP_RETURN_CODE.
 inline constexpr int kExitSkipped = 77;
 

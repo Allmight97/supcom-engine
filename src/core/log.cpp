@@ -2,9 +2,13 @@
 #include "core/test_status.hpp"
 #include "core/version.hpp"
 
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <algorithm>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 extern "C" {
@@ -17,6 +21,18 @@ namespace osc::log {
 namespace {
 
 std::shared_ptr<DeferredFileSink> g_file_sink;
+
+/// A "[PASS] ..." line is a check that ran: how most test modes report one,
+/// Tally::check included. Only a test run reads the count.
+class PassLineSink final : public spdlog::sinks::base_sink<std::mutex> {
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        std::string_view text(msg.payload.data(), msg.payload.size());
+        text.remove_prefix(std::min(text.find_first_not_of(' '), text.size()));
+        if (text.starts_with("[PASS]")) test_status::record_pass();
+    }
+    void flush_() override {}
+};
 
 } // namespace
 
@@ -56,8 +72,8 @@ void init() {
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     g_file_sink = std::make_shared<DeferredFileSink>();
 
-    auto logger =
-        std::make_shared<spdlog::logger>("osc", spdlog::sinks_init_list{console_sink, g_file_sink});
+    auto logger = std::make_shared<spdlog::logger>(
+        "osc", spdlog::sinks_init_list{console_sink, g_file_sink, std::make_shared<PassLineSink>()});
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
     logger->set_level(spdlog::level::debug);
     // Warnings and errors reach the file immediately, so a crash (whose
@@ -133,12 +149,12 @@ static bool is_builder_deepcopy_diagnostic(const std::string& message) {
 
 /// In test modes, a Lua LOG/WARN line containing the uppercase token "FAIL"
 /// ("X TEST FAILED: ...", "Bone test 1: FAIL - ...") is the embedded Lua
-/// tests' way of reporting a failed check. FA's own scripts never log it.
+/// tests' way of reporting a failed check, and one containing "PASS" a check
+/// that passed. FA's own scripts never log either.
 static void note_lua_test_failure(const std::string& message) {
-    if (test_status::count_lua_failures() &&
-        message.find("FAIL") != std::string::npos) {
-        test_status::record_failure(message);
-    }
+    if (!test_status::count_lua_failures()) return;
+    if (message.find("FAIL") != std::string::npos) test_status::record_failure(message);
+    else if (message.find("PASS") != std::string::npos) test_status::record_pass();
 }
 
 int l_LOG(lua_State* L) {

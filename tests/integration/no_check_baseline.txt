@@ -1,0 +1,13 @@
+# Integration modes that count no check (no "[PASS]" line, no failure): they
+# pass with a warning, so the gate can tell. A mode not listed here that counts
+# none fails ("no check ran"); a listed mode that counts one fails until it is
+# taken off. Each goes when its mode asserts what it exercises.
+data.ai-test
+data.build-test
+data.chain-test
+data.combat-test
+data.construction-test
+data.damage-test
+data.fire-test
+data.move-test
+data.smoke-test

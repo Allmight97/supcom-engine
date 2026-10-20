@@ -664,4 +664,4 @@ set_tests_properties(data.binding_coverage PROPERTIES
     SKIP_RETURN_CODE 77
     TIMEOUT 300)
 
-osc_gate_tests_retail_only()
+osc_gate_test_environment()
