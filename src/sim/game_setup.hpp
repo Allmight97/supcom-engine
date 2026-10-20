@@ -3,7 +3,9 @@
 #include "core/types.hpp"
 #include "sim/sim_random.hpp"
 
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -51,6 +53,14 @@ struct GameOptionsConfig {
     std::vector<std::pair<std::string, GameOptionValue>> values;
     std::vector<std::string> restricted_categories;
 
+    /// Option `key` (the last, if set twice), or null.
+    const GameOptionValue* find(std::string_view key) const;
+    /// Option `key` as Lua's tonumber reads it: a Number, or a String of one
+    /// (retail's lobby sends every choice as a string: UnitCap "500").
+    std::optional<double> number(std::string_view key) const;
+    /// Option `key`, if it is a String.
+    const std::string* string(std::string_view key) const;
+
     void set_string(std::string key, std::string value) {
         GameOptionValue option;
         option.type = GameOptionValue::Type::String;
@@ -72,6 +82,18 @@ struct GameOptionsConfig {
         values.emplace_back(std::move(key), option);
     }
 };
+
+/// The game's speed, and whether players may change it.
+struct GameSpeedOption {
+    i32 rate = 0;
+    bool adjustable = true;
+};
+
+/// The GameSpeed option, as Moho's lobby launch reads it: 'fast' fixes the
+/// speed at +4, 'adjustable' lets the players change it, anything else fixes
+/// it at normal. (A session the lobby didn't launch, Moho's campaign, saved
+/// games and replays, starts adjustable at normal: GameSpeedOption{}.)
+GameSpeedOption lobby_game_speed(const GameOptionsConfig& options);
 
 /// Everything that decides how a game starts: the scenario, the seed, which
 /// of its armies play and who plays them, and the options. Every launch path

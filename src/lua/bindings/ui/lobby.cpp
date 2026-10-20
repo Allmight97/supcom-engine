@@ -459,6 +459,7 @@ static int lobby_LaunchGame(lua_State* L) {
         lua_pop(L, 1);
         return 0;
     }
+    mark_lobby_launch(L);
     lua_pushstring(L, "GameLaunched");
     lua_gettable(L, 1);
     if (!lua_isfunction(L, -1)) {

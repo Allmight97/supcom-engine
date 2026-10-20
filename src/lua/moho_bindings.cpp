@@ -3626,6 +3626,10 @@ static int l_LaunchSinglePlayerSession(lua_State* L) {
     lua_pushstring(L, "__osc_launch_replay");
     lua_pushnil(L);
     lua_rawset(L, LUA_REGISTRYINDEX);
+    // Not launched by a lobby, unless its LaunchGame says so after this
+    lua_pushstring(L, "__osc_launch_lobby");
+    lua_pushnil(L);
+    lua_rawset(L, LUA_REGISTRYINDEX);
 
     spdlog::info("LaunchSinglePlayerSession: scenario={}", scenario);
     return 0;
@@ -3809,10 +3813,18 @@ static int l_ui_SessionGetScenarioInfo(lua_State* L) {
 // ====================================================================
 
 /// Ask for game speed `rate`: in a network game, of the lockstep (M218i);
-/// else this game's own.
+/// else this game's own, if its speed option lets the player change it, as
+/// Moho's client manager tells the UI (uimain.NoteGameSpeedChanged, from
+/// its one client).
 static void set_game_speed(lua_State* L, i32 rate) {
     if (session_request_speed(rate)) return;
-    if (auto* mgr = get_game_state_mgr(L)) mgr->set_sim_rate(rate);
+    auto* mgr = get_game_state_mgr(L);
+    if (!mgr || !mgr->speed_adjustable()) return;
+    mgr->set_sim_rate(rate);
+    if (session_client_count(L) == 0) return; // no session to tell
+    lua_pushnumber(L, 1);
+    lua_pushnumber(L, mgr->sim_rate());
+    core::call_ui_callback(L, core::kUiMainModule, "NoteGameSpeedChanged", 2);
 }
 
 /// The game speed: a network game's, or this game's own.

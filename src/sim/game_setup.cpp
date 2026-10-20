@@ -3,6 +3,8 @@
 #include "sim/command_codec.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 
 namespace osc::sim {
 
@@ -16,6 +18,39 @@ int read_int(ByteReader& r) {
 }
 
 } // namespace
+
+const GameOptionValue* GameOptionsConfig::find(std::string_view key) const {
+    for (auto it = values.rbegin(); it != values.rend(); ++it)
+        if (it->first == key) return &it->second;
+    return nullptr;
+}
+
+std::optional<double> GameOptionsConfig::number(std::string_view key) const {
+    const GameOptionValue* value = find(key);
+    if (!value) return std::nullopt;
+    if (value->type == GameOptionValue::Type::Number) return value->number_value;
+    if (value->type != GameOptionValue::Type::String) return std::nullopt;
+    // Lua 5.0's: strtod's number, then nothing but spaces
+    const char* text = value->string_value.c_str();
+    char* end = nullptr;
+    const double n = std::strtod(text, &end);
+    if (end == text) return std::nullopt;
+    while (std::isspace(static_cast<unsigned char>(*end))) ++end;
+    if (*end != '\0') return std::nullopt;
+    return n;
+}
+
+const std::string* GameOptionsConfig::string(std::string_view key) const {
+    const GameOptionValue* value = find(key);
+    return value && value->type == GameOptionValue::Type::String ? &value->string_value : nullptr;
+}
+
+GameSpeedOption lobby_game_speed(const GameOptionsConfig& options) {
+    const std::string* option = options.string("GameSpeed");
+    std::string name = option ? *option : "";
+    for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return {name == "fast" ? 4 : 0, name == "adjustable"};
+}
 
 std::vector<std::string> session_army_names(const GameSetup& setup,
                                             const std::vector<std::string>& scenario_armies) {

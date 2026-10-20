@@ -446,6 +446,18 @@ if(Python3_Interpreter_FOUND)
         SKIP_RETURN_CODE 77
         TIMEOUT 900)
 
+    # The skirmish lobby's Game Speed (Normal, Fast, Adjustable) and Unit Cap
+    # reach a single-player game launched through retail's lobby, offscreen;
+    # the speed keys act only where the speed is adjustable, and rebound to
+    # Equals and Minus by retail's keymapper they act from the next launch.
+    add_test(NAME data.lobby_options
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lobby_options.py
+                     $<TARGET_FILE:opensupcom>)
+    set_tests_properties(data.lobby_options PROPERTIES
+        LABELS "data;gate"
+        SKIP_RETURN_CODE 77
+        TIMEOUT 900)
+
     # M218c: retail's LAN lobby (lobby.lua) from hosting to a game, by two
     # processes: one hosts, one joins, both ready, the host presses Launch,
     # and the game each launches plays in lockstep over the lobby's
