@@ -12,7 +12,7 @@ and data tests of a changed tools/check_*.py, and the unit test cases defined in
 (osc_tests --list-tests). Test paths: tests/, tools/check_* and tools/*.txt, src/app/*_test.*,
 src/app/test_modes.cpp, and the hunks of src/app/cli.cpp and CMake files that register tests.
 
-base: a scratch worktree at BASE (the merge base with HEAD) under DIR/.local/fail-first/base, reused;
+base: a scratch worktree at BASE (the merge base with HEAD) in this checkout's .local/fail-first/base, reused;
 the branch's test hunks applied, built, the branch's tests run. Each test is reported failed at build,
 failed at run (the test discriminates), passed (it cannot fail on the old code: stop), or skipped.
 sweep: on DIR itself (its tracked engine files must be clean), each hunk of BASE...HEAD under src/
@@ -30,6 +30,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -176,7 +177,7 @@ def run_base(root, base, env):
     say(f'{len(tests)} test hunks; tests: {" ".join(ctest + unit) or "none"}')
     if not ctest and not unit:
         return False, ['- no test of the branch found: nothing to fail first']
-    tree = os.path.join(root, '.local/fail-first/base')
+    tree = os.path.join(os.path.dirname(prove.TOOLKIT), '.local/fail-first/base')
     if not os.path.isdir(tree):
         sh(root, ['git', 'worktree', 'add', '--detach', tree, merge_base])
     for argv in (['git', 'checkout', '-q', '--detach', '-f', merge_base], ['git', 'clean', '-fdq']):
@@ -300,6 +301,7 @@ def main():
     opt = parser.parse_args()
     if opt.self_test:
         return self_test()
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a killed run still restores the files it broke
     root = os.path.abspath(opt.root)
     env = prove.tree_env(root)
     if opt.mode == 'base':
