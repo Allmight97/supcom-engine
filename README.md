@@ -1,6 +1,5 @@
-> **Fork note:** this is [Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine), JStar's fork for the
-> macOS port. Its Mac toolkit, status and play instructions are in [mac/README.md](mac/README.md);
-> the rest is upstream [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine).
+ **[MacOS focus](https://github.com/Allmight97/supcom-engine):** of [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine) - see [mac/README.md](mac/README.md) for toolkit, status and play instructions.
+ **Goal of this fork**: Optimize for modern MacOS tech stack and improve [FAF client integration]([url](https://github.com/FAForever/downlords-faf-client.git)).
 
 # OpenSupCom
 
