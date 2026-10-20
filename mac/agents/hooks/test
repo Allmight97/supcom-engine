@@ -94,6 +94,10 @@ expect_hook "2:an upstream PR comes from an up/* branch" "gh pr create --repo bw
 expect_hook "2:upstream PRs open ready: upstream lands ready PRs, so shape and prove it locally first" "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --draft --body ok"
 expect_hook ask "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --body ok"
 expect_hook ask "gh api -X PATCH repos/bwiemz/supcom-engine/pulls/750"
+expect_hook ask "gh api repos/bwiemz/supcom-engine/issues/750/comments -f body=x"
+expect_hook ask "gh api repos/bwiemz/supcom-engine/issues/750/comments -Fbody=@x.md"
+expect_hook 0 "gh api repos/bwiemz/supcom-engine/pulls/750"
+expect_hook 0 "gh api -X GET repos/bwiemz/supcom-engine/pulls -f state=open"
 printf 'clean line\nCo-Authored-By: Claude Opus\n' | "$root/agents/hooks/guard-shell" --upstream-text >/dev/null \
     && fail "guard-shell --upstream-text missed an agent name"
 printf 'engine: fix the dome\n' | "$root/agents/hooks/guard-shell" --upstream-text >/dev/null \
@@ -116,6 +120,12 @@ expect_input_hook "2:real input is off" mcp__cua_repl__js ""
 expect_input_hook 0 mcp__github__get_issue ""
 expect_input_hook 0 Bash "scripts/game-window shot x"
 expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "touch ~/.$grant_word"
+grant_script="mac/scripts/input""-grant"
+expect_input_hook 0 Bash "grep ${grant_script##*/} mac/AGENTS.md"
+expect_input_hook 0 Bash "cat $grant_script | head -5"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "$grant_script 10"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "cat $grant_script | sh"
+expect_input_hook "2:only JStar grants real input, in his own terminal" Bash "cat x > ~/.$grant_word"
 expect_input_hook ask Bash "mac/scripts/play --full"
 expect_input_hook "2:this opens a window on JStar's display" Bash "mac/scripts/play --full" bypassPermissions
 expect_input_hook ask Bash "JSTAR_SAID_YES=1 mac/scripts/play --full" bypassPermissions

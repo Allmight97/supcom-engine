@@ -2,8 +2,8 @@
 """Claude Code PreToolUse hook (Bash and MCP tools); mac/scripts/setup installs it, mac/scripts/check tests it.
 
 No real mouse, keyboard or window input on JStar's Mac unless he granted it with mac/scripts/input-grant,
-which writes ~/.supcom-input-ok holding an end time. Agents never grant it: any command naming the grant
-is refused. Without a grant, input is refused and opening a window on his display asks him first (in bypass
+which writes ~/.supcom-input-ok holding an end time. Agents never grant it: a command naming the grant is
+refused unless it only reads (grep, cat... with no redirection). Without a grant, input is refused and opening a window on his display asks him first (in bypass
 mode, which skips a hook's ask: refused until he agrees in chat and the agent reruns it as JSTAR_SAID_YES=1 <command>).
 """
 import json
@@ -21,6 +21,7 @@ SHELLS = {'bash', 'sh', 'zsh', 'dash', 'ksh'}
 INTERPRETERS = {'python', 'python3', 'perl', 'ruby', 'node'}
 INPUT_WORDS = {'click', 'drag', 'scroll', 'key', 'type', 'wait'}
 WINDOW_WORDS = {'original', 'game', 'client'}
+READERS = {'cat', 'grep', 'rg', 'head', 'tail', 'less', 'more', 'wc', 'ls', 'file', 'stat', 'diff'}
 
 
 def without_heredocs(text):
@@ -85,6 +86,16 @@ def launches(command):
     return found_input, found_window
 
 
+def reads_only(command):
+    """Every command run is a reader (grep, cat...) and nothing is redirected: naming the grant only reads it."""
+    for words in commands(command):
+        while words and (re.fullmatch(r'\w+=.*', words[0]) or os.path.basename(words[0]) in WRAPPERS):
+            words = words[1:]
+        if words and (os.path.basename(words[0]) not in READERS or any('>' in w for w in words)):
+            return False
+    return True
+
+
 def granted():
     try:
         with open(os.path.expanduser('~/.supcom-input-ok')) as f:
@@ -104,8 +115,11 @@ try:
     command = payload.get('tool_input', {}).get('command', '') if tool == 'Bash' else ''
 except (ValueError, AttributeError):
     deny('the tool call could not be parsed')
-if re.search(r'supcom-input-ok|input-grant', command):
-    deny('only JStar grants real input, in his own terminal')
+try:
+    if re.search(r'supcom-input-ok|input-grant', command) and not reads_only(command):
+        deny('only JStar grants real input, in his own terminal')
+except ValueError:
+    deny('the command could not be parsed')
 if granted():
     sys.exit(0)
 try:

@@ -97,5 +97,65 @@
     "mac/scripts/check"
    ]
   ]
+ },
+ {
+  "name": "row 29: pre-commit compares only the staged paths",
+  "file": "mac/agents/githooks/pre-commit",
+  "find": "    unchecked=$(LC_ALL=C comm -3 <(git ls-files -s | toolkit_paths) \\",
+  "replace": "    unchecked=$(LC_ALL=C comm -23 <(git diff --cached --name-only | xargs -r git ls-files -s -- | toolkit_paths) \\",
+  "run": [
+   [
+    "mac/scripts/check"
+   ]
+  ]
+ },
+ {
+  "name": "row 30: osc-render-check passes without a new image",
+  "file": "mac/scripts/osc-render-check",
+  "find": " || [[ ! -s \"$capture\" ]]",
+  "replace": "",
+  "run": [
+   [
+    "mac/scripts/check"
+   ]
+  ]
+ },
+ {
+  "name": "row 31: guard-shell reads gh api with fields as a GET",
+  "file": "mac/agents/hooks/guard-shell",
+  "find": "('POST' if fields else 'GET')",
+  "replace": "'GET'",
+  "run": [
+   [
+    "bash",
+    "mac/agents/hooks/test"
+   ]
+  ]
+ },
+ {
+  "name": "row 32: guard-input refuses a read that names the grant",
+  "file": "mac/agents/hooks/guard-input",
+  "find": " and not reads_only(command)",
+  "replace": "",
+  "run": [
+   [
+    "bash",
+    "mac/agents/hooks/test"
+   ]
+  ]
+ },
+ {
+  "name": "row 33: smoke and render run outside prove's lock",
+  "file": "mac/scripts/prove",
+  "find": "LIGHT = ('arch', 'format', 'metrics')",
+  "replace": "LIGHT = ('arch', 'format', 'metrics', 'smoke', 'render')",
+  "run": [
+   [
+    "python3",
+    "-I",
+    "mac/scripts/prove",
+    "--self-test"
+   ]
+  ]
  }
 ]

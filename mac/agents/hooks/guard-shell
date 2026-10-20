@@ -165,7 +165,10 @@ def check_gh(args, cwd):
         return
     group, action, rest = args[0], args[1], args[2:]
     if group == 'api':
-        if UPSTREAM in ' '.join(args) and (option(args, '-X', '--method') or 'GET').upper() != 'GET':
+        fields = any(a in ('-f', '-F', '--field', '--raw-field', '--input') or a.startswith(('-f', '-F', '--field=',
+                     '--raw-field=', '--input=')) for a in args[1:])
+        method = option(args, '-X', '--method') or ('POST' if fields else 'GET')  # gh posts when given fields
+        if UPSTREAM in ' '.join(args) and method.upper() != 'GET':
             ask('a GitHub write to upstream needs JStar\'s word')
         return
     if group == 'release' and action == 'create':
