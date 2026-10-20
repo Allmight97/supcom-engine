@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""Ask whether a branch's tests can fail: break the code and see if they notice.
+
+  mac/scripts/mutate base  [--root DIR] [--base REF]   the branch's tests alone on the base
+  mac/scripts/mutate sweep [--root DIR] [--base REF]   revert each source hunk alone; list the ones no test notices
+  mac/scripts/mutate cases FILE [--root DIR] [NAME...] named mutations (JSON); each must be killed
+  mac/scripts/mutate --self-test
+
+The branch's tests: the ctest names its test hunks add (OSC_DATA_TESTS_* lists, add_test lines), the
+data mode a changed test source is named for (runner/foo_bar_test.cpp -> data.foo-bar-test), the arch
+and data tests of a changed tools/check_*.py, and the unit test cases defined in a changed test file
+(osc_tests --list-tests). Test paths: tests/, tools/check_* and tools/*.txt, src/app/*_test.*,
+src/app/test_modes.cpp, and the hunks of src/app/cli.cpp and CMake files that register tests.
+
+base: a scratch worktree at BASE (the merge base with HEAD) under DIR/.local/fail-first/base, reused;
+the branch's test hunks applied, built, the branch's tests run. Each test is reported failed at build,
+failed at run (the test discriminates), passed (it cannot fail on the old code: stop), or skipped.
+sweep: on DIR itself (its tracked engine files must be clean), each hunk of BASE...HEAD under src/
+that is not a test path is reverted alone, built, and the branch's tests run, then restored. Outcomes:
+did not apply, failed at build, killed, survived (no test notices: the finding).
+cases: FILE is a JSON list of {"name", "file", "find", "replace", "ctest": [...], "unit": [...],
+"env": {VAR: value or null to unset}}; "find" must occur exactly once. A case survives when its tests
+still pass with the code broken.
+Every mode restores and rebuilds DIR; exit status is 1 when a test cannot fail (passed on the base,
+a surviving hunk or case) or a run could not be made.
+"""
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+_loader = importlib.machinery.SourceFileLoader('prove', os.path.join(HERE, 'prove'))
+prove = importlib.util.module_from_spec(importlib.util.spec_from_loader('prove', _loader))
+_loader.exec_module(prove)
+DIFF_HEAD = re.compile(r'^diff --git a/(\S+) b/(\S+)$')
+REGISTERS = re.compile(r'add_test|set_tests_properties|OSC_DATA_TESTS')
+CTEST_LINE = re.compile(r'Test\s+#\d+: (\S+) \.+\s*(?:\*\*\*)?(\w[\w ]*?)\s+[\d.]+ sec')
+
+
+def say(text):
+    print(f'mutate: {text}', flush=True)
+
+
+def sh(cwd, argv, env=None, stdin=None):
+    return subprocess.run(argv, cwd=cwd, text=True, capture_output=True, env=env, input=stdin)
+
+
+def hunks(diff):
+    """[(path, file header, hunk)] of a unified diff; header + hunk is a patch of that hunk alone."""
+    out, path, header, hunk = [], None, [], None
+    for line in diff.splitlines(keepends=True):
+        if m := DIFF_HEAD.match(line.rstrip('\n')):
+            if hunk:
+                out.append((path, ''.join(header), ''.join(hunk)))
+            path, header, hunk = m.group(2), [line], None
+        elif line.startswith('@@'):
+            if hunk:
+                out.append((path, ''.join(header), ''.join(hunk)))
+            hunk = [line]
+        elif hunk is not None:
+            hunk.append(line)
+        elif path:
+            header.append(line)
+    if hunk:
+        out.append((path, ''.join(header), ''.join(hunk)))
+    return out
+
+
+def changed(hunk, sign):
+    return [line[1:] for line in hunk.splitlines()[1:] if line.startswith(sign)]
+
+
+def is_test_hunk(path, hunk):
+    name = os.path.basename(path)
+    if path.startswith('tests/') or re.match(r'tools/(check_[^/]+|[^/]+\.txt)$', path) \
+            or re.match(r'src/app/\w+_test\.(cpp|hpp)$', path) or path == 'src/app/test_modes.cpp':
+        return True
+    if path == 'src/app/cli.cpp':
+        return any(re.search(r'"--[\w-]+-test"', line) for line in changed(hunk, '+'))
+    if name == 'CMakeLists.txt' or name.endswith('.cmake'):
+        return any(REGISTERS.search(line) for line in changed(hunk, '+') + changed(hunk, '-'))
+    return False
+
+
+def select(test_hunks, registered, unit_cases):
+    """(ctest names, unit test case names) the branch's test hunks add or change."""
+    words = lambda lines: {w for line in lines for w in re.findall(r'[\w.-]+', line)}
+    cmake = [h for p, _, h in test_hunks if p.endswith(('CMakeLists.txt', '.cmake'))]
+    added = words(sum((changed(h, '+') for h in cmake), [])) - words(sum((changed(h, '-') for h in cmake), []))
+    wanted = set(added)
+    paths = {p for p, _, _ in test_hunks}
+    for p in paths:
+        stem = os.path.splitext(os.path.basename(p))[0]
+        if m := re.match(r'check_(\w+)\.py$', os.path.basename(p)):
+            wanted |= {f'arch.{m.group(1)}', f'arch.{m.group(1)}_self_test', f'data.{m.group(1)}'}
+        elif re.match(r'(tests/integration/runner|src/app)/\w+_test\.cpp$', p):
+            wanted.add(f'data.{stem.replace("_", "-")}')
+    ctest = sorted(n for n in registered if n in wanted or n.split('.', 1)[-1] in added and n.startswith('data.'))
+    unit = sorted(name for name, file in unit_cases if any(file.endswith('/' + p) for p in paths))
+    return ctest, unit
+
+
+def registered_tests(tree):
+    out = sh(tree, ['ctest', '--test-dir', 'build/play', '-N']).stdout
+    return re.findall(r'^\s*Test\s+#\d+: (\S+)$', out, re.M)
+
+
+def unit_cases(tree, spec=None):
+    """[(test case name, source file)] of the tree's unit tests, or of those SPEC (a Catch2 test spec) selects."""
+    out = sh(tree, ['build/play/tests/osc_tests', '--list-tests', '--reporter', 'xml'] + ([spec] if spec else [])).stdout
+    root = ET.fromstring(out[out.index('<'):]) if '<' in out else None
+    return [] if root is None else [(t.findtext('Name'), t.findtext('SourceInfo/File') or '')
+                                    for t in root.iter('TestCase')]
+
+
+def catch2_spec(name):
+    return re.sub(r'([\\,\[\]*"])', r'\\\1', name)
+
+
+def run_tests(tree, ctest, unit, env):
+    """{test: passed | failed | skipped | not run}."""
+    results = {}
+    if ctest:
+        names = '|'.join(re.escape(n) for n in ctest)
+        out = sh(tree, ['ctest', '--test-dir', 'build/play', '--no-tests=error', '-R', f'^({names})$'], env).stdout
+        for name, status in CTEST_LINE.findall(out):
+            results[name] = 'passed' if status == 'Passed' else \
+                'skipped' if status in ('Skipped', 'Not Run') else 'failed'
+    if unit:
+        spec = os.path.join(tree, '.local', 'fail-first-unit.txt')
+        os.makedirs(os.path.dirname(spec), exist_ok=True)
+        open(spec, 'w').write(''.join(catch2_spec(n) + '\n' for n in unit))
+        out = sh(tree, ['build/play/tests/osc_tests', '-f', spec, '--reporter', 'xml'], env).stdout
+        if '<' in out:
+            for case in ET.fromstring(out[out.index('<'):]).iter('TestCase'):
+                result = case.find('OverallResult')
+                results[case.get('name')] = 'failed' if result is None or result.get('success') != 'true' else \
+                    'skipped' if int(result.get('skips', 0)) else 'passed'
+    return {n: results.get(n, 'not run') for n in ctest + unit}
+
+
+def build(tree, env):
+    if not os.path.isdir(os.path.join(tree, 'build/play')):
+        say(f'full build of {tree} (about 4 minutes)')
+        r = sh(tree, ['bash', os.path.join(prove.TOOLKIT, 'recipe/build.sh')], {**env, 'OSC_ROOT': tree})
+    else:
+        r = sh(tree, ['cmake', '--build', 'build/play'], env)
+    return r.returncode == 0, (r.stdout + r.stderr)[-1500:]
+
+
+def branch(root, base):
+    """(merge base, the branch's test hunks, its source hunks, its ctest names, its unit test names)."""
+    merge_base = sh(root, ['git', 'merge-base', base, 'HEAD']).stdout.strip()
+    if not merge_base:
+        sys.exit(f'mutate: no merge base of {base} and HEAD in {root}')
+    every = hunks(sh(root, ['git', 'diff', f'{merge_base}..HEAD']).stdout)
+    tests = [h for h in every if is_test_hunk(h[0], h[2])]
+    source = [h for h in every if h[0].startswith('src/') and not is_test_hunk(h[0], h[2])]
+    ctest, unit = select(tests, registered_tests(root), unit_cases(root))
+    return merge_base, tests, source, ctest, unit
+
+
+def report(results, lines):
+    for name, outcome in results.items():
+        lines.append(f'- `{name}`: {outcome}')
+
+
+def run_base(root, base, env):
+    merge_base, tests, _, ctest, unit = branch(root, base)
+    say(f'{len(tests)} test hunks; tests: {" ".join(ctest + unit) or "none"}')
+    if not ctest and not unit:
+        return False, ['- no test of the branch found: nothing to fail first']
+    tree = os.path.join(root, '.local/fail-first/base')
+    if not os.path.isdir(tree):
+        sh(root, ['git', 'worktree', 'add', '--detach', tree, merge_base])
+    for argv in (['git', 'checkout', '-q', '--detach', '-f', merge_base], ['git', 'clean', '-fdq']):
+        if (r := sh(tree, argv)).returncode:
+            sys.exit(f'mutate: {" ".join(argv)} in {tree}: {r.stderr.strip()}')
+    patch = ''.join(header + hunk for _, header, hunk in tests)
+    if (r := sh(tree, ['git', 'apply', '--whitespace=nowarn', '-'], stdin=patch)).returncode:
+        return False, [f'- the test hunks do not apply to {merge_base[:8]}: {r.stderr.strip()[:300]}']
+    tree_env = prove.tree_env(tree)
+    built, log = build(tree, tree_env)
+    if not built:
+        say(f'base build failed:\n{log}')
+        return True, [f'- {n}: failed at build (needs the branch\'s engine code)' for n in ctest + unit]
+    results = run_tests(tree, ctest, unit, tree_env)
+    lines = [f'Tests alone on `{merge_base[:8]}`:']
+    report({n: 'failed at run' if r == 'failed' else r for n, r in results.items()}, lines)
+    return not any(r in ('passed', 'skipped', 'not run') for r in results.values()), lines
+
+
+def snapshot(root, path):
+    """The file's bytes, or None when it does not exist (a hunk that creates it)."""
+    full = os.path.join(root, path)
+    return open(full, 'rb').read() if os.path.exists(full) else None
+
+
+def restore(root, path, data):
+    full = os.path.join(root, path)
+    if data is not None:
+        open(full, 'wb').write(data)
+    elif os.path.exists(full):
+        os.remove(full)
+
+
+def baseline(root, ctest, unit, env):
+    results = run_tests(root, ctest, unit, env)
+    bad = {n: r for n, r in results.items() if r != 'passed'}
+    return not bad, [f'- baseline: `{n}` {r}, so a mutant cannot be judged' for n, r in bad.items()]
+
+
+def run_sweep(root, base, env):
+    _, _, source, ctest, unit = branch(root, base)
+    if not source:
+        return True, ['- no source hunk under src/']
+    if sh(root, ['git', 'status', '--porcelain', '--untracked-files=no', '--', 'src', 'tests', 'tools']).stdout:
+        sys.exit(f'mutate: {root} has uncommitted engine changes; commit or set them aside first')
+    built, log = build(root, env)
+    ok, lines = baseline(root, ctest, unit, env) if built else (False, [f'- the tree does not build:\n{log}'])
+    if not ok:
+        return False, lines
+    lines = [f'Hunk sweep, each reverted alone; tests: {", ".join(f"`{n}`" for n in ctest + unit)}:']
+    survived = 0
+    for i, (path, header, hunk) in enumerate(source, 1):
+        where = f'{path} {hunk.splitlines()[0].split("@@")[1].strip()}'
+        say(f'hunk {i}/{len(source)}: {where}')
+        original = snapshot(root, path)
+        try:
+            if sh(root, ['git', 'apply', '-R', '--whitespace=nowarn', '-'], stdin=header + hunk).returncode:
+                outcome = 'did not apply alone'
+            elif not build(root, env)[0]:
+                outcome = 'failed at build'
+            else:
+                results = run_tests(root, ctest, unit, env)
+                killers = [n for n, r in results.items() if r == 'failed']
+                lost = [n for n, r in results.items() if r == 'not run']
+                outcome = f'killed by {", ".join(killers)}' if killers else \
+                    f'cannot judge: {", ".join(lost)} did not run' if lost else 'SURVIVED: no test notices'
+                survived += not killers
+        finally:
+            restore(root, path, original)
+        lines.append(f'- `{where}`: {outcome}')
+    build(root, env)
+    return survived == 0, lines
+
+
+def run_cases(root, path, names, env):
+    cases = [c for c in json.load(open(path)) if not names or c['name'] in names]
+    lines, survived = [], 0
+    for case in cases:
+        say(f'case {case["name"]}')
+        ctest = case.get('ctest', [])
+        unit = [name for spec in case.get('unit', []) for name, _ in unit_cases(root, spec)]
+        build(root, env)
+        ok, why = baseline(root, ctest, unit, env)
+        if not ok:
+            lines += [f'- {case["name"]}: cannot judge'] + why
+            survived += 1
+            continue
+        original = snapshot(root, case['file'])
+        text = original.decode()
+        try:
+            if text.count(case['find']) != 1:
+                outcome = f'did not apply: "find" occurs {text.count(case["find"])} times in {case["file"]}'
+            else:
+                restore(root, case['file'], text.replace(case['find'], case['replace']).encode())
+                case_env = {k: v for k, v in {**env, **case.get('env', {})}.items() if v is not None}
+                if not build(root, env)[0]:
+                    outcome = 'failed at build'
+                else:
+                    results = run_tests(root, ctest, unit, case_env)
+                    killers = [n for n, r in results.items() if r == 'failed']
+                    skipped = [n for n, r in results.items() if r == 'skipped']
+                    lost = [n for n, r in results.items() if r == 'not run']
+                    outcome = f'killed by {", ".join(killers)}' if killers else \
+                        f'cannot judge: {", ".join(lost)} did not run' if lost else \
+                        'SURVIVED: the tests pass with the code broken' + (f' ({", ".join(skipped)} skipped)' if skipped else '')
+        finally:
+            restore(root, case['file'], original)
+        survived += not outcome.startswith('killed')
+        lines.append(f'- {case["name"]}: {outcome}')
+    build(root, env)
+    return survived == 0, lines
+
+
+def main():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('mode', nargs='?', choices=['base', 'sweep', 'cases'])
+    parser.add_argument('rest', nargs='*')
+    parser.add_argument('--root', default=os.path.dirname(prove.TOOLKIT))
+    parser.add_argument('--base', default='upstream/main')
+    parser.add_argument('--self-test', action='store_true')
+    opt = parser.parse_args()
+    if opt.self_test:
+        return self_test()
+    root = os.path.abspath(opt.root)
+    env = prove.tree_env(root)
+    if opt.mode == 'base':
+        ok, lines = run_base(root, opt.base, env)
+    elif opt.mode == 'sweep':
+        ok, lines = run_sweep(root, opt.base, env)
+    elif opt.mode == 'cases' and opt.rest:
+        ok, lines = run_cases(root, os.path.abspath(opt.rest[0]), opt.rest[1:], env)
+    else:
+        sys.exit(__doc__)
+    print('\n'.join(lines))
+    sys.exit(0 if ok else 1)
+
+
+DIFF = """\
+diff --git a/src/a.cpp b/src/a.cpp
+index 1..2 100644
+--- a/src/a.cpp
++++ b/src/a.cpp
+@@ -1,2 +1,2 @@
+-int a = 1;
++int a = 2;
+ int b;
+@@ -9,1 +9,2 @@
+ int c;
++int d;
+diff --git a/tests/integration/data_tests.cmake b/tests/integration/data_tests.cmake
+--- a/tests/integration/data_tests.cmake
++++ b/tests/integration/data_tests.cmake
+@@ -3,1 +3,1 @@ set(OSC_DATA_TESTS_GATE
+-    adjacency-test ai-test
++    adjacency-test ai-test gpu-pass-timing-test
+diff --git a/src/app/cli.cpp b/src/app/cli.cpp
+--- a/src/app/cli.cpp
++++ b/src/app/cli.cpp
+@@ -5,1 +5,2 @@
+ x
++        {"--gpu-pass-timing-test", 1},
+@@ -50,1 +51,2 @@
+ y
++    bool print_install = false;
+diff --git a/tools/check_shader_names.py b/tools/check_shader_names.py
+--- a/tools/check_shader_names.py
++++ b/tools/check_shader_names.py
+@@ -1,1 +1,1 @@
+-a
++b
+diff --git a/tests/test_mesh.cpp b/tests/test_mesh.cpp
+--- a/tests/test_mesh.cpp
++++ b/tests/test_mesh.cpp
+@@ -1,1 +1,1 @@
+-a
++b
+"""
+CTEST_OUT = """\
+1/3 Test    #1: arch.shader_names ................   Passed    0.04 sec
+2/3 Test   #20: data.ai-test .....................***Failed    1.03 sec
+3/3 Test #1860: data.gpu-pass-timing-test ........***Skipped   0.01 sec
+"""
+
+
+def self_test():
+    h = hunks(DIFF)
+    assert [p for p, _, _ in h] == ['src/a.cpp', 'src/a.cpp', 'tests/integration/data_tests.cmake',
+                                    'src/app/cli.cpp', 'src/app/cli.cpp', 'tools/check_shader_names.py',
+                                    'tests/test_mesh.cpp']
+    assert h[1][1].startswith('diff --git') and h[1][1].endswith('+++ b/src/a.cpp\n') and h[1][2].startswith('@@ -9')
+    tests = [x for x in h if is_test_hunk(x[0], x[2])]
+    assert [(p, x[:9]) for p, _, x in tests] == [('tests/integration/data_tests.cmake', '@@ -3,1 +'),
+                                                 ('src/app/cli.cpp', '@@ -5,1 +'),
+                                                 ('tools/check_shader_names.py', '@@ -1,1 +'),
+                                                 ('tests/test_mesh.cpp', '@@ -1,1 +')]
+    registered = ['data.ai-test', 'data.gpu-pass-timing-test', 'arch.shader_names', 'arch.shader_names_self_test',
+                  'data.shader_names', 'arch.version']
+    cases = [('A mesh', '/r/tests/test_mesh.cpp'), ('Other', '/r/tests/test_map.cpp')]
+    assert select(tests, registered, cases) == (['arch.shader_names', 'arch.shader_names_self_test',
+                                                 'data.gpu-pass-timing-test', 'data.shader_names'], ['A mesh'])
+    assert select([('tests/integration/runner/gpu_pass_timing_test.cpp', '', '@@\n+x\n')], registered, []) == \
+        (['data.gpu-pass-timing-test'], [])
+    assert dict(CTEST_LINE.findall(CTEST_OUT)) == {'arch.shader_names': 'Passed', 'data.ai-test': 'Failed',
+                                                   'data.gpu-pass-timing-test': 'Skipped'}
+    assert catch2_spec('a, b [c]') == r'a\, b \[c\]'
+    print('mutate self-test passed')
+
+
+main()

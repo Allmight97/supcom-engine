@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the engine checks an upstream PR needs and print a Markdown "Tested" block for its description.
 
-  mac/scripts/prove [--root DIR] [--base REF]
+  mac/scripts/prove [--root DIR] [--base REF] [--fail-first [--fail-first-against REF]]
   mac/scripts/prove --self-test
 
 From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout; BASE defaults to
@@ -9,7 +9,10 @@ upstream/main) it picks the checks: any change under src/, tests/, cmake/, third
 vcpkg.json or a shader runs unit, arch, mp, gate (failures rerun once), format, metrics and smoke; a change
 under src/renderer or to a shader adds the render check; anything else (docs) runs metrics only.
 A suite passes only if tests ran: none found, none passed, or more skipped than passed (a gate with no
-game: 3 passed, 274 skipped) is a failure, and the Tested block gives passed and skipped per suite. It never builds: it stops if DIR/build/play is missing or was
+game: 3 passed, 274 skipped) is a failure, and the Tested block gives passed and skipped per suite.
+--fail-first adds mac/scripts/mutate's base and sweep runs (the branch's tests alone on the base, each
+source hunk reverted alone; --fail-first-against names the base's commit for a test-only branch) under
+"Fail first" in the block. It never builds: it stops if DIR/build/play is missing or was
 built from another revision than the tree's (`git describe --always --dirty`, as the build embeds it).
 Exit status is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
 """
@@ -102,6 +105,27 @@ def recipe_env(root):
     return {**dict(line.split('=', 1) for line in out.split('\0') if '=' in line), 'OSC_ROOT': root}
 
 
+def tree_env(root):
+    env = recipe_env(root)
+    if not os.path.isdir(os.path.join(root, 'mac')):
+        # Upstream's code finds a driver only in ~/VulkanSDK or Homebrew; name the fork's pinned KosmicKrisp.
+        env['VK_ADD_DRIVER_FILES'] = f"{env['VULKAN_SDK']}/share/vulkan/icd.d/libkosmickrisp_icd.json"
+    return env
+
+
+def fail_first(root, mode, base):
+    """(passed?, report lines) of mac/scripts/mutate MODE, its progress echoed as it runs."""
+    run = subprocess.Popen([sys.executable, f'{TOOLKIT}/scripts/mutate', mode, '--root', root, '--base', base],
+                           text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    lines = []
+    for line in run.stdout:
+        if line.startswith('mutate: '):
+            print(f'prove: {line[8:]}', end='', flush=True)
+        else:
+            lines.append(line.rstrip('\n'))
+    return run.wait() == 0, lines
+
+
 def run_check(root, name, argv, env):
     """(passed?, detail or '')."""
     if name in ('unit', 'mp', 'gate'):
@@ -143,6 +167,8 @@ def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--root', default=os.path.dirname(TOOLKIT))
     parser.add_argument('--base', default='upstream/main')
+    parser.add_argument('--fail-first', action='store_true')
+    parser.add_argument('--fail-first-against')
     parser.add_argument('--self-test', action='store_true')
     opt = parser.parse_args()
     if opt.self_test:
@@ -154,10 +180,7 @@ def main():
     chosen, skipped = checks_for(diff.stdout.split())
     print(f'prove: {len(diff.stdout.split())} changed paths; checks: {" ".join(chosen)}', flush=True)
     cmds = commands(base)
-    env = recipe_env(root)
-    if not os.path.isdir(os.path.join(root, 'mac')):
-        # Upstream's code finds a driver only in ~/VulkanSDK or Homebrew; name the fork's pinned KosmicKrisp.
-        env['VK_ADD_DRIVER_FILES'] = f"{env['VULKAN_SDK']}/share/vulkan/icd.d/libkosmickrisp_icd.json"
+    env = tree_env(root)
     if not os.path.exists(os.path.join(root, 'build/play/opensupcom')):
         sys.exit(f'prove: build/play/opensupcom is missing in {root}; build the tree first '
                  f'(OSC_ROOT={root} bash mac/recipe/build.sh)')
@@ -171,6 +194,13 @@ def main():
         print(f'prove: check {name}', flush=True)
         results[name] = run_check(root, name, cmds[name], env)
         print(f'prove: check {name}: {"pass" if results[name][0] else "FAIL"} {results[name][1]}'.rstrip(), flush=True)
+    found = []
+    if opt.fail_first:
+        for mode, against in (('base', opt.fail_first_against or base), ('sweep', base)):
+            print(f'prove: fail-first {mode}', flush=True)
+            ok, lines = fail_first(root, mode, against)
+            results[f'fail-first {mode}'] = ok, ''
+            found += lines
     print(f'\n### Tested\n\nBase `{base}`, tree `{root}`, built from `{built}`.\n')
     for name in chosen:
         shown = f'mac/scripts/format {base}' if name == 'format' else \
@@ -179,6 +209,8 @@ def main():
         print(f'- `{shown}`: {"pass" if ok else "FAIL"}{f" ({detail})" if detail else ""}')
     for name, why in skipped.items():
         print(f'- skipped {name}: {why}')
+    if opt.fail_first:
+        print('\n#### Fail first\n\n' + '\n'.join(found))
     sys.exit(0 if all(ok for ok, _ in results.values()) else 1)
 
 
@@ -239,4 +271,5 @@ def self_test():
     print('prove self-test passed')
 
 
-main()
+if __name__ == '__main__':
+    main()

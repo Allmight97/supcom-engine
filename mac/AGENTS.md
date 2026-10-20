@@ -12,7 +12,8 @@ root `AGENTS.md` holds the rules for every agent; this file routes toolkit work.
   original: `mac/tools/` (its own AGENTS.md).
 - Upstream: `mac/scripts/upstream-news` (what upstream is doing), `mac/scripts/sync-upstream` (merge it into the
   fork), `mac/scripts/up-refresh` (keep an up/* PR current), `mac/scripts/prove` (the engine checks a change
-  needs, with the Tested block for the PR text). The upstream-pr skill holds the PR practice.
+  needs, with the Tested block for the PR text), `mac/scripts/mutate` (breaks the code to see whether a branch's
+  tests notice; `prove --fail-first` runs it). The upstream-pr skill holds the PR practice.
 - `mac/work/` (ignored): the player's game (`game`), the reference corpus of the original (`traces`, `logs`),
   the Ghidra project, the Vulkan SDK, play-test evidence, `downloads` (acquired originals: never patch the only
   copy; record new ones in toolchain.md Identities), and `notes` for unsettled agent notes.
@@ -42,7 +43,7 @@ root `AGENTS.md` holds the rules for every agent; this file routes toolkit work.
 
 - `mac/scripts/check` proves the toolkit; the commit hook requires it on exactly the staged content, so
   `git add` every file first and edit nothing after.
-- Engine changes: `mac/scripts/prove`; a nontrivial bug fix shows its test failing first.
+- Engine changes: `mac/scripts/prove`; a nontrivial bug fix shows its test failing first (`prove --fail-first`).
 - After a decision changes a direction, add the dropped terms to `mac/agents/dead-terms.txt` and run
   `/supcom-docs:doc-audit`.
 
