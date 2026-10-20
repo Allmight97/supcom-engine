@@ -337,10 +337,11 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
         } else if (std::strcmp(argv[i], "--mouse") == 0) {
             auto step = parse_mouse_step(argv[++i]);
             if (!step) {
-                spdlog::error("--mouse '{}': give a step as '<frame>|t<tick> move "
-                              "<x>,<y>|w<x>,<z>' or '<frame>|t<tick> press|release "
-                              "left|right|middle|shift|ctrl|alt|equals|minus|numplus|numminus|numstar'",
-                              argv[i]);
+                spdlog::error(
+                    "--mouse '{}': give a step as '<frame>|t<tick> move "
+                    "<x>,<y>|w<x>,<z>' or '<frame>|t<tick> press|release "
+                    "left|right|middle|shift|ctrl|alt|equals|minus|numplus|numminus|numstar'",
+                    argv[i]);
                 return std::nullopt;
             }
             o.mouse.push_back(std::move(*step));

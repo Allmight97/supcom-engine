@@ -49,8 +49,7 @@ void apply_game_options_to_brain(const GameOptionsConfig& options,
 void apply_game_options_to_sim(const GameOptionsConfig& options,
                                sim::SimState& sim) {
     if (!options.configured) return;
-    if (const std::string* victory = options.string("Victory"))
-        sim.set_victory_condition(*victory);
+    if (const std::string* victory = options.string("Victory")) sim.set_victory_condition(*victory);
     if (const std::string* share = options.string("Share")) sim.set_share_condition(*share);
     if (const std::string* fog = options.string("FogOfWar")) sim.set_fog_of_war(*fog);
     if (options.find("CheatsEnabled")) {
