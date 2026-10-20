@@ -21,6 +21,7 @@ name=$1 limit=$2; shift 2
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$root"
 . tools/lib/game-run.sh
+game_run_refuse_existing "work/logs/$name.log"
 game_run_snapshot "$name"
 stub_dir="$GAME_RUN_DIR"
 cat > "$stub_dir/init.lua" <<LUA

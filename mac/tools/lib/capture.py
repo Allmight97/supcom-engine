@@ -5,10 +5,11 @@
       Reads LOG from the offset saved in STATE (JSON) and exits 3 with a reason when the run must stop:
       a Lua error or unknown unit type, a hook the game loaded ("Hooked X with /mount/...") that has not
       logged HOOKCHECK|/mount/...|ok within 90 s, or a checkpoint TEXT not seen once SETUP|TICK reached TICK.
-  capture.py setup LOG SNAPSHOT_DIR END -- ARGS...
+  capture.py setup LOG SNAPSHOT_DIR END EXE CXCONF PREFS WINDOW -- ARGS...
       Writes LOG's manifest to <LOG without .partial>.setup (JSON): arguments, git HEAD and dirty flag, the
-      sha256 of every hook and script in SNAPSHOT_DIR, resolved armies, options, seed, last tick and how the run
-      ended.
+      sha256 of every hook and script in SNAPSHOT_DIR, the game executable's path and sha256, the bottle's
+      graphics backend (CX_GRAPHICS_BACKEND in CXCONF; "auto" when empty), the render setup (window size and
+      the sha256 of PREFS), resolved armies, options, seed, last tick and how the run ended.
   capture.py mods PREFS DOCUMENTS_MODS GAME_MODS_SCD
       Exits 3 naming every mod in PREFS's active_mods that the original game can load (a mod folder in its
       Documents mods folder or in gamedata/mods.scd); mods only FAF has are ignored.
@@ -68,7 +69,16 @@ def watch(log, state_path, checkpoints, allows, now=None):
     return reason
 
 
-def setup(log, snapshot, end, args):
+def sha256(path):
+    return hashlib.sha256(open(path, 'rb').read()).hexdigest()
+
+
+def backend(conf):
+    m = re.search(r'(?m)^"CX_GRAPHICS_BACKEND"\s*=\s*"([^"]*)"', open(conf, encoding='latin-1').read())
+    return (m.group(1) if m else '') or 'auto'
+
+
+def setup(log, snapshot, end, exe, conf, prefs, window, args):
     lines = open(log, encoding='latin-1').read().splitlines()
     armies, options, seed, tick = [], {}, None, 0
     for line in lines:
@@ -89,12 +99,14 @@ def setup(log, snapshot, end, args):
         for name in sorted(files):
             if name.endswith(('.lua', '.sh', '.py')) or os.access(os.path.join(root, name), os.X_OK):
                 path = os.path.join(root, name)
-                hashes[os.path.relpath(path, snapshot)] = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+                hashes[os.path.relpath(path, snapshot)] = sha256(path)
     git = lambda *a: subprocess.run(('git',) + a, capture_output=True, text=True).stdout.strip()
     manifest = {
         'log': log.removesuffix('.partial'), 'args': args, 'end': end,
         'git_head': git('rev-parse', 'HEAD'), 'git_dirty': bool(git('status', '--porcelain', '--', 'tools', 'agents')),
         'armies': armies, 'seed': seed, 'options': options, 'last_tick': tick, 'hashes': dict(sorted(hashes.items())),
+        'exe': {'path': exe, 'sha256': sha256(exe)}, 'backend': backend(conf),
+        'render': {'window': window, 'prefs_sha256': sha256(prefs)},
     }
     target = log.removesuffix('.partial').removesuffix('.log') + '.setup'
     json.dump(manifest, open(target, 'w'), indent=1)
@@ -127,6 +139,7 @@ def active_mods(prefs):
 
 
 def self_test():
+    import subprocess
     import tempfile
     d = tempfile.mkdtemp()
     log, state = os.path.join(d, 'x.log'), os.path.join(d, 'state')
@@ -141,7 +154,13 @@ def self_test():
     open(log, 'a').write('warning: Error running lua script: Unknown unit type: uel1101\n')
     assert watch(log, state, [], [], now=100).startswith('error')
     open(log, 'a').write('info: SETUP|ARMY|1|ARMY_1|true||3|false\ninfo: SETUP|SEED|7\ninfo: SETUP|OPTIONS|A=1,B=x\n')
-    m = json.load(open(setup(log, d, 'marker', ['/map', 'X'])))
+    exe, conf, prefs = (os.path.join(d, n) for n in ('game.exe', 'cxbottle.conf', 'Game.prefs'))
+    open(exe, 'wb').write(b'MZ')
+    open(conf, 'w').write('"CX_GRAPHICS_BACKEND" = ""\n')
+    open(prefs, 'w').write('a = 1\n')
+    m = json.load(open(setup(log, d, 'marker', exe, conf, prefs, '1680 1050', ['/map', 'X'])))
+    assert m['exe'] == {'path': exe, 'sha256': hashlib.sha256(b'MZ').hexdigest()}
+    assert m['backend'] == 'auto' and m['render'] == {'window': '1680 1050', 'prefs_sha256': hashlib.sha256(b'a = 1\n').hexdigest()}
     assert m['armies'][0]['faction'] == '3' and m['seed'] == '7' and m['options'] == {'A': '1', 'B': 'x'}
     assert m['last_tick'] == 2500 and m['end'] == 'marker'
     os.makedirs(os.path.join(d, 'mods', 'm'))
@@ -149,6 +168,19 @@ def self_test():
     open(os.path.join(d, 'prefs'), 'w').write("a = 1\nactive_mods = {\n    ['u-1'] = true,\n    ['faf-only'] = true\n}\n")
     assert active_mods(os.path.join(d, 'prefs')) == ['u-1', 'faf-only']
     assert loadable_mods(os.path.join(d, 'mods'), os.path.join(d, 'none.scd')) == {'u-1': 'Mine'}
+    import shutil
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    tree = os.path.join(d, 'tree')
+    shutil.copytree(here, os.path.join(tree, 'tools'), ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(os.path.join(os.path.dirname(here), 'agents', 'faf-autorun'), os.path.join(tree, 'agents', 'faf-autorun'))
+    evidence = os.path.join(tree, 'work', 'capture-run', 'done', 'hook')
+    os.makedirs(os.path.dirname(evidence))
+    os.makedirs(os.path.join(tree, 'work', 'logs'))
+    open(evidence, 'w').write('original hook')
+    open(os.path.join(tree, 'work', 'logs', 'done.log'), 'w').write('finished run')
+    retry = subprocess.run([os.path.join(tree, 'agents', 'faf-autorun', 'run'), 'done', '5'], capture_output=True, text=True)
+    assert retry.returncode == 1 and 'never overwritten' in retry.stderr, retry
+    assert open(evidence).read() == 'original hook' and open(os.path.join(tree, 'work', 'logs', 'done.log')).read() == 'finished run'
     print('capture.py self-test ok')
 
 
@@ -177,8 +209,8 @@ def main():
             print(', '.join(hits))
             sys.exit(3)
         return
-    if a[:1] == ['setup'] and len(a) >= 5 and a[4] == '--':
-        print(setup(a[1], a[2], a[3], a[5:]))
+    if a[:1] == ['setup'] and len(a) >= 9 and a[8] == '--':
+        print(setup(*a[1:8], a[9:]))
         return
     sys.exit(__doc__.strip())
 

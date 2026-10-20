@@ -23,11 +23,13 @@
 #   - runs mac/tools/lib/capture.py's preflight every 5 s while waiting: stops on the first Lua error or unknown
 #     unit type, a loaded hook without HOOKCHECK within 90 s, or a missed checkpoint (GAME_RUN_CHECKPOINTS,
 #     "TEXT@TICK" separated by ";"; GAME_RUN_ALLOW lists tolerated error texts separated by ";").
-# game_run_finish writes LOG's setup manifest, NAME.setup (capture.py setup).
+# game_run_refuse_existing LOG exits 1 when LOG exists; call it before game_run_snapshot, which replaces the
+# previous snapshot of the same name. game_run_finish writes LOG's setup manifest, NAME.setup (capture.py setup).
 # Progress goes to stderr: "game-run: PHASE" when a wait step starts, and every 10 minutes of waiting a line with
 # the elapsed time and the game's CPU percent and resident memory.
 
-GAME_RUN_PREFS="$HOME/Library/Application Support/CrossOver/Bottles/${FAF_BOTTLE:-SupCom}/drive_c/users/crossover/AppData/Local/Gas Powered Games/Supreme Commander Forged Alliance/Game.prefs"
+GAME_RUN_BOTTLE="$HOME/Library/Application Support/CrossOver/Bottles/${FAF_BOTTLE:-SupCom}"
+GAME_RUN_PREFS="$GAME_RUN_BOTTLE/drive_c/users/crossover/AppData/Local/Gas Powered Games/Supreme Commander Forged Alliance/Game.prefs"
 
 game_run_phase() {
     echo "game-run: $1" >&2
@@ -75,6 +77,10 @@ game_run_lock() {
     trap game_run_cleanup EXIT
 }
 
+game_run_refuse_existing() {
+    [ ! -e "$1" ] || { echo "game-run: $1 already exists; a capture is never overwritten. Use a new name." >&2; exit 1; }
+}
+
 game_run_snapshot() {
     [ -z "${GAME_RUN_DIR:-}" ] || return 0
     GAME_RUN_DIR="$PWD/work/capture-run/$1"
@@ -106,7 +112,7 @@ game_run_cleanup() {
 game_run_start() {
     kind=$1 init=$2 GAME_RUN_LOG=$3
     shift 3
-    [ ! -e "$GAME_RUN_LOG" ] || { echo "game-run: $GAME_RUN_LOG already exists; a capture is never overwritten. Use a new name." >&2; exit 1; }
+    game_run_refuse_existing "$GAME_RUN_LOG"
     GAME_RUN_PARTIAL="$GAME_RUN_LOG.partial"
     GAME_RUN_PATTERN="(SupremeCommander|ForgedAlliance)[.]exe.*[\\\\]$(basename "$GAME_RUN_PARTIAL" | sed 's/[.]/[.]/g')"
     GAME_RUN_ARGS="$*" GAME_RUN_END=marker GAME_RUN_T0=$(date +%s)
@@ -117,13 +123,17 @@ game_run_start() {
         [ "$waited" -lt 20 ] || { echo "A game is already running." >&2; exit 1; }
         sleep 2; waited=$((waited + 2))
     done
-    game_dir="$HOME/Library/Application Support/CrossOver/Bottles/${FAF_BOTTLE:-SupCom}/drive_c/GOG Games/Supreme Commander Forged Alliance"
+    game_dir="$GAME_RUN_BOTTLE/drive_c/GOG Games/Supreme Commander Forged Alliance"
     if [ "$kind" = original ] && ! mods=$(python3 -I tools/lib/capture.py mods "$GAME_RUN_PREFS" \
             "$HOME/Documents/My Games/Gas Powered Games/Supreme Commander Forged Alliance/mods" "$game_dir/gamedata/mods.scd"); then
         echo "game-run: Game.prefs activates mods the original game would load ($mods); an original-game" \
             "capture needs them off (JStar's data: ask the main session)." >&2
         exit 1
     fi
+    case "$kind" in
+        original) GAME_RUN_EXE="$game_dir/bin/SupremeCommander.exe" GAME_RUN_WINDOW_USED=${GAME_RUN_WINDOW:-1680 1050} ;;
+        *) GAME_RUN_EXE="$HOME/.faforever/bin/ForgedAlliance.exe" GAME_RUN_WINDOW_USED=${GAME_RUN_WINDOW:-1024 768} ;;
+    esac
     game_run_snapshot "$(basename "$GAME_RUN_LOG" .log)"
     case "$init" in /*) ;; *) init="$GAME_RUN_DIR/$init" ;; esac
     mkdir -p "$(dirname "$GAME_RUN_LOG")"
@@ -131,12 +141,12 @@ game_run_start() {
     root=$PWD
     case "$kind" in
         original)
-            agents/faf-crossover original /init "$(game_run_winpath "$init")" /nomovie /windowed ${GAME_RUN_WINDOW:-1680 1050} \
+            agents/faf-crossover original /init "$(game_run_winpath "$init")" /nomovie /windowed $GAME_RUN_WINDOW_USED \
                 "$@" /log "$(game_run_winpath "$GAME_RUN_PARTIAL")" > /dev/null 2>&1 & ;;
         faf)
             initwin=$(game_run_winpath "$init") logwin=$(game_run_winpath "$GAME_RUN_PARTIAL")
             (cd "$HOME/.faforever/bin" && "$root/agents/faf-crossover" game "$HOME/.faforever/bin/ForgedAlliance.exe" \
-                /init "$initwin" /nobugreport /nomovie /windowed ${GAME_RUN_WINDOW:-1024 768} /log "$logwin" "$@") & ;;
+                /init "$initwin" /nobugreport /nomovie /windowed $GAME_RUN_WINDOW_USED /log "$logwin" "$@") & ;;
         *) echo "game-run: unknown kind $kind" >&2; exit 2 ;;
     esac
 }
@@ -185,7 +195,8 @@ game_run_wait_exit() {
 game_run_finish() {
     game_run_phase "finishing"
     game_run_stop
-    python3 -I tools/lib/capture.py setup "$GAME_RUN_PARTIAL" "$GAME_RUN_DIR" "$GAME_RUN_END" -- $GAME_RUN_ARGS >/dev/null
+    python3 -I tools/lib/capture.py setup "$GAME_RUN_PARTIAL" "$GAME_RUN_DIR" "$GAME_RUN_END" "$GAME_RUN_EXE" \
+        "$GAME_RUN_BOTTLE/cxbottle.conf" "$GAME_RUN_PREFS" "$GAME_RUN_WINDOW_USED" -- $GAME_RUN_ARGS >/dev/null
     mv "$GAME_RUN_PARTIAL" "$GAME_RUN_LOG"
 }
 
