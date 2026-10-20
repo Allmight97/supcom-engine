@@ -17,6 +17,14 @@ void record_failure(std::string message);
 /// Number of failures recorded so far.
 int failure_count();
 
+/// The exit code of a skipped test mode: ctest's SKIP_RETURN_CODE.
+inline constexpr int kExitSkipped = 77;
+
+/// End a test mode as skipped (no game data, a missing device feature):
+/// exit kExitSkipped, unless a check already failed, whose failures are
+/// then reported and the exit code is 1. The only way a mode skips.
+[[noreturn]] void skip(const std::string& reason);
+
 /// The first recorded failure messages (capped), in order.
 std::vector<std::string> failure_messages();
 

@@ -1,6 +1,7 @@
 #include "core/test_status.hpp"
 
 #include <atomic>
+#include <cstdlib>
 #include <mutex>
 
 namespace osc::test_status {
@@ -25,6 +26,18 @@ void record_failure(std::string message) {
 int failure_count() {
     std::lock_guard lock(g_mutex);
     return g_count;
+}
+
+void skip(const std::string& reason) {
+    if (const int failures = failure_count(); failures > 0) {
+        spdlog::error("=== FAIL ({} failed check(s)) before a skip: {} ===", failures, reason);
+        for (const auto& message : failure_messages()) spdlog::error("  - {}", message);
+        spdlog::default_logger()->flush();
+        std::exit(1);
+    }
+    spdlog::warn("=== SKIPPED: {} ===", reason);
+    spdlog::default_logger()->flush();
+    std::exit(kExitSkipped);
 }
 
 std::vector<std::string> failure_messages() {

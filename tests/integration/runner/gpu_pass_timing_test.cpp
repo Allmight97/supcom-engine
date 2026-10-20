@@ -12,7 +12,6 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
-#include <cstdlib>
 #include <vector>
 
 namespace osc::test {
@@ -32,10 +31,8 @@ void test_gpu_pass_timing(TestContext& ctx) {
         return;
     }
     renderer::Renderer& r = shots.renderer();
-    if (!r.gpu_timestamps_supported()) {
-        spdlog::warn("GPU pass timing test: the device counts no timestamps; skipped");
-        std::exit(app::kExitSkippedNoData);
-    }
+    if (!r.gpu_timestamps_supported())
+        test_status::skip("GPU pass timing test: the device counts no timestamps");
     // Ground under water, so the frame copies itself for the water to refract
     std::vector<u16> heights(static_cast<size_t>(kSize + 1) * (kSize + 1), 5 * 128);
     map::Terrain ground(map::Heightmap(kSize, kSize, 1.0f / 128.0f, std::move(heights)), 10.0f,

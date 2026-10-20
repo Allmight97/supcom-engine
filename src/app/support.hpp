@@ -6,6 +6,7 @@
 // into a new game.
 
 #include "app/app.hpp"
+#include "core/test_status.hpp"
 #include "renderer/input_handler.hpp"
 #include "sim/game_setup.hpp"
 
@@ -27,7 +28,7 @@ struct WorldInterp;
 /// Exit code for a test mode run when no game data is available: CTest
 /// treats it as "skipped" (SKIP_RETURN_CODE), so data-backed tests pass
 /// harmlessly on machines without Forged Alliance.
-inline constexpr int kExitSkippedNoData = 77;
+inline constexpr int kExitSkippedNoData = test_status::kExitSkipped;
 
 bool parse_flag(int argc, char* argv[], const char* flag);
 std::string parse_string_arg(int argc, char* argv[], const char* flag,
