@@ -94,6 +94,7 @@ struct Options {
     bool self_destruct_flow_test = false;
     bool lobby_options_test = false;
     bool lobby_options_rebind = false;
+    bool lobby_options_relaunch = false;
     bool campaign_flow_test = false; ///< (M209b)
     bool tutorial_flow_test = false; ///< its tutorial route (campaign_flow_test is set too)
     bool outro_flow_test = false;    ///< its outro route (campaign_flow_test is set too)

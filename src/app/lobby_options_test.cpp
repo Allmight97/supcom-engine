@@ -56,6 +56,25 @@ constexpr const char* kReport = R"(
         string.gsub(score.controls.time:GetText(), ' ', '_'))
 )";
 
+/// A game no lobby launches, as a campaign operation's: its options say Fast.
+constexpr const char* kRelaunch = R"(
+    LaunchSinglePlayerSession({
+        GameOptions = { ScenarioFile = '/maps/SCMP_009/SCMP_009_scenario.lua',
+                        GameSpeed = 'fast', Victory = 'sandbox' },
+        PlayerOptions = {
+            [1] = { Human = true, PlayerName = 'Player', Faction = 1, Team = 1, StartSpot = 1 },
+        },
+    })
+    return 'launched'
+)";
+
+/// Its speed, then its speed after asking for one step more.
+constexpr const char* kRelaunchReport = R"(
+    local start = GetGameSpeed()
+    ConExecute('WLD_IncreaseSimRate')
+    return string.format('relaunched start=%d end=%d', start, GetGameSpeed())
+)";
+
 } // namespace
 
 void LobbyOptionsTest::frame(lua::LuaState& ui, const sim::SimState* sim) {
@@ -77,11 +96,22 @@ void LobbyOptionsTest::frame(lua::LuaState& ui, const sim::SimState* sim) {
             spdlog::info("lobby-options: keymap={}", key_map);
         }
     }
-    if (started_ && tick >= kReportTick) {
+    if (started_ && !reported_ && tick >= kReportTick) {
         const std::string report = run(ui, kReport);
         if (report.empty()) return;
         spdlog::info("lobby-options: {}", report);
         reported_ = true;
+        done_ = !relaunch_;
+        relaunch_asked_ = relaunch_ && !run(ui, kRelaunch).empty();
+        return;
+    }
+    // The relaunched game, once its ticks count from the start again
+    if (relaunch_asked_ && tick < kReportTick) relaunch_began_ = true;
+    if (relaunch_began_ && tick >= kStartTick) {
+        const std::string report = run(ui, kRelaunchReport);
+        if (report.empty()) return;
+        spdlog::info("lobby-options: {}", report);
+        relaunched_ = true;
         done_ = true;
     }
 }
@@ -106,7 +136,10 @@ void LobbyOptionsTest::fail(const std::string& why) {
 }
 
 void LobbyOptionsTest::finish() const {
-    if (reported_) {
+    if (relaunch_ && reported_ && !relaunched_ && test_status::failure_count() == 0) {
+        test_status::fail("[FAIL] lobby-options: the relaunched game never reached tick {}",
+                          kStartTick);
+    } else if (reported_) {
         spdlog::info("[PASS] lobby-options: reported at tick {}", kReportTick);
     } else if (test_status::failure_count() == 0) {
         test_status::fail("[FAIL] lobby-options: the game never reached tick {} ({} frames)",
