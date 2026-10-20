@@ -14,7 +14,9 @@ Each run must exit 0: a script error fails it.
    is 250.
 2. Fast: the speed is +4 and stays there, though NumPlus runs the action.
 3. Fast's own recording, watched (a launch no lobby made): +0, and NumPlus
-   raises it to +1.
+   raises it to +1. In the same process as a Fast lobby game, a game then
+   launched as a campaign operation is (its options Fast too): +0, and a
+   request for +1 is taken.
 4. Adjustable: NumPlus raises it to +1, and the clock shows "(+1)".
 5. Rebound: retail's keymapper.SetUserKeyMapping (what its Key Bindings
    dialog would call: retail's own dialog has its Assign button commented
@@ -26,6 +28,9 @@ Each run must exit 0: a script error fails it.
    once and NumPlus once: four actions and +2 (NumPlus unbound), where the
    default keys give one action and +1.
 
+6. The mode fails, not passes, when the renderer cannot start (the Vulkan
+   loader given no driver) or when asked to run headless (--ticks).
+
 Usage:
     lobby_options.py <opensupcom>
 
@@ -34,6 +39,7 @@ Exits 77 (skipped) when the game has no data.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -86,7 +92,9 @@ def keys(*presses: tuple[int, str]) -> list[str]:
     return args
 
 
-def run(exe: str, name: str, args: list[str]) -> tuple[Report | None, str, int]:
+def run(
+    exe: str, name: str, args: list[str], env: dict[str, str] | None = None
+) -> tuple[Report | None, str, int]:
     """The run's report (None: none), its output and its exit status."""
     game = subprocess.run(
         [exe, "--lobby-options-test", *args],
@@ -95,6 +103,7 @@ def run(exe: str, name: str, args: list[str]) -> tuple[Report | None, str, int]:
         errors="replace",
         timeout=TIMEOUT_SECONDS,
         check=False,
+        env=env,
     )
     output = game.stdout + game.stderr
     for line in output.splitlines():
@@ -183,6 +192,28 @@ def main(argv: list[str]) -> int:
             problems += check(
                 "watched", report, status, {"start": 0, "end": 1, "actions": 1, "clock": ""}
             )
+
+        # A Fast lobby game, then a game no lobby launches, in one process
+        tmp = Path(root) / "relaunch"
+        tmp.mkdir()
+        write_prefs(tmp / "Game.prefs", FAST)
+        report, output, status = run(
+            exe, "relaunch", lobby_args(tmp, [*numplus, "--lobby-options-relaunch"])
+        )
+        problems += check("relaunch", report, status, {"start": 4, "end": 4, "actions": 1})
+        if not re.search(r"lobby-options: relaunched start=0 end=1\b", output):
+            problems.append("relaunch: the next game isn't adjustable at +0")
+
+        # Nothing checked is a failure: no renderer, or a headless run
+        no_driver = {**os.environ, "VK_ICD_FILENAMES": str(tmp / "none.json")}
+        no_driver["VK_DRIVER_FILES"] = no_driver["VK_ICD_FILENAMES"]
+        for name, args, env in [
+            ("no renderer", lobby_args(tmp, numplus), no_driver),
+            ("headless", ["--user-dir", str(tmp / "user"), "--ticks", "30"], None),
+        ]:
+            _, _, status = run(exe, name, args, env)
+            if status == 0:
+                problems.append(f"{name}: exit 0, though nothing was checked")
 
         # The rebound keys, in the next launch's preferences
         tmp = Path(root) / "rebound"

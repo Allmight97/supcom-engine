@@ -63,8 +63,10 @@ Chosen here, where neither source decides:
   adjustable flag.
 - A lobby's `LaunchGame` marks its launch (`__osc_launch_lobby`), and the
   launch takes `lobby_game_speed`: the lockstep session for a network game,
-  `GameStateManager::set_speed_option` for a single-player one. Any other
-  launch, and every new game until then, is adjustable at +0.
+  `GameStateManager::set_speed_option` for a single-player one. A replay or
+  saved game asked for in its place (by the lobby's `GameLaunched`, say)
+  does not. Any other launch, and every new game until then, is adjustable
+  at +0: `transition_to(GAME)` resets it as the reload enters the game.
 - A single-player game's accepted speed change reaches
   `uimain.NoteGameSpeedChanged`, as a network game's does.
 
@@ -73,8 +75,10 @@ Chosen here, where neither source decides:
 - `data.lobby_options` (gate, `tests/integration/lobby_options.py`): lobby
   launches with each Game Speed and a Unit Cap of 250, NumPlus pressed
   through the window's input. It counts that the key ran the speed action
-  in every case. Fast's recording, watched, is adjustable at +0. A rebind
-  to Equals and Minus takes effect at the next launch.
+  in every case. Fast's recording, watched, is adjustable at +0, and so is
+  a game launched as a campaign operation in the same process after a Fast
+  lobby game. A rebind to Equals and Minus takes effect at the next launch.
+  The mode fails when the renderer cannot start, and refuses to run headless.
 - `osc_tests`: the option readers and `lobby_game_speed`; a string UnitCap
   reaching every army; a fixed speed refusing requests until a new game; a
   peer's speed message ignored in a fixed game and from an observer.

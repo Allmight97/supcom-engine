@@ -401,7 +401,8 @@ std::optional<int> App::Window::start_flows() {
             return finish_test_run("mods-flow-test");
         }
     }
-    if (opt.lobby_options_test) lobby_options.emplace(opt.lobby_options_rebind);
+    if (opt.lobby_options_test)
+        lobby_options.emplace(opt.lobby_options_rebind, opt.lobby_options_relaunch);
     // --campaign-flow-test: the campaign through retail's screens (M209b)
     if (opt.campaign_flow_test) {
         using Route = osc::app::CampaignFlowTest::Route;
@@ -560,6 +561,10 @@ std::optional<int> App::Window::run_without_renderer() {
         !parse_string_arg(argc, argv, "--golden", "").empty()) {
         spdlog::error("Screenshot requested but the renderer failed to "
                       "initialize");
+        return 1;
+    }
+    if (opt.lobby_options_test) {
+        spdlog::error("--lobby-options-test needs the renderer, which failed to initialize");
         return 1;
     }
     spdlog::warn("Vulkan init failed — falling back to headless "

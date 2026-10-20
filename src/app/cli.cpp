@@ -106,6 +106,7 @@ void print_usage() {
               << "  --lobby-options-test Offscreen: a game launched with --click, its speed keys\n"
               << "                     pressed with --mouse; reports its speed and HUD\n"
               << "  --lobby-options-rebind ...binding Equals and Minus to the speed first\n"
+              << "  --lobby-options-relaunch ...then a game no lobby launches, its speed reported\n"
               << "  --campaign-flow-test Offscreen: the campaign through retail's screens, from\n"
               << "                     the main menu through X1CA_001 to X1CA_002's briefing\n"
               << "  --tutorial-flow-test Offscreen: the tutorial from operation select, through\n"
@@ -320,6 +321,7 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     // --lobby-options-test: a lobby game's speed and HUD, reported.
     o.lobby_options_test = parse_flag(argc, argv, "--lobby-options-test");
     o.lobby_options_rebind = parse_flag(argc, argv, "--lobby-options-rebind");
+    o.lobby_options_relaunch = parse_flag(argc, argv, "--lobby-options-relaunch");
     // --campaign-flow-test: the campaign through retail's screens (M209b).
     o.campaign_flow_test = parse_flag(argc, argv, "--campaign-flow-test");
     // --tutorial-flow-test: the same screens to the tutorial, played a while.
@@ -394,6 +396,11 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     // test mode, or an AI game whose script errors count).
     o.any_test = request.headless || o.ai_skirmish;
     o.headless = (o.tick_count > 0) || o.any_test || o.replay_to_play.has_value();
+    if (o.lobby_options_test && o.headless) {
+        spdlog::error("--lobby-options-test plays a windowed game: drop --ticks, --replay and "
+                      "the headless modes");
+        return std::nullopt;
+    }
 
     o.silent_capture = !parse_string_arg(argc, argv, "--screenshot", "").empty() ||
                        !parse_string_arg(argc, argv, "--golden", "").empty() || o.scripted_window;
