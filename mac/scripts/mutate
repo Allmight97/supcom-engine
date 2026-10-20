@@ -14,7 +14,8 @@ The branch's tests: the ctest names its test hunks add (OSC_DATA_TESTS_* lists, 
 data mode a changed test source is named for (runner/foo_bar_test.cpp -> data.foo-bar-test), the arch
 and data tests of a changed tools/check_*.py, and the unit test cases defined in a changed test file
 (osc_tests --list-tests). Test paths: tests/, tools/check_* and tools/*.txt, src/app/*_test.*,
-src/app/test_modes.cpp, and the hunks of src/app/cli.cpp and CMake files that register tests.
+src/app/test_modes.cpp, the hunks of src/app/cli.cpp that register tests, and the CMake hunks that do or that
+change a line inside an add_test(...) or set_tests_properties(...) call.
 
 base: a scratch worktree at BASE (the merge base with HEAD) in this checkout's .local/fail-first/base, reused;
 the branch's test hunks applied, built, the branch's tests run. Each test is reported failed at build,
@@ -49,6 +50,7 @@ prove = importlib.util.module_from_spec(importlib.util.spec_from_loader('prove',
 _loader.exec_module(prove)
 DIFF_HEAD = re.compile(r'^diff --git a/(\S+) b/(\S+)$')
 REGISTERS = re.compile(r'add_test|set_tests_properties|OSC_DATA_TESTS')
+TEST_CALL = re.compile(r'\s*(add_test|set_tests_properties)\s*\(')
 CTEST_LINE = re.compile(r'Test\s+#\d+: (\S+) \.+\s*(?:\*\*\*)?(\S.*?)\s+[\d.]+ sec')
 
 
@@ -93,7 +95,21 @@ def is_test_hunk(path, hunk):
     if path == 'src/app/cli.cpp':
         return any(re.search(r'"--[\w-]+-test"', line) for line in changed(hunk, '+'))
     if name == 'CMakeLists.txt' or name.endswith('.cmake'):
-        return any(REGISTERS.search(line) for line in changed(hunk, '+') + changed(hunk, '-'))
+        return any(REGISTERS.search(line) for line in changed(hunk, '+') + changed(hunk, '-')) \
+            or in_test_call(hunk, '+') or in_test_call(hunk, '-')
+    return False
+
+
+def in_test_call(hunk, sign):
+    """Whether a `sign` line of a CMake hunk lies inside an add_test(...) or set_tests_properties(...) call."""
+    # shortcut: a call opened above the hunk's context is missed; read the file around the hunk if that bites.
+    depth = 0
+    for line in hunk.splitlines()[1:]:
+        if line[:1] not in (' ', sign) or not depth and not TEST_CALL.match(line[1:]):
+            continue
+        if line[0] == sign:
+            return True
+        depth += line.count('(') - line.count(')')
     return False
 
 
@@ -614,6 +630,10 @@ def self_test():
         globals().update(saved)
     assert refused == 2 and not touched, f'a 41-hunk sweep exits 2 before any revert or build: {refused}, {touched}'
     assert sweep_refusal(237, 81, 'upstream/main', 0).startswith('- sweep: 237 hunks in 81 files against upstream/main')
+    continued = ('@@ -1,3 +1,3 @@\n add_test(NAME data.shader_names\n     COMMAND check.py\n'
+                 '-        --installed ${SRC})\n+        --installed ${SRC} $<TARGET_FILE:opensupcom>)\n')
+    assert is_test_hunk('CMakeLists.txt', continued), 'a changed continuation line of add_test is a test hunk'
+    assert not is_test_hunk('CMakeLists.txt', '@@ -1,2 +1,2 @@\n add_test(NAME a COMMAND b)\n-set(X 1)\n+set(X 2)\n')
     print('mutate self-test passed')
 
 
