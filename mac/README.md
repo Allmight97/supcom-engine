@@ -1,6 +1,7 @@
 # Forged Alliance natively on the Mac
 
 ```bash
+osc                                  # a menu for the options below, from any folder (link: see Use it)
 # Quick reference (run from ~/Projects/OpenSupCom). KosmicKrisp (Metal 4) is chosen automatically.
 mac/scripts/play                     # Video options decide; full screen at 60 Hz caps at 60; Metal HUD on
 mac/scripts/play --build             # rebuild the current branch first
@@ -30,6 +31,7 @@ checkout root (`~/Projects/OpenSupCom`).
 
 | Command | What it does |
 | --- | --- |
+| `mac/scripts/osc` | A menu over `play`: window, Metal HUD, frame cap, UI scale and rebuild by key; shows the command and remembers the choices (`--go`: play with them). Link it once to run `osc` from any folder: `ln -s ~/Projects/OpenSupCom/mac/scripts/osc ~/.local/bin/osc` |
 | `mac/scripts/play` | Play as the game's Video options say (full screen at 60 Hz caps the frame rate at 60), with the Metal HUD |
 | `mac/scripts/play --build` | Rebuild the current branch first |
 | `mac/scripts/play --full` | Full screen 2560x1440, overriding the Video option |
