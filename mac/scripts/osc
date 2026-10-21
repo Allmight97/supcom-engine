@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A menu for mac/scripts/play: pick the window, HUD, frame cap, UI scale and a rebuild by key, see the
+# A menu for mac/scripts/play: pick the window, HUD, frame cap, UI scale, a rebuild and extra game options by key, see the
 # exact play command, and start the game. Works from any folder as `osc` once linked:
 #   ln -s ~/Projects/OpenSupCom/mac/scripts/osc ~/.local/bin/osc
 # Remembers the last choices in ~/.config/osc-launcher.

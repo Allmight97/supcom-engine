@@ -1,8 +1,11 @@
 # Forged Alliance natively on the Mac
 
 ```bash
-osc                                  # a menu for the options below, from any folder (link: see Use it)
-# Quick reference (run from ~/Projects/OpenSupCom). KosmicKrisp (Metal 4) is chosen automatically.
+osc                                  # the menu: pick options, then play
+osc --go                             # play again with the last menu choices
+# Once, to run osc from any folder:
+ln -s ~/Projects/OpenSupCom/mac/scripts/osc ~/.local/bin/osc
+# Direct play, for scripts and advanced use (run from ~/Projects/OpenSupCom). KosmicKrisp (Metal 4) is chosen automatically.
 mac/scripts/play                     # Video options decide; full screen at 60 Hz caps at 60; Metal HUD on
 mac/scripts/play --build             # rebuild the current branch first
 mac/scripts/play --full              # force full screen 2560x1440 (overrides the Video option)
@@ -12,7 +15,7 @@ grep -m1 driver ~/Library/Application\ Support/opensupcom/logs/opensupcom.log   
 # Nuke test: skirmish as UEF, victory "Sandbox", select your ACU, Ctrl-K.
 ```
 
-This folder contains the moderization of [OpenSupCom](https://github.com/bwiemz/supcom-engine) on modern apple silicone with a focus on Apple's software stack released with MacOS 27.
+This folder contains the modernization of [OpenSupCom](https://github.com/bwiemz/supcom-engine) on modern Apple silicon with a focus on Apple's software stack released with macOS 27.
 
 [Allmight97/supcom-engine](https://github.com/Allmight97/supcom-engine) (upstream:
 [bwiemz/supcom-engine](https://github.com/bwiemz/supcom-engine)): the build recipe, the
@@ -29,9 +32,17 @@ You need your own copy of the game (GOG or Steam) and this Mac setup:
 [docs/toolchain.md, "Fresh setup"](docs/toolchain.md). Run the commands below from the
 checkout root (`~/Projects/OpenSupCom`).
 
+`osc` is the everyday way to play. Its menu sets the window, Metal HUD, frame cap, UI scale,
+rebuild, and extra game options, shows the `play` command it runs, and remembers your choices.
+`osc --go` plays with the last choices. Its choices are the lists at the top of [scripts/osc](scripts/osc).
+
+Maintainers: when `play` gains an option or a play test needs a new game flag, add it to the osc
+menu (those lists and the menu's lines) in the same change.
+
+The table lists the `play` flags that osc drives, and the other scripts:
+
 | Command | What it does |
 | --- | --- |
-| `mac/scripts/osc` | A menu over `play`: window, Metal HUD, frame cap, UI scale and rebuild by key; shows the command and remembers the choices (`--go`: play with them). Link it once to run `osc` from any folder: `ln -s ~/Projects/OpenSupCom/mac/scripts/osc ~/.local/bin/osc` |
 | `mac/scripts/play` | Play as the game's Video options say (full screen at 60 Hz caps the frame rate at 60), with the Metal HUD |
 | `mac/scripts/play --build` | Rebuild the current branch first |
 | `mac/scripts/play --full` | Full screen 2560x1440, overriding the Video option |
