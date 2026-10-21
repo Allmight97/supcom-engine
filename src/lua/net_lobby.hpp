@@ -45,6 +45,9 @@ int net_lobby_EjectPeer(lua_State* L, NetLobby& lobby);
 int net_lobby_DisconnectFromPeer(lua_State* L, NetLobby& lobby);
 int net_lobby_MakeValidPlayerName(lua_State* L, NetLobby& lobby);
 int net_lobby_LaunchGame(lua_State* L, NetLobby& lobby);
+/// A lobby's LaunchGame launched the session LaunchSinglePlayerSession just
+/// asked for: it takes the lobby's GameSpeed (sim::lobby_game_speed).
+void mark_lobby_launch(lua_State* L);
 int net_lobby_Destroy(lua_State* L, NetLobby& lobby);
 int net_lobby_DebugDump(lua_State* L, NetLobby& lobby);
 

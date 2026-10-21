@@ -78,7 +78,8 @@ void print_usage() {
               << "  --mouse \"<when> <verb> <what>\"  A player's mouse, a step at a time:\n"
               << "                     <when> a frame (as --screenshot-frame counts) or t<tick>;\n"
               << "                     move <x>,<y> (pixels) or w<x>,<z> (the ground there),\n"
-              << "                     press|release left|right|middle|shift|ctrl|alt.\n"
+              << "                     press|release left|right|middle|shift|ctrl|alt, or the\n"
+              << "                     key equals|minus|numplus|numminus|numstar.\n"
               << "                     Steps go in turn; one held stays held\n"
               << "  --binding-coverage <file>  Report engine API the scripts call but\n"
               << "                     the engine lacks (needs --map)\n"
@@ -109,6 +110,10 @@ void print_usage() {
               << "                     as retail's lobby launches one, reporting what they did\n"
               << "  --mods-flow-lobby  ...through retail's lobby, picking Resource Rich in its\n"
               << "                     mod manager with a player's clicks\n"
+              << "  --lobby-options-test Offscreen: a game launched with --click, its speed keys\n"
+              << "                     pressed with --mouse; reports its speed and HUD\n"
+              << "  --lobby-options-rebind ...binding Equals and Minus to the speed first\n"
+              << "  --lobby-options-relaunch ...then a game no lobby launches, its speed reported\n"
               << "  --self-destruct-flow-test Offscreen: a skirmish whose player, on ARMY_2,\n"
               << "                     self-destructs their commander as Ctrl-K does\n"
               << "  --campaign-flow-test Offscreen: the campaign through retail's screens, from\n"
@@ -338,6 +343,10 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     o.mods_flow_test = parse_flag(argc, argv, "--mods-flow-test");
     // --self-destruct-flow-test: the player, on ARMY_2, self-destructs.
     o.self_destruct_flow_test = parse_flag(argc, argv, "--self-destruct-flow-test");
+    // --lobby-options-test: a lobby game's speed and HUD, reported.
+    o.lobby_options_test = parse_flag(argc, argv, "--lobby-options-test");
+    o.lobby_options_rebind = parse_flag(argc, argv, "--lobby-options-rebind");
+    o.lobby_options_relaunch = parse_flag(argc, argv, "--lobby-options-relaunch");
     // --campaign-flow-test: the campaign through retail's screens (M209b).
     o.campaign_flow_test = parse_flag(argc, argv, "--campaign-flow-test");
     // --tutorial-flow-test: the same screens to the tutorial, played a while.
@@ -361,10 +370,11 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
         } else if (std::strcmp(argv[i], "--mouse") == 0) {
             auto step = parse_mouse_step(argv[++i]);
             if (!step) {
-                spdlog::error("--mouse '{}': give a step as '<frame>|t<tick> move "
-                              "<x>,<y>|w<x>,<z>' or '<frame>|t<tick> press|release "
-                              "left|right|middle|shift|ctrl|alt'",
-                              argv[i]);
+                spdlog::error(
+                    "--mouse '{}': give a step as '<frame>|t<tick> move "
+                    "<x>,<y>|w<x>,<z>' or '<frame>|t<tick> press|release "
+                    "left|right|middle|shift|ctrl|alt|equals|minus|numplus|numminus|numstar'",
+                    argv[i]);
                 return std::nullopt;
             }
             o.mouse.push_back(std::move(*step));
@@ -393,8 +403,8 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     o.gpgnet_scripted = !o.gpgnet_endpoint.empty() && parse_flag(argc, argv, "--gpgnet-scripted");
     o.scripted_window = request.windowed || o.replay_flow_test || o.load_flow_test ||
                         o.mods_flow_test || o.self_destruct_flow_test || o.campaign_flow_test ||
-                        !o.clicks.empty() || !o.mouse.empty() || o.lan_game_test() ||
-                        o.gpgnet_scripted;
+                        o.lobby_options_test || !o.clicks.empty() || !o.mouse.empty() ||
+                        o.lan_game_test() || o.gpgnet_scripted;
     o.no_fog = parse_flag(argc, argv, "--no-fog");
     o.legacy_hud = parse_flag(argc, argv, "--legacy-hud");
     o.no_decals = parse_flag(argc, argv, "--no-decals");
@@ -415,6 +425,11 @@ std::optional<Options> parse_options(int argc, char* argv[], const TestRequest& 
     // test mode, or an AI game whose script errors count).
     o.any_test = request.headless || o.ai_skirmish;
     o.headless = (o.tick_count > 0) || o.any_test || o.replay_to_play.has_value();
+    if (o.lobby_options_test && o.headless) {
+        spdlog::error("--lobby-options-test plays a windowed game: drop --ticks, --replay and "
+                      "the headless modes");
+        return std::nullopt;
+    }
 
     o.silent_capture = !parse_string_arg(argc, argv, "--screenshot", "").empty() ||
                        !parse_string_arg(argc, argv, "--golden", "").empty() || o.scripted_window;
@@ -457,8 +472,8 @@ const char* test_mode_flag(int argc, char* argv[]) {
         const bool test = arg.size() > 7 && arg.starts_with("--") && arg.ends_with("-test") &&
                           arg != "--replay-flow-test" && arg != "--load-flow-test" &&
                           arg != "--mods-flow-test" && arg != "--self-destruct-flow-test" &&
-                          arg != "--campaign-flow-test" && arg != "--tutorial-flow-test" &&
-                          arg != "--outro-flow-test";
+                          arg != "--lobby-options-test" && arg != "--campaign-flow-test" &&
+                          arg != "--tutorial-flow-test" && arg != "--outro-flow-test";
         if (test || arg == "--render-dump" || arg == "--mp-host" || arg == "--mp-join")
             return argv[i];
     }

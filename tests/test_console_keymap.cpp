@@ -192,6 +192,16 @@ TEST_CASE("The sim rate: an integer game speed, 10^(rate/10) times normal", "[ui
     REQUIRE(lua.do_string("assert(GetGameSpeed() == 3)").ok());
     CHECK(rate_after("ConExecute('UI_Lua SetGameSpeed(5)')") == 5);
     CHECK(rate_after("ConExecuteSave('UI_Lua SetGameSpeed(6) ; WLD_DecreaseSimRate')") == 5);
+
+    // A lobby's Normal or Fast fixes the speed: requests change nothing
+    mgr.set_speed_option(4, false);
+    CHECK(rate_after(
+              "ConExecute('WLD_IncreaseSimRate') SetGameSpeed(0) ConExecute('WLD_GameSpeed 9')") ==
+          4);
+    // A new game starts adjustable at normal
+    mgr.transition_to(osc::GameState::SCORE, nullptr);
+    mgr.transition_to(osc::GameState::GAME, nullptr);
+    CHECK(rate_after("ConExecute('WLD_IncreaseSimRate')") == 1);
 }
 
 TEST_CASE("ConTextMatches lists the console's names starting with the text", "[ui][console]") {

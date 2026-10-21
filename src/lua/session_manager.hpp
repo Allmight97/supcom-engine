@@ -85,14 +85,8 @@ public:
     void set_game_options(const GameOptionsConfig& options) {
         game_options_ = options;
         if (options.configured) {
-            for (const auto& [key, value] : options.values) {
-                if (key == "CheatMult" && value.type == GameOptionValue::Type::Number) {
-                    cheat_mult_ = value.number_value;
-                } else if (key == "BuildMult" &&
-                           value.type == GameOptionValue::Type::Number) {
-                    build_mult_ = value.number_value;
-                }
-            }
+            cheat_mult_ = options.number("CheatMult").value_or(cheat_mult_);
+            build_mult_ = options.number("BuildMult").value_or(build_mult_);
         }
     }
 

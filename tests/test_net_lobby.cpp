@@ -754,9 +754,15 @@ TEST_CASE("A lobby's game has the speed its lobby set; players change it, observ
         __modules['/lua/ui/uimain.lua'] = {NoteGameSpeedChanged = function(client, speed)
             table.insert(__heard, client .. ':' .. speed)
         end}
-        -- The lobby's GameSpeed, as the game's options have it
-        rawset(_G, 'ScenarioInfo', {Options = {GameSpeed = 'fast'}})
     )"));
+    // The lobby's GameSpeed, as the game's setup has it
+    const auto set_game_speed = [&](const char* speed) {
+        osc::sim::GameSetup setup;
+        setup.options.configured = true;
+        setup.options.set_string("GameSpeed", speed);
+        w.sim.set_game_setup(std::move(setup));
+    };
+    set_game_speed("fast");
 
     // 'fast': fixed at +4
     REQUIRE(osc::lua::mp_attach_session(w.sim));
@@ -770,7 +776,7 @@ TEST_CASE("A lobby's game has the speed its lobby set; players change it, observ
 
     // 'adjustable': a player's is taken, and heard as Moho's client
     // manager tells it
-    REQUIRE(w.run("ScenarioInfo.Options.GameSpeed = 'Adjustable'"));
+    set_game_speed("Adjustable");
     REQUIRE(osc::lua::mp_attach_session(w.sim));
     REQUIRE(w.run(R"(
         assert(GetGameSpeed() == 0, GetGameSpeed())

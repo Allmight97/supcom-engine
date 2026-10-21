@@ -43,60 +43,30 @@ constexpr std::array<std::array<u8, 3>, 8> kArmyColors = {{
 void apply_game_options_to_brain(const GameOptionsConfig& options,
                                  sim::ArmyBrain* brain) {
     if (!options.configured || !brain) return;
-
-    for (const auto& [key, value] : options.values) {
-        if (key == "UnitCap" && value.type == GameOptionValue::Type::Number) {
-            brain->set_unit_cap(static_cast<i32>(value.number_value));
-        }
-    }
+    if (const auto cap = options.number("UnitCap")) brain->set_unit_cap(static_cast<i32>(*cap));
 }
-
-namespace {
-// Read a numeric option that may arrive as a Number or a numeric String
-// ("Off"/"none"/non-numeric → 0).
-double option_as_number(const GameOptionValue& value) {
-    if (value.type == GameOptionValue::Type::Number) return value.number_value;
-    if (value.type == GameOptionValue::Type::String) {
-        try {
-            return std::stod(value.string_value);
-        } catch (...) {
-            return 0.0;
-        }
-    }
-    return 0.0;
-}
-} // namespace
 
 void apply_game_options_to_sim(const GameOptionsConfig& options,
                                sim::SimState& sim) {
     if (!options.configured) return;
-    double no_rush_minutes = 0.0;
-    double no_rush_radius = 0.0;
-    for (const auto& [key, value] : options.values) {
-        if (key == "Victory" && value.type == GameOptionValue::Type::String) {
-            sim.set_victory_condition(value.string_value);
-        } else if (key == "Share" && value.type == GameOptionValue::Type::String) {
-            sim.set_share_condition(value.string_value);
-        } else if (key == "FogOfWar" && value.type == GameOptionValue::Type::String) {
-            sim.set_fog_of_war(value.string_value);
-        } else if (key == "CheatsEnabled") {
-            // As Moho's lobby launch reads it: the string "true", exactly
-            sim.set_cheats_enabled(value.type == GameOptionValue::Type::String &&
-                                   value.string_value == "true");
-        } else if (key == "NoRushOption") {
-            no_rush_minutes = option_as_number(value);
-        } else if (key == "NoRushRadius") {
-            no_rush_radius = option_as_number(value);
-        } else if (key == "TeamShareOverflow" && value.type == GameOptionValue::Type::String) {
-            // FAF values: 'enabled' / 'disabled'. Enable only when explicitly on.
-            const std::string& v = value.string_value;
-            sim.set_team_share_overflow(v == "enabled" || v == "on" ||
-                                        v == "true" || v == "all");
-        }
+    if (const std::string* victory = options.string("Victory")) sim.set_victory_condition(*victory);
+    if (const std::string* share = options.string("Share")) sim.set_share_condition(*share);
+    if (const std::string* fog = options.string("FogOfWar")) sim.set_fog_of_war(*fog);
+    if (options.find("CheatsEnabled")) {
+        // As Moho's lobby launch reads it: the string "true", exactly
+        const std::string* cheats = options.string("CheatsEnabled");
+        sim.set_cheats_enabled(cheats && *cheats == "true");
     }
+    if (const std::string* overflow = options.string("TeamShareOverflow")) {
+        // FAF values: 'enabled' / 'disabled'. Enable only when explicitly on.
+        const std::string& v = *overflow;
+        sim.set_team_share_overflow(v == "enabled" || v == "on" || v == "true" || v == "all");
+    }
+    // "Off" or none: no No Rush
+    const double no_rush_minutes = options.number("NoRushOption").value_or(0.0);
     if (no_rush_minutes > 0.0) {
         sim.set_no_rush(static_cast<float>(no_rush_minutes * 60.0),
-                        static_cast<float>(no_rush_radius));
+                        static_cast<float>(options.number("NoRushRadius").value_or(0.0)));
     }
 }
 
@@ -579,7 +549,7 @@ void SessionManager::setup_army_info(lua_State* L, const std::vector<std::string
     if (!operation) set_opt_str("Victory", "demoralization");
     set_opt_num("Timeouts", 3);
     set_opt_num("UnitCap", 1000);
-    set_opt_num("GameSpeed", 0);         // normal
+    set_opt_str("GameSpeed", "normal");
     set_opt_str("FogOfWar", "explored");
     set_opt_str("CheatsEnabled", "false");
     set_opt_str("PrebuiltUnits", "Off");

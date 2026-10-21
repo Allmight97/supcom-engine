@@ -422,6 +422,8 @@ std::optional<int> App::Window::start_flows() {
             return finish_test_run("mods-flow-test");
         }
     }
+    if (opt.lobby_options_test)
+        lobby_options.emplace(opt.lobby_options_rebind, opt.lobby_options_relaunch);
     if (opt.self_destruct_flow_test) {
         self_destruct_flow.emplace();
         if (!self_destruct_flow->start(ui_lua_state)) {
@@ -461,7 +463,7 @@ bool App::Window::running() const {
            !replay_flow_done && !load_flow_done && !(lan_game && lan_game->done()) &&
            !gpgnet_done && !(mods_flow && mods_flow->done()) &&
            !(self_destruct_flow && self_destruct_flow->done()) &&
-           !(campaign_flow && campaign_flow->done());
+           !(lobby_options && lobby_options->done()) && !(campaign_flow && campaign_flow->done());
 }
 
 std::optional<int> App::Window::finish() {
@@ -509,6 +511,10 @@ std::optional<int> App::Window::finish() {
     if (self_destruct_flow) {
         self_destruct_flow->finish();
         return finish_test_run("self-destruct-flow-test");
+    }
+    if (lobby_options) {
+        lobby_options->finish();
+        return finish_test_run("lobby-options-test");
     }
     if (campaign_flow) {
         campaign_flow->finish();
@@ -588,6 +594,10 @@ std::optional<int> App::Window::run_without_renderer() {
         !parse_string_arg(argc, argv, "--golden", "").empty()) {
         spdlog::error("Screenshot requested but the renderer failed to "
                       "initialize");
+        return 1;
+    }
+    if (opt.lobby_options_test) {
+        spdlog::error("--lobby-options-test needs the renderer, which failed to initialize");
         return 1;
     }
     spdlog::warn("Vulkan init failed — falling back to headless "

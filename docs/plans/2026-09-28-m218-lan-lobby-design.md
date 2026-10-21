@@ -244,8 +244,9 @@ The rules come from faf-re (`CLobby.cpp`, `CDiscoveryService.cpp`,
     seconds.
   - Not done: Moho also caps the speed at the slowest client's measured
     rate (`maxSP`); here the lead cap does the same work, waiting for it.
-  - Single-player keeps its own speed, adjustable whatever the option
-    (retail fixes it at `normal` unless the lobby says `adjustable`).
+  - A single-player game the lobby launched takes the option too, as retail
+    does; any other session is adjustable
+    ([2026-10-19-lobby-game-speed-design.md](2026-10-19-lobby-game-speed-design.md)).
 
 Two fixes the launch found go separately, since single-player has them
 too:

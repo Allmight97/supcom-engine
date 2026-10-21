@@ -711,6 +711,12 @@ LaunchSources read_launch_sources(lua_State* L, int cfg) {
 
 } // namespace
 
+void mark_lobby_launch(lua_State* L) {
+    lua_pushstring(L, "__osc_launch_lobby");
+    lua_pushboolean(L, 1);
+    lua_rawset(L, LUA_REGISTRYINDEX);
+}
+
 int net_lobby_LaunchGame(lua_State* L, NetLobby& lobby) {
     // What's wrong, as LaunchFailed(reason) tells it
     const auto fail = [&](const char* reason) {
@@ -789,6 +795,8 @@ int net_lobby_LaunchGame(lua_State* L, NetLobby& lobby) {
     if (lua_pcall(L, 1, 0, 0) != 0) {
         spdlog::warn("lobby LaunchGame: {}", lua_tostring(L, -1));
         lua_pop(L, 1);
+    } else {
+        mark_lobby_launch(L);
     }
     // Last: the scripts tear their lobby down here (retail's destroys this
     // object), so nothing after may touch it

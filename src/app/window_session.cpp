@@ -74,6 +74,14 @@ void App::Window::handle_launch() {
             const osc::sim::Replay* recorded = launch_replay ? &*launch_replay
                                                : launch_save ? &launch_save->game
                                                              : nullptr;
+            lua_pushstring(uiL, "__osc_launch_lobby");
+            lua_rawget(uiL, LUA_REGISTRYINDEX);
+            // (A lobby's GameLaunched may ask for a replay or a saved game in its place)
+            const bool lobby_launch = lua_toboolean(uiL, -1) && !recorded;
+            lua_pop(uiL, 1);
+            lua_pushstring(uiL, "__osc_launch_lobby");
+            lua_pushnil(uiL);
+            lua_rawset(uiL, LUA_REGISTRYINDEX);
 
             if (!launch_scenario.empty()) {
                 spdlog::info("Launch requested: {}{}", launch_scenario,
@@ -118,6 +126,13 @@ void App::Window::handle_launch() {
                                             sim_accumulator, launch_scenario, recorded);
                 };
                 reload();
+                // Moho's: a lobby's launch takes its GameSpeed; any other
+                // session starts adjustable at normal (transition_to's)
+                if (lobby_launch && sim_state) {
+                    const osc::sim::GameSpeedOption speed =
+                        osc::sim::lobby_game_speed(sim_state->recorded_replay().setup.options);
+                    game_state_mgr.set_speed_option(speed.rate, speed.adjustable);
+                }
                 if (launch_replay && sim_state) {
                     // Watched as an observer, as the replay plays.
                     active_playback.emplace(std::move(*launch_replay));
