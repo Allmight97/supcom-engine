@@ -221,7 +221,14 @@ assert not (osc / 'AGENTS.md').exists() and not (osc / 'CLAUDE.md').exists()
 PY
 echo stale >> "$osc/.git/mac-hooks/pre-commit"
 OSC_ROOT="$osc" "$root/scripts/setup" --check >/dev/null && fail "setup --check missed a stale hook copy"
-rm -rf "$osc"
+mkdir -p "$osc/mac/scripts"; cp "$root/scripts/setup" "$osc/mac/scripts/"; cp -R "$root/agents" "$osc/mac/"
+git -C "$osc" add mac; git -C "$osc" -c core.hooksPath=/dev/null -c user.name=t -c user.email=t@t commit -qm toolkit
+git -C "$osc" worktree add -q "$scratch/osc-wt"
+OSC_ROOT="$osc" "$osc/mac/scripts/setup" >/dev/null || fail "setup failed on a checkout holding mac/"
+mkdir -p "$scratch/osc-wt/.claude"; cp "$osc/.claude/settings.local.json" "$scratch/osc-wt/.claude/"
+"$scratch/osc-wt/mac/scripts/setup" --check >/dev/null \
+    || fail "a worktree holding the main checkout's settings (.worktreeinclude) is not set up"
+rm -rf "$osc" "$scratch/osc-wt"
 "$root/scripts/setup" --check || fail "this checkout is not set up (run mac/scripts/setup)"
 
 mkdir -p "$scratch/build/bin" "$scratch/recipe/osc" "$scratch/smoke/build/play"
