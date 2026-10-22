@@ -32,14 +32,14 @@ set(OSC_DATA_TESTS_GATE
     army-colors-test audio-test
     beam-render-test beam-test beam-weapon-test binding-tail-test bitmap-test blend-test bone-test border-render-test build-test
     camera-test
-    camera-moves-test window-test options-test canpath-test capture-test colors-test carrier-land-test carrier-test chain-test change-army-test charge-test cmd-test collide-test crowd-test choke-test collision-test combat-test
+    camera-moves-test window-test options-test canpath-test capture-test colors-test carrier-land-test carrier-test chain-test change-army-test charge-test cmd-test collide-test crowd-test choke-test crowdgap-test collision-test combat-test
     construction-test controls-test counter-intel-test decal-render-test cursor-render-test damage-test decal-test
     death-test decalsplat-test defence-test destroyed-handle-test drive-test deposit-test drag-render-test draw-test
     dualstate-test
     economy-test edit-render-test edit-test effect-intel-test emitter-test enhance-test
     script-order-test
     gameui-test impact-test influence-test issue-handles-test
-    enhance-wreck-test factory-assist-test factory-rally-test ferry-test fire-test flags-test formation-test font-test fow-test guard-engage-test rebuilder-guard-test mobile-build-start-test build-site-join-test drown-test spawn-layer-test warp-test
+    enhance-wreck-test factory-assist-test factory-rally-test ferry-test fire-test flags-test formation-test font-test fow-test guard-engage-test rebuilder-guard-test mobile-build-start-test build-site-join-test assist-beam-test drown-test spawn-layer-test warp-test
     feedback-render-test focus-army-test command-sources-test footfall-test full-smoke-test ghost-render-test mesh-texture-test hull-facing-test
     input-test intel-field-test intel-overlay-test intel-test interp-test itemlist-render-test
     economy-overlay-test jammer-blip-test jammer-test keyboard-test keymap-test
@@ -49,7 +49,7 @@ set(OSC_DATA_TESTS_GATE
     patrol-test persist-test platoon-test prebuilt-test profile-test projectile-test prop-test range-render-test range-test reclaim-test refract-render-test
     runtime-decal-test terrain-normal-render-test
     repair-test resource-icon-render-test right-click-test scale-test scissor-test scroll-render-test scrollbar-render-test selection-render-test session-command-test shadow-test
-    mesh-capacity-test shield-render-test shield-test silo-test sky-test cartographic-test cartographic-minimap-test cartographic-main-test playable-boundary-test map-border-test minimap-mesh-test world-fog-test world-shapes-test skirt-render-test smoke-test spatial-test strata-test
+    mesh-capacity-test shield-render-test shield-test silo-test sky-test cartographic-test cartographic-minimap-test cartographic-main-test playable-boundary-test map-border-test minimap-mesh-test world-fog-test world-shapes-test skirt-render-test gpu-pass-timing-test smoke-test spatial-test strata-test
     specular-test stall-test stats-test shore-test steer-test strategic-icon-test stress-test stub-test targeting-test
     teamcolor-test
     terrain-normal-test terrain-tex-test text-test threat-test trail-render-test

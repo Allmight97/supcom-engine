@@ -162,3 +162,53 @@ Asked on 2026-10-16: the original once; the engine with #677.
 | `carto` framing | the whole map 640 pixels high: the zoom limit is 1.4 times the map | 900 pixels: 1.0 times | Retail's `minimap.lua` sets its *own* camera's limit to 1.0 (`GetCamera('MiniMap')`). The engine's `GetCamera` gave every name the main view's camera, so this cut the main view's. It is fixed in the PR that added this probe: only `WorldCamera` is the engine's camera. |
 | `carto` lines | the contour lines, the shore's bands and the small contour islands | the same shapes, aligned within a pixel once framed alike (the camera fix), except at sub-pixel steps along the lines | The edge detect matches. |
 | `carto` deposit icons | no halo round the mass and hydrocarbon icons in the first run. Retail's `bloom_render` option is off by default, and a fresh `/prefs` gets that. With `ren_bloom 1`, ten frames 0.3 s apart show a halo pulsing across the icons as a wave. | a halo, its glow the same 0.6·sin²(t − 10·α) wave | The same. The engine's captures keep bloom on, while a player's game applies retail's option. |
+
+**`drive/`** asks how a lone ground unit starts and ends a move. A Striker made at (300, 790) facing +z is driven to (300, 750), then (330, 750), a quarter turn, then back to (300, 750), a half turn. Every tick it logs its position, its orientation and whether it is `Moving`. It is done at `PROBE drive done`. Its hooks also set `sim_KeepAllLogFiles` from the interface, so the original run with `/synclog <dir>` keeps a file a beat: without it Moho deletes each beat's file unless that beat went out of sync. Beat 0's holds every blueprint as Moho filled it in; each later one the units' motion steps (`MoveTo`, `DriveToNextWaypoint`) and positions.
+
+**`buildreach/`** asks where a builder out of reach of its site stops and starts to build: an engineer 9 west of a point defence's site (the engine's range test 9), one 10 north of a power generator's, and one 12 west of a land factory's, each logged until it builds and 20 ticks on. It is done at `PROBE reach done`.
+
+Asked on 2026-10-15 and 2026-10-20: the original three times (`drive`, once with `/synclog`) and once (`buildreach`); the engine on main 9f454781 and with the steering speed cap, coast and build move of `docs/plans/2026-10-20-moho-steering-speed-cap-design.md`, `--moho-pathing` on for `drive`.
+
+| Probe | The original | The engine | So |
+|---|---|---|---|
+| `drive` straight | 0.34 a tick faster to 3.40, then 3.40; 9 degrees a tick | the same | The drive's acceleration, top speed and turn rate match. |
+| `drive` start | from rest, turns from t=4 and drives from t=23 (east leg 13), 1 degree off its heading. In `/synclog` its nav tick is empty on the order's tick and the next, then `UpdateCurrentPosition()`. | on main drives from t=18, 46 degrees off; now from t=23 (13), 1 degree off | The path comes two ticks after the order (Moho's path queue). A Striker (`RotateOnSpot`) stands till its goal is within acos 0.98 of its heading: Moho's steering speed cap. |
+| `drive` end | done at t=143, 105, 114 still at about 2.0, in the goal's cell; coasts 2.04, 1.29, 0.69, 0.21, still at (300.49, 750.68) | done at t=144, 105, 114; at rest within 0.03 of the original's points | The move ends on entering the goal's cell, then the unit coasts as `CalcMoveCommon` damps it: 0.8 of its speed less its brake a tick. |
+| `buildreach` point defence | builds from (606.03, 110.52), 3.47 from the site | within 3 on main (the range test's bound then); 3.04 now (3.30 with `--moho-pathing`) | Moho sends it to the cell nearest the site clear of its skirt grown by a cell, touching counting (`PrepareMove(1, site, skirt)`), and it builds once in that cell. |
+| `buildreach` power generator | builds from (640.50, 107.13), 3.37 from the site | 3.03 now | The same rule. |
+| `buildreach` land factory | builds where it stands, 12 from the site, on t=2 | the same | Its skirt is 8: the gap, 3, is within its `MaxBuildDistance`. |
+
+**`blueprints/`** compares every unit blueprint with the original's. Run with `/synclog <dir>`, the original writes a file a beat, and its hooks set `sim_KeepAllLogFiles` from the interface so that it keeps them (without it Moho deletes each beat's file unless that beat went out of sync). Beat 0's file holds every blueprint as Moho filled it in, after its constructors and `OnInitBlueprint`: the defaults a `.bp` leaves out included. On the engine, its other hook logs each blueprint as the scripts see it, a `PROBE bp <id> <path>=<value>` line a field; a few ticks are enough. Then:
+
+```sh
+python tools/moho_probes/blueprints/bp_diff.py <dir>/<date>/beat00000.log opensupcom.log
+```
+
+It lists, per field, the units whose values differ, then each field the `.bp` files leave out with the value Moho gives it, for the engine's code to supply. Beat 0 prints Moho's C++ copy, whose footprint and skirt are derived (its footprint class's), while the scripts' tables keep the `.bp`'s; those fields are listed however the engine's units hold them.
+
+Asked on 2026-10-15: the original once; the engine on main 9f454781. 383 of 48,722 fields the two share differed (nearly all the footprint and skirt), and six defaults were not Moho's. `docs/plans/2026-10-20-moho-blueprint-defaults-design.md` ports four of them.
+
+| Field | The original | The engine | So |
+|---|---|---|---|
+| a mobile unit's footprint | its `footprints.lua` class's (134 of 134 ground-mobile units; almost all 1x1) | `ceil(SizeX/Z)`, e.g. 1x2 | `ComputeDerivedQuantities` replaces the footprint with its class's. Fixed by the collision-cone change (M203f), which changes who yields in steering. |
+| its skirt | at least the class's footprint (268 of 268 axes) | at least the old footprint | The same function. Fixed with the footprint (M203f). |
+| `BackUpDistance` left out | `SizeZ * 3` (495 of 495) | 0 | Fixed with the note. |
+| `DesiredShooterCap` left out | 3 (278 of 287 projectiles) | 0 | Fixed with the note. |
+| `FiringTolerance` left out | 0.01 (37 of 37 weapons) | 0 | Fixed with the note. |
+| `LifeBarSize` left out | 1 (12 of 12) | 0 | Fixed with the note. |
+| `TurnRadius` left out | 5 (419 of 419) | 0 | Not changed: without Moho's spline its effect on turns is unmeasured. |
+
+**`steer/`**, **`cone/`**, **`corner/`** and **`crowdgap/`** ask how Moho resolves a meeting, and how a unit wedged at a wall ends. Their hooks set `sim_KeepAllLogFiles` from the interface, so the original run with `/synclog <dir>` keeps its beat files, in which Moho logs each resolution: `ResolvePossibleCollision(unit, other)`, then `collide.` and `within cone.` or `not within cone.`
+- `steer`: the engine's steer test 3, a Pillar and an engineer of one army head-on, half a cell apart sideways, 24 each side of (640, 110) and then 40. Done at `PROBE steer done`.
+- `cone`: pairs meeting at several angles: overtaking (one army, two), crossing at 90 degrees (two armies, one), at 60 and at 120, and head-on (two Strikers, an engineer and a Striker). Done at `PROBE cone done`.
+- `corner`: a Striker at the end of a wall of `ueb5101` two cells thick, ordered to a goal whose line clips the wall's end, from four places. Done at `PROBE corner done`.
+- `crowdgap`: `test_moho_pathing`'s crowd of twenty through a gap, with Strikers: a wall two cells thick with a gap of 6, the twenty 5 by 4 west of it, each sent to its own place east of it. Done at `PROBE crowdgap done`.
+
+Asked on 2026-10-20: the original once each, with `/synclog`; the engine with the cone of `docs/plans/2026-10-21-moho-steering-cone-design.md`, `--moho-pathing` on.
+
+| Probe | The original | The engine | So |
+|---|---|---|---|
+| `steer` | the engineer, the Pillar coming at it, keeps its speed and veers 3.44 (near) and 3.67 (far) off its line; the Pillar stops a few ticks, 0.74 and 1.11 off its line; done in 263 and 433 ticks | 3.03 and 4.08; the Pillar stops, 0.74 and 1.11; 262 and 432 ticks. Before: the engineer stopped. | Moho's cone: the unit the other comes at steps aside, beside the other on its own side, and the other stops (retail 0x0059DA00). |
+| `cone` | 11 resolutions: within the cone exactly when the unit is in the other's forward cone (dot 0.707; borderline crossings at 0.70 are not) | the same test | faf-re's decompile reads the cone the other way round. Where each unit then drives fits the binary's step aside in 6 of 8 (a slow unit turning and one backing aside). Overtaking is the path navigator's: the faster unit's target cell moves 4 aside on the order's third tick. |
+| `corner` | from 0.002 below the wall's end it moves 0.02 by tick 9, then stands still; its order ends on tick 40. From 0.3 below or more it drives out. | stands still from the start; its order ends on tick 33. From 0.3 and 0.5 below it drives out on the original's line to the thousandth; toward the goal further north, within 0.35 of it. Before, a bounced unit could work itself free of such a place, or rock in it with its order (`test_moho_pathing`). | A refused step leaves the unit where it was (`CalcMoveCommon`), so its navigator sees it still and gives the move up after 30 ticks. |
+| `crowdgap` | all 20 arrive, by tick 300, every one by the gap; no two nearer than 0.76 | all 20 (also with the synthetic tank's physics given to the Striker, a blueprint hook not kept); 15 by the gap and 5 round the wall's end, two within 0.39 (main: 16 and 4, 0.29) | All arrive, as the original's: `data.crowdgap-test` holds it. The detours and the near passes are a gap of the engine's crowd, on main as well. |

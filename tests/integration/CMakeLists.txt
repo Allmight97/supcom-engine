@@ -69,11 +69,13 @@ add_executable(osc_integration
     runner/minimap_mesh_test.cpp
     runner/world_shapes_test.cpp
     runner/mobile_build_start_test.cpp
+    runner/assist_beam_test.cpp
     runner/build_site_join_test.cpp
     runner/drown_test.cpp
     runner/spawn_layer_test.cpp
     runner/warp_test.cpp
     runner/skirt_render_test.cpp
+    runner/gpu_pass_timing_test.cpp
     runner/shield_render_test.cpp
     runner/mesh_capacity_test.cpp
     runner/water_reflection_test.cpp
@@ -109,7 +111,8 @@ set_target_properties(osc_integration PROPERTIES
 #   mp          two processes over localhost TCP; need no game data (run in CI)
 #   data        need Forged Alliance game data, located like `opensupcom
 #               --print-install` does (OSC_FA_PATH, FAForever, or a Steam
-#               library). Exit code 77 = no data = skipped.
+#               library); a `gate` test sets OSC_RETAIL_ONLY=1 and so runs
+#               on retail's files alone. Exit code 77 = no data = skipped.
 #   gate        data tests that pass on retail FA 3599 today: the regression
 #               gate to run before merging (`ctest -L gate`)
 #   golden      render a fixed frame and compare with a recorded golden image
@@ -139,8 +142,11 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME mp.lockstep_slow_peer
              COMMAND ${Python3_EXECUTABLE} ${_run_pair} $<TARGET_FILE:osc_integration> 29734
                      -- --mp-slow 200 --mp-frames 80)
+    add_test(NAME mp.no_game_exit
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/no_game_exit.py
+                     $<TARGET_FILE:opensupcom>)
     set_tests_properties(mp.lockstep_sync mp.lockstep_desync_detected mp.lockstep_peer_drop
-                         mp.lockstep_slow_peer PROPERTIES LABELS mp TIMEOUT 240)
+                         mp.lockstep_slow_peer mp.no_game_exit PROPERTIES LABELS mp TIMEOUT 240)
 else()
     message(STATUS "Python3 not found: two-process multiplayer tests not registered")
 endif()
@@ -171,7 +177,7 @@ endforeach()
 # default), again with it: each holds its expectations both ways until the
 # flag is the default.
 foreach(mode drive-test steer-test crowd-test weapon-test range-test factory-rally-test
-             shore-test choke-test)
+             shore-test choke-test crowdgap-test)
     add_test(NAME data.moho.${mode}
              COMMAND osc_integration --map ${OSC_TEST_MAP} --${mode} --moho-pathing)
     set_tests_properties(data.moho.${mode} PROPERTIES
@@ -657,3 +663,5 @@ set_tests_properties(data.binding_coverage PROPERTIES
     LABELS "data;gate"
     SKIP_RETURN_CODE 77
     TIMEOUT 300)
+
+osc_gate_tests_retail_only()

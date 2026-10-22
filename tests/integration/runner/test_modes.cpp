@@ -182,6 +182,7 @@ constexpr Mode kModesBefore[] = {
     {"--minimap-mesh-test", test_minimap_meshes, true},
     {"--world-shapes-test", test_world_shapes, true},
     {"--skirt-render-test", test_skirt_render, false},
+    {"--gpu-pass-timing-test", test_gpu_pass_timing, false},
     {"--water-reflection-test", test_water_reflection, false},
     {"--refract-render-test", test_refract_render, false},
     {"--decal-render-test", test_decal_render, false},
@@ -205,6 +206,7 @@ constexpr Mode kModesBefore[] = {
     {"--crowd-test", test_crowd, false},
     {"--shore-test", test_shore, false},
     {"--choke-test", test_choke, false},
+    {"--crowdgap-test", test_crowdgap, false},
     {"--formation-test", test_formation, false},
     {"--missile-test", test_missile, false},
     {"--defence-test", test_defence, false},
@@ -227,6 +229,7 @@ constexpr Mode kModesBefore[] = {
     {"--guard-engage-test", test_guard_engage, false},
     {"--rebuilder-guard-test", test_rebuilder_guard, false},
     {"--mobile-build-start-test", test_mobile_build_start, false},
+    {"--assist-beam-test", test_assist_beam, false},
     {"--build-site-join-test", test_build_site_join, false},
     {"--drown-test", test_drown, false},
     {"--spawn-layer-test", test_spawn_layer, false},
@@ -329,6 +332,7 @@ void IntegrationModes::print_usage() const {
               << "  --economy-test     After ticks, log economy state for all armies\n"
               << "  --build-test       After ticks, build a T1 power gen near entity #1\n"
               << "  --mobile-build-start-test An engineer's build start, tick by tick, as the original\n"
+              << "  --assist-beam-test A commander's build effects end with its assist\n"
               << "  --build-site-join-test Builders sent to one site build one structure there\n"
               << "  --drown-test       Units made in water: a land tank drowns, as the original\n"
               << "  --spawn-layer-test Where a unit made by script stands: subs, ships, aircraft\n"
@@ -419,6 +423,7 @@ void IntegrationModes::print_usage() const {
               << "  --playable-boundary-test  Outside a smaller playable rect, the world black\n"
               << "  --world-shapes-test FAF's OnRenderWorld draws its shapes in the world\n"
               << "  --skirt-render-test The terrain's skirt below the map's edges (TTerrainSkirt)\n"
+              << "  --gpu-pass-timing-test The GPU's frame time split by pass, only when asked\n"
               << "  --water-reflection-test Units reflected in the water; meshes drawn after it\n"
               << "  --refract-render-test FA's refracting particles: the frame behind, displaced\n"
               << "  --decal-render-test The map's decals: projected by the corner, lit, masked, faded\n"
@@ -440,6 +445,7 @@ void IntegrationModes::print_usage() const {
               << "  --crowd-test       Ground units keep apart\n"
               << "  --shore-test       Hover, amphibious and land units across a bay\n"
               << "  --choke-test       A crowd through a wall's gap; a big unit over it\n"
+              << "  --crowdgap-test    Twenty through a wall's gap to twenty places\n"
               << "  --formation-test   Groups move in formation\n"
               << "  --missile-test     Silos build missiles; launchers fire them\n"
               << "  --defence-test     Anti-missile weapons shoot missiles down\n"

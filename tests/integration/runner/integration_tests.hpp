@@ -174,6 +174,8 @@ void test_minimap_meshes(TestContext& ctx);
 void test_world_shapes(TestContext& ctx);
 /// --skirt-render-test, in skirt_render_test.cpp.
 void test_skirt_render(TestContext& ctx);
+/// --gpu-pass-timing-test, in gpu_pass_timing_test.cpp.
+void test_gpu_pass_timing(TestContext& ctx);
 /// --shield-render-test (M211k), in shield_render_test.cpp.
 void test_shield_render(TestContext& ctx);
 /// --mesh-capacity-test, in mesh_capacity_test.cpp.
@@ -228,6 +230,7 @@ void test_need_unpack(TestContext& ctx);
 void test_guard_engage(TestContext& ctx);
 void test_rebuilder_guard(TestContext& ctx);
 void test_mobile_build_start(TestContext& ctx);
+void test_assist_beam(TestContext& ctx);
 void test_build_site_join(TestContext& ctx);
 void test_drown(TestContext& ctx);
 void test_spawn_layer(TestContext& ctx);

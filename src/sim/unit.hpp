@@ -58,6 +58,7 @@ struct UnitEconomy {
     f64 consumption_energy = 0.0;
     bool production_active = false;
     bool consumption_active = false;
+    bool natural_producer = false;
     /// The consumption flag as the unit's script last set it (Moho's
     /// ConsumptionActive): its OnConsumptionActive/InActive fire on a change
     /// of this, not of the drain the engine switches while building.
@@ -73,6 +74,13 @@ struct UnitEconomy {
     /// What its reclaim brings in per second, beside its own production
     f64 reclaim_mass = 0.0;
     f64 reclaim_energy = 0.0;
+    /// The per-second output actually credited at the last production and
+    /// reclaim steps. Later script changes to the configured rates do not
+    /// rewrite GetEconData's report for the beat already processed.
+    f64 produced_mass = 0.0;
+    f64 produced_energy = 0.0;
+    f64 reclaimed_mass = 0.0;
+    f64 reclaimed_energy = 0.0;
     /// What an aircraft docked at a staging platform asks per second for its
     /// repair there (M206r): the platform's RepairConsume*, only while the
     /// aircraft is damaged.
@@ -97,6 +105,8 @@ struct UnitEconomy {
     /// too (CAiSiloBuildImpl).
     f64 mass_requested() const { return consumption_mass + silo_mass; }
     f64 energy_requested() const { return consumption_energy + silo_energy + capture_energy; }
+    f64 mass_produced() const { return produced_mass + reclaimed_mass; }
+    f64 energy_produced() const { return produced_energy + reclaimed_energy; }
     f64 mass_consumed() const { return (consumption_active ? consumption_mass : 0.0) + silo_mass; }
     f64 energy_consumed() const {
         return (consumption_active ? consumption_energy : 0.0) + silo_energy + capture_energy;
@@ -600,7 +610,7 @@ public:
     /// Moho's Unit::HandleResourceManagement, the end of its stage-A step.
     void manage_resources(ArmyBrain* army);
     /// Moho's CUnitReclaimTask banks what it reclaims in its army.
-    void bank_reclaim(ArmyBrain* army) const;
+    void bank_reclaim(ArmyBrain* army);
 
     /// Lua callback helpers: call self:method() or self:method(entity)
     void call_lua_method(lua_State* L, const char* method_name);
@@ -1626,7 +1636,7 @@ private:
     /// it builds alongside any builder, and completes it if it gets there
     /// first.
     OrderStep order_repair_construction(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_eff,
-                                        Unit& target);
+                                        Unit& target, bool task_waits = false);
     /// Help with what the guarded unit works on, or follow it. Never ends.
     OrderStep order_guard(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_eff);
     /// A factory guarding a factory takes work from its queue (Moho's guard

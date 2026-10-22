@@ -375,25 +375,6 @@ bool Navigator::drive(Unit& unit, f32 max_speed, f64 dt, const map::Terrain* ter
         return moho_active_ && sim_ && sim_->footprint_fits_at(unit.footprint(), to.x, to.z) == 0 &&
                sim_->footprint_fits_at(unit.footprint(), from.x, from.z) != 0;
     };
-    // Refused, it is pushed back from the ground it won't fit, as Moho's
-    // CalcMoveCommon pushes it (AddImpulse: its top speed x 0.01 back along
-    // the step), where its footprint fits; else it stays. Where it ends.
-    const auto bounce = [&](const Vector3& tried, const Quaternion& facing) {
-        Vector3 at = from;
-        const f32 bx = from.x - tried.x;
-        const f32 bz = from.z - tried.z;
-        const f32 along = std::sqrt(bx * bx + bz * bz);
-        if (along > 1e-6f) {
-            const f32 push = max_speed * 0.01f;
-            const Vector3 back{from.x + bx / along * push, from.y, from.z + bz / along * push};
-            if (sim_->footprint_fits_at(unit.footprint(), back.x, back.z) != 0) {
-                at = back;
-                if (terrain) at.y = unit.ground_stance(terrain, at.x, at.z, facing).y;
-                unit.set_position(at);
-            }
-        }
-        return at;
-    };
 
     // Held still (a weapon unpacking, a teleport): it keeps its orders.
     if (unit.immobile()) {
@@ -417,8 +398,8 @@ bool Navigator::drive(Unit& unit, f32 max_speed, f64 dt, const map::Terrain* ter
             facing = stance.orientation;
         }
         if (sim_) pos = sim_->clamp_to_playable(pos, unit.army());
-        // Braking near still, it stays put if refused: bounced and sent for a
-        // fresh way here, a crowd's waiting units strand more of their number.
+        // Braking near still, it stays put if refused, and isn't sent for a
+        // fresh way: that strands more of a crowd's waiting units.
         if (refused(pos)) {
             unit.note_drive(0, 0, max_speed, Unit::MotionTurn::Straight);
             return true;
@@ -467,6 +448,8 @@ bool Navigator::drive(Unit& unit, f32 max_speed, f64 dt, const map::Terrain* ter
     }
     // Forward, or backing up to a goal close behind.
     f32 err = dist > 1e-4f ? wrap_angle(osc::dmath::atan2(dx, dz) - heading) : 0.0f;
+    // Moho caps the speed from the heading the unit has before this tick's turn.
+    const f32 err_before_turn = err;
     const f32 brake = (d.max_brake > 0 ? d.max_brake : d.max_accel) * unit.accel_mult();
 
     // In a crowd others may hold its spot: jostled near it without getting
@@ -495,6 +478,8 @@ bool Navigator::drive(Unit& unit, f32 max_speed, f64 dt, const map::Terrain* ter
     const bool reverse = final && d.max_speed_reverse > 0 && std::abs(err) > REVERSE_ANGLE &&
                          to_goal <= d.backup_distance;
     if (reverse) err = wrap_angle(err + kPi);
+    // The cap reads the way it goes: backing up, its tail's.
+    const f32 cap_err = reverse ? wrap_angle(err_before_turn + kPi) : err_before_turn;
 
     // Turn: at its TurnRate, faster at speed where its TurnRadius allows.
     f32 omega = d.turn_rate * unit.turn_mult();
@@ -503,24 +488,38 @@ bool Navigator::drive(Unit& unit, f32 max_speed, f64 dt, const map::Terrain* ter
     const f32 max_turn = omega * step;
     const f32 turn = std::clamp(err, -max_turn, max_turn);
     heading = wrap_angle(heading + turn);
-    err -= turn;
     const Unit::MotionTurn turning = std::abs(turn) < 1e-3f ? Unit::MotionTurn::Straight
                                      : std::abs(turn) >= max_turn * 0.99f
                                          ? Unit::MotionTurn::SharpTurn
                                          : Unit::MotionTurn::Turn;
 
-    // How fast it wants to go: slower the farther off its heading the
-    // waypoint lies. One that can pivot stops to; one that can't keeps
-    // moving to turn. Always slow enough to stop on its goal.
+    // How fast it may go (Moho's steering speed cap, faf-re CAiPathSpline.cpp
+    // ComputeSteeringSpeedCapFromParams, 0x00699760, from the heading before
+    // this tick's turn):
+    // - one that rotates on the spot, slower than its RotateOnSpotThreshold
+    //   share of its top speed, stands until the waypoint is within acos 0.98
+    //   (11.5 degrees) of its heading;
+    // - any other goes as fast as lets it turn onto the waypoint along the
+    //   circle through it tangent to its heading (radius dist / 2 sin err), at
+    //   half its TurnRate; on a circle at least its TurnRadius wide, at that
+    //   radius a tick. Always slow enough to stop on its goal (below).
     const f32 top = reverse ? std::min(d.max_speed_reverse, max_speed) : max_speed;
-    f32 target = top * std::max(osc::dmath::cos(err), 0.0f);
-    if (d.rotate_on_spot && std::abs(err) > PIVOT_ANGLE) target = 0;
-    else if (!d.rotate_on_spot) target = std::max(target, top * TURNING_SPEED);
-    // No faster than lets it turn onto the waypoint: the circle along its
-    // heading through it has radius dist / (2 sin err). Else it would circle
-    // a goal inside its turn for ever.
-    if (const f32 side = std::abs(osc::dmath::sin(err)); side > 1e-3f)
-        target = std::min(target, omega * dist / (2.0f * side));
+    f32 target = top;
+    const f32 ratio = max_speed > 0 ? std::abs(speed) / max_speed : 0.0f;
+    if (d.rotate_on_spot && d.rotate_threshold > ratio) {
+        target = osc::dmath::cos(cap_err) >= 0.98f ? top : 0.0f;
+    } else {
+        const f32 side = std::abs(osc::dmath::sin(cap_err));
+        const f32 circle = side > 0 ? dist / (2.0f * side) : 0.0f;
+        const f32 radius = d.turn_radius > 0 ? d.turn_radius / unit.turn_mult()
+                                             : std::numeric_limits<f32>::infinity();
+        if (circle < radius) {
+            if (circle > 0) target = d.turn_rate * unit.turn_mult() * circle * 0.5f;
+        } else {
+            target = radius / step; // the turn radius a tick
+        }
+    }
+    target = std::min(target, top);
     // Braking to stop on its goal, a tick ahead so it doesn't overrun.
     const f32 stop_at =
         brake > 0 && !through
@@ -547,14 +546,12 @@ bool Navigator::drive(Unit& unit, f32 max_speed, f64 dt, const map::Terrain* ter
         facing = stance.orientation;
     }
     if (sim_) pos = sim_->clamp_to_playable(pos, unit.army());
-    // Refused (as above): it bounces back, and once the push has died down
-    // its steering asks for the way afresh (ProcessSplineMovement:
-    // NotifyNavigatorPathRefresh). A unit against a wall is never still, so it
-    // doesn't give up the move: in retail FA all 24 Strikers sent through a
-    // crowded gap got there. A
-    // sidestep (M203c) that led there is given up -- the steering picks its
-    // side by the units alone, and a point onto ground the unit won't fit
-    // would hold it against it till it gave up the move.
+    // Refused (as above): it stays where it was, as CalcMoveCommon puts it
+    // back (its push, AddImpulse, is to its velocity, which its next node
+    // replaces), and its steering asks for the way afresh (ProcessSplineMovement:
+    // NotifyNavigatorPathRefresh). Wedged, it is still, so its navigator gives
+    // the move up 30 ticks on: retail's Striker at a wall's end did. A sidestep
+    // (M203c) that led there is given up.
     if (refused(pos)) {
         if (sidestep_ && waypoint_index_ == sidestep_index_ &&
             waypoint_index_ + 1 < waypoints_.size()) {
@@ -563,9 +560,8 @@ bool Navigator::drive(Unit& unit, f32 max_speed, f64 dt, const map::Terrain* ter
             next_check_ = 0;
         }
         moho_.request_repath();
-        const Vector3 at = bounce(pos, level);
-        unit.set_orientation(terrain ? unit.ground_stance(terrain, at.x, at.z, level).orientation
-                                     : level);
+        unit.set_orientation(
+            terrain ? unit.ground_stance(terrain, from.x, from.z, level).orientation : level);
         unit.note_drive(0, 0, top, turning);
         return true;
     }
