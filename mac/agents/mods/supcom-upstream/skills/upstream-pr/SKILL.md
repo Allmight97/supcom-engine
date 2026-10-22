@@ -33,8 +33,8 @@ Outcome: a PR the upstream owner can review and land without asking for changes.
    the retail files (`env.sh` sets `OSC_FA_PATH`). FAF's data is the separate FAF scope (fork issue #9), never a blocker.
    Each commit builds alone.
 4. Before the PR opens, two independent review lanes read the up/* branch and the PR text, read only:
-   GPT 6.1 Sol at high effort (correctness, determinism, fit with upstream's practice and CONTRIBUTING.md)
-   and the code-review skill at high effort by a Claude model other than the branch's author (requested
+   GPT 6.1 Sol at xhigh effort, holistic and adversarial (correctness, determinism, fit with upstream's practice and CONTRIBUTING.md)
+   and the code-review skill by Opus 5.5 at high effort, or another Claude model if Opus wrote the branch (requested
    behaviour, regressions, missing proof). The main session checks each finding against the code; fixes go
    back as one batched commit. Then prove runs on the up/* tree with nothing else running, and the PR opens
    ready with JStar's word.
