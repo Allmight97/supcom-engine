@@ -130,8 +130,17 @@ static void read_drive(lua_State* L, const BlueprintStore& store, const Blueprin
         drive.turn_radius = number("TurnRadius", 0);
         // FAF: MaxSpeedReverse defaults to MaxSpeed (every retail unit gives it).
         drive.max_speed_reverse = number("MaxSpeedReverse", max_speed);
-        // Two retail blueprints spell it BackupDistance.
-        drive.backup_distance = number("BackUpDistance", number("BackupDistance", 0));
+        // Two retail blueprints spell it BackupDistance. Unset (negative), it
+        // is three times the unit's length (RUnitBlueprintPhysics; SizeZ
+        // defaults to 1).
+        drive.backup_distance = number("BackUpDistance", number("BackupDistance", -1));
+        if (drive.backup_distance < 0) {
+            lua_pushstring(L, "SizeZ");
+            lua_rawget(L, physics - 1);
+            const f32 size_z = lua_isnumber(L, -1) ? static_cast<f32>(lua_tonumber(L, -1)) : 1.0f;
+            lua_pop(L, 1);
+            drive.backup_distance = size_z * 3.0f;
+        }
         drive.rotate_threshold = number("RotateOnSpotThreshold", 0.5f);
         drive.turn_facing_rate = number("TurnFacingRate", 0) * kDegToRad;
         lua_pushstring(L, "RotateOnSpot");
@@ -470,6 +479,11 @@ static void read_economy(lua_State* L, const BlueprintStore& store, const Bluepr
         lua_pushstring(L, "ProductionPerSecondEnergy");
         lua_gettable(L, -2);
         if (lua_isnumber(L, -1)) unit.economy().production_energy = lua_tonumber(L, -1);
+        lua_pop(L, 1);
+
+        lua_pushstring(L, "NaturalProducer");
+        lua_gettable(L, -2);
+        unit.economy().natural_producer = lua_toboolean(L, -1) != 0;
         lua_pop(L, 1);
 
         lua_pushstring(L, "MaintenanceConsumptionPerSecondEnergy");
@@ -821,14 +835,15 @@ static void read_life_bar(lua_State* L, const BlueprintStore& store, const Bluep
     store.push_lua_table(entry, L);
     const int bp = lua_gettop(L);
     sim::Unit::LifeBar bar;
-    const auto number = [&](const char* key) {
+    const auto number = [&](const char* key, f32 fallback = 0.0f) {
         lua_pushstring(L, key);
         lua_rawget(L, bp);
-        const f32 v = lua_type(L, -1) == LUA_TNUMBER ? static_cast<f32>(lua_tonumber(L, -1)) : 0.0f;
+        const f32 v =
+            lua_type(L, -1) == LUA_TNUMBER ? static_cast<f32>(lua_tonumber(L, -1)) : fallback;
         lua_pop(L, 1);
         return v;
     };
-    bar.size = number("LifeBarSize");
+    bar.size = number("LifeBarSize", 1.0f); // Moho's default (retail's /synclog beat 0)
     bar.height = number("LifeBarHeight");
     bar.offset = number("LifeBarOffset");
     lua_pushstring(L, "LifeBarRender");
@@ -943,8 +958,22 @@ static void resolve_footprints(lua_State* L, const sim::SimState& sim, const Blu
     namespace oc = blueprints::occupancy;
     const u8 build_caps = (rules.on_land ? oc::kLand : 0) | (rules.on_seabed ? oc::kSeabed : 0) |
                           (rules.on_sub ? oc::kSub : 0) | (rules.on_water ? oc::kWater : 0);
-    unit.set_footprints(blueprints::resolve_unit_footprints(
-        store.footprint_classes(), own, unit.motion_type(), alt_motion, build_caps));
+    const blueprints::UnitFootprints resolved = blueprints::resolve_unit_footprints(
+        store.footprint_classes(), own, unit.motion_type(), alt_motion, build_caps);
+    unit.set_footprints(resolved);
+    // The class replaces the footprint whole, and Moho's ranges, formations and
+    // steering read that size; the skirt is then at least it. A skirt the .bp
+    // left out came in as the old size (read_shape) and is the class's now.
+    // Retail's /synclog beat 0 agrees on all 134 ground-mobile units.
+    if (resolved.main_class >= 0) {
+        const auto skirt = [](f32 skirt_size, f32 old_size, u8 size) {
+            return skirt_size == old_size ? f32(size) : std::max(skirt_size, f32(size));
+        };
+        unit.set_skirt(skirt(unit.skirt_size_x(), unit.footprint_size_x(), resolved.main.size_x),
+                       skirt(unit.skirt_size_z(), unit.footprint_size_z(), resolved.main.size_z),
+                       unit.skirt_offset_x(), unit.skirt_offset_z());
+        unit.set_footprint_size(resolved.main.size_x, resolved.main.size_z);
+    }
     // Where it is made decides its layer (Moho's Entity::GetStartingLayer),
     // for a structure and for a unit that walks or floats: a land tank made
     // in water, however shallow, stands on the seabed, where it drowns (the

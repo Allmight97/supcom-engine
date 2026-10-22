@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 
 def exit_code(exe: str, retail_only: bool) -> int:
@@ -15,8 +16,18 @@ def exit_code(exe: str, retail_only: bool) -> int:
     if retail_only:
         env["OSC_RETAIL_ONLY"] = "1"
     with tempfile.TemporaryDirectory() as user_dir:
-        args = [exe, "--user-dir", user_dir, "--fa-path", os.path.join(user_dir, "none"), "--ticks", "1"]
-        return subprocess.run(args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+        args = [
+            exe,
+            "--user-dir",
+            user_dir,
+            "--fa-path",
+            str(Path(user_dir) / "none"),
+            "--ticks",
+            "1",
+        ]
+        return subprocess.run(
+            args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+        ).returncode
 
 
 def main() -> int:

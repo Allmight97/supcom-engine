@@ -13,6 +13,7 @@
 #include "sim/build_site_props.hpp"
 #include "sim/entity_registry.hpp"
 #include "sim/sim_state.hpp"
+#include "sim/prepare_move.hpp"
 #include "sim/work_range.hpp"
 #include "map/terrain.hpp"
 
@@ -860,7 +861,21 @@ OrderStep Unit::order_build_mobile(UnitCommand& cmd, f64 dt, SimContext& ctx, f3
                 return OrderStep::Next;
             }
             cmd.approached = true;
-            set_path_goal(approach_point(*this, cmd.target_pos, half_x + 1, half_z + 1), ctx);
+            // Moho's CUnitMobileBuildTask: the place nearest the site, looked
+            // for a cell at a time, clear of the site's skirt grown by a cell
+            // all round (Unit::PrepareMove(1, site, skirt), faf-re
+            // CUnitMobileBuildTask.cpp): stopped anywhere in that cell, the
+            // builder is off the site, though another skirt hem it in.
+            Vector3 goal = approach_point(*this, cmd.target_pos, half_x + 1, half_z + 1);
+            if (ctx.sim && ctx.terrain) {
+                Vector3 site = cmd.target_pos;
+                const MoveExclusion skirt{site.x - half_x - 1.0f, site.z - half_z - 1.0f,
+                                          site.x + half_x + 1.0f, site.z + half_z + 1.0f};
+                if (prepare_move(*this, *ctx.terrain, ctx.sim->occupancy(),
+                                 ctx.sim->move_bounds(army()), site, 1, &skirt))
+                    goal = site;
+            }
+            set_path_goal(goal, ctx);
         }
         // The task's first tick checks the site and sends the builder; it
         // aims from the next (Moho's TASKSTATE_Preparing returns 1).
@@ -1382,11 +1397,15 @@ OrderStep Unit::order_repair(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ
 }
 
 OrderStep Unit::order_repair_construction(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_eff,
-                                          Unit& target) {
+                                          Unit& target, bool task_waits) {
     auto& registry = ctx.registry;
     const u32 order_id = cmd.command_id;
     const u32 tid = target.entity_id();
+    const bool guarding = cmd.type == CommandType::Guard;
     const auto done = [&] {
+        // A guard lends a construction task to its target; completing that
+        // work does not complete the standing guard order.
+        if (guarding) return OrderStep::Hold;
         if (!command_queue_.empty() && &command_queue_.front() == &cmd &&
             command_queue_.front().command_id == order_id)
             command_queue_.pop_front();
@@ -1404,7 +1423,8 @@ OrderStep Unit::order_repair_construction(UnitCommand& cmd, f64 dt, SimContext& 
         if (destroyed() || !in_registry()) {
             return OrderStep::Gone;
         }
-        if (turns_to_face(at) || awaits_arm() || waits_out_task(cmd) || waits_paused(cmd)) {
+        if (turns_to_face(at) || awaits_arm() || (guarding ? task_waits : waits_out_task(cmd)) ||
+            waits_paused(cmd)) {
             return OrderStep::Hold;
         }
         build_target_id_ = tid;
@@ -1770,6 +1790,18 @@ OrderStep Unit::order_guard(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_
                target_unit->shield_needs_repair(registry, L);
     };
     const bool reclaims = has_category("RECLAIM") && build_rate_ > 0 && !rebuilder;
+
+    // An unfinished ward needs construction, just as a direct Repair on
+    // it does. start_repair rejects unfinished units: trying it each tick
+    // only re-aimed the commander's arm and never advanced the factory.
+    if (repairs && target_unit->is_being_built()) {
+        if (is_repairing()) stop_repairing(L, registry);
+        if (is_reclaiming()) stop_reclaiming(L, &registry);
+        if (within_reach(*target_unit, true, build_target_id_ == cmd.target_id))
+            return order_repair_construction(cmd, dt, ctx, econ_eff, *target_unit, task_waits);
+        if (is_building()) stop_assisting(L, &registry);
+        return guard_follow(*target_unit, true, winged_goal, ctx);
+    }
 
     // Assist: if target is building, contribute build power
     const Entity* guarded_build = repairs && !rebuilder && target_unit->is_building()
@@ -2981,6 +3013,7 @@ OrderStep Unit::order_teleport(UnitCommand& cmd, lua_State* L) {
             set_position(to);
             note_snap();
             place_now();
+            ground_speed_ = 0; // a warp leaves nothing to coast on (Unit::warp)
             command_queue_.pop_front();
             return OrderStep::Next;
         }

@@ -597,6 +597,7 @@ TEST_CASE("A unit finished in a tick's orders is in its army's income from the n
     fac.economy().production_mass = 100.0;
     fac.economy().production_energy = 100.0;
     fac.economy().production_active = true;
+    fac.economy().natural_producer = true;
     REQUIRE(w.run(
         "done = 0 income = {}"
         " function Plain:OnStopBeingBuilt() done = GetGameTick() end"
@@ -622,12 +623,12 @@ TEST_CASE("A unit finished in a tick's orders is in its army's income from the n
 
 namespace {
 
-std::pair<double, double> killed_in_its_step(const char* what, double stored_energy) {
+std::pair<double, double> killed_in_its_step(const char* what) {
     Phases w;
     w.brain("brain", 0);
     osc::sim::ArmyBrain& army = *w.sim.get_army(0);
     army.set_extra_storage(0.0, 100.0);
-    army.set_stored_resources(0.0, stored_energy);
+    army.set_stored_resources(0.0, 50.0);
     Unit& ship = w.make("ship", "ship", 1, 100.0f, 100.0f);
     ship.economy().production_energy = 5.0;
     ship.economy().production_active = true;
@@ -654,20 +655,20 @@ std::pair<double, double> killed_in_its_step(const char* what, double stored_ene
 } // namespace
 
 TEST_CASE("A unit its own step kills produces nothing for the next economy", "[tick-phases]") {
-    const auto [before, after] = killed_in_its_step("brain:GetEconomyIncome('ENERGY')", 0.0);
+    const auto [before, after] = killed_in_its_step("brain:GetEconomyIncome('ENERGY')");
     CHECK(before == Catch::Approx(0.5));
     CHECK(after == 0.0);
 }
 
 TEST_CASE("A unit its own step kills takes its storage away by the next economy", "[tick-phases]") {
-    const auto [before, after] = killed_in_its_step("brain:GetEconomyStoredRatio('ENERGY')", 50.0);
+    const auto [before, after] = killed_in_its_step("brain:GetEconomyStoredRatio('ENERGY')");
     CHECK(before == Catch::Approx(50.0 / 200.0).epsilon(0.05));
     CHECK(after == Catch::Approx(50.0 / 100.0).epsilon(0.05));
 }
 
 TEST_CASE("A unit its own step kills reads no ResourceConsumed from the next tick",
           "[tick-phases]") {
-    const auto [before, after] = killed_in_its_step("ship:GetResourceConsumed()", 50.0);
+    const auto [before, after] = killed_in_its_step("ship:GetResourceConsumed()");
     CHECK(before == 1.0);
     CHECK(after == 0.0);
 }
@@ -742,7 +743,6 @@ TEST_CASE("An army's overflow reaches a higher-index ally that tick, a lower-ind
     CAPTURE(giver);
     const int taker = 1 - giver;
     Phases w;
-    w.sim.set_team_share_overflow(true);
     w.sim.set_alliance(0, 1, osc::sim::Alliance::Ally);
     w.brain("taker", taker);
     for (int a = 0; a < 2; ++a) {
@@ -2130,4 +2130,33 @@ TEST_CASE("Two beats in a frame give the user two Sync tables", "[tick-phases][b
     lua_getglobal(U, "seen");
     CHECK(std::string(lua_tostring(U, -1)) == "1,2,");
     lua_pop(U, 1);
+}
+
+TEST_CASE("Production reports reset before tick threads and survive paused beats",
+          "[tick-phases][economy][banked]") {
+    Phases w;
+    Unit& producer = w.make("producer", "gen", 1, 100.0f, 100.0f);
+    producer.economy().production_active = true;
+    w.sim.tick();
+    REQUIRE(producer.economy().energy_produced() == 5.0);
+    // All four previous-tick components must disappear before Lua threads run.
+    producer.economy().produced_mass = 2.0;
+    producer.economy().reclaimed_mass = 3.0;
+    producer.economy().reclaimed_energy = 7.0;
+    REQUIRE(w.run("seen_mass = -1 seen_energy = -1 ForkThread(function()"
+                  " local e = producer:GetEconData()"
+                  " seen_mass = e.massProduced seen_energy = e.energyProduced end)"));
+    command(w, osc::sim::kRequestPauseCallback);
+    w.sim.tick();
+    REQUIRE(w.sim.paused());
+    CHECK(producer.economy().mass_produced() == 5.0);
+    CHECK(producer.economy().energy_produced() == 12.0);
+    CHECK(w.number("seen_mass") == -1.0f);
+    command(w, osc::sim::kResumeCallback);
+    w.sim.tick();
+    CHECK_FALSE(w.sim.paused());
+    CHECK(w.number("seen_mass") == 0.0f);
+    CHECK(w.number("seen_energy") == 0.0f);
+    CHECK(producer.economy().mass_produced() == 0.0);
+    CHECK(producer.economy().energy_produced() == 5.0);
 }

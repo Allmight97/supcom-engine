@@ -2,6 +2,7 @@
 // render bench asks for it, and a frame's two timestamps alone without it.
 
 #include "app/support.hpp"
+#include "core/test_status.hpp"
 #include "integration_tests.hpp"
 #include "map/heightmap.hpp"
 #include "map/terrain.hpp"
@@ -13,6 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdlib>
+#include <utility>
 #include <vector>
 
 namespace osc::test {
@@ -33,13 +35,25 @@ void test_gpu_pass_timing(TestContext& ctx) {
     }
     renderer::Renderer& r = shots.renderer();
     if (!r.gpu_timestamps_supported()) {
-        spdlog::warn("GPU pass timing test: the device counts no timestamps; skipped");
-        std::exit(app::kExitSkippedNoData);
+        // A skip must not drop a failure already recorded, a validation error included
+        const bool failed =
+            test_status::failure_count() > 0 || renderer::Renderer::validation_error_count() > 0;
+        const int code =
+            failed ? app::finish_test_run("gpu-pass-timing-test") : app::kExitSkippedNoData;
+        if (code == app::kExitSkippedNoData)
+            spdlog::warn("GPU pass timing test: the device counts no timestamps; skipped");
+        spdlog::default_logger()->flush();
+        std::exit(code);
     }
     // Ground under water, so the frame copies itself for the water to refract
     std::vector<u16> heights(static_cast<size_t>(kSize + 1) * (kSize + 1), 5 * 128);
     map::Terrain ground(map::Heightmap(kSize, kSize, 1.0f / 128.0f, std::move(heights)), 10.0f,
                         true);
+    // A synthetic terrain needs strata too: they allocate its texture descriptors.
+    std::vector<map::StratumInfo> strata(10);
+    for (auto& stratum : strata) stratum.albedo_scale = stratum.normal_scale = 4.0f;
+    strata[0].albedo_path = "/env/evergreen2/layers/eg_gravel005_albedo.dds";
+    ground.set_strata(std::move(strata), {}, {});
     (void)shots.shoot(ground, kSize * 0.5f, kSize * 0.5f, 80.0f, false);
 
     using Frame = renderer::GpuFrameQueries::Frame;
@@ -76,6 +90,14 @@ void test_gpu_pass_timing(TestContext& ctx) {
                         pass(split, Pass::Reflection), pass(split, Pass::Main),
                         pass(split, Pass::RefractionCopy), pass(split, Pass::Bloom),
                         pass(split, Pass::Composite), pass(split, Pass::Other)));
+
+    // A pass's span can be zero long on a driver, so its mark is checked apart from its time
+    for (const Pass p : {Pass::Shadow, Pass::Normals, Pass::Reflection, Pass::Main,
+                         Pass::RefractionCopy, Pass::Bloom, Pass::Composite}) {
+        const auto i = static_cast<size_t>(p);
+        t.check(split.pass_marked[i], fmt::format("Test 5b: the {} pass was marked",
+                                                  renderer::GpuFrameQueries::kPassNames[i]));
+    }
 
     r.set_timing_passes(false);
     (void)frames("Test 6");
