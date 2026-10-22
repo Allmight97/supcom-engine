@@ -177,7 +177,7 @@ endforeach()
 # default), again with it: each holds its expectations both ways until the
 # flag is the default.
 foreach(mode drive-test steer-test crowd-test weapon-test range-test factory-rally-test
-             shore-test choke-test)
+             shore-test choke-test crowdgap-test)
     add_test(NAME data.moho.${mode}
              COMMAND osc_integration --map ${OSC_TEST_MAP} --${mode} --moho-pathing)
     set_tests_properties(data.moho.${mode} PROPERTIES
@@ -676,12 +676,4 @@ set_tests_properties(data.binding_coverage PROPERTIES
     SKIP_RETURN_CODE 77
     TIMEOUT 300)
 
-# The gate means "passes on retail FA 3599": its tests never fall back to
-# FAF's files, and skip (exit 77) where no retail install is found.
-get_property(_osc_tests DIRECTORY PROPERTY TESTS)
-foreach(_t IN LISTS _osc_tests)
-    get_test_property(${_t} LABELS _labels)
-    if("${_labels}" MATCHES "(^|;)gate(;|$)")
-        set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT OSC_RETAIL_ONLY=1)
-    endif()
-endforeach()
+osc_gate_tests_retail_only()

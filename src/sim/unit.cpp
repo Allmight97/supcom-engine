@@ -990,16 +990,24 @@ void Unit::update(f64 dt, SimContext& ctx) {
 
 void Unit::manage_resources(ArmyBrain* army) {
     const bool upkeep = economy_.maintenance_active && economy_.energy_maintenance_override > 0.0;
-    economy_.resource_consumed = economy_.consumption_active || upkeep ? economy_.granted : 0.0;
+    const bool asking = economy_.consumption_active || upkeep;
+    economy_.resource_consumed = asking ? economy_.granted : 0.0;
     holds_storage_ = producing();
+    economy_.produced_mass = 0;
+    economy_.produced_energy = 0;
     if (holds_storage_ && army) {
-        army->bank(economy_.production_mass, economy_.production_energy);
+        const f64 rate = asking && !economy_.natural_producer ? economy_.granted : 1.0;
+        economy_.produced_mass = economy_.production_mass * rate;
+        economy_.produced_energy = economy_.production_energy * rate;
+        army->bank(economy_.produced_mass, economy_.produced_energy);
     }
 }
 
-void Unit::bank_reclaim(ArmyBrain* army) const {
-    if (army && (economy_.reclaim_mass != 0.0 || economy_.reclaim_energy != 0.0)) {
-        army->bank(economy_.reclaim_mass, economy_.reclaim_energy);
+void Unit::bank_reclaim(ArmyBrain* army) {
+    economy_.reclaimed_mass = army ? economy_.reclaim_mass : 0;
+    economy_.reclaimed_energy = army ? economy_.reclaim_energy : 0;
+    if (army && (economy_.reclaimed_mass != 0.0 || economy_.reclaimed_energy != 0.0)) {
+        army->bank(economy_.reclaimed_mass, economy_.reclaimed_energy);
     }
 }
 
@@ -2824,6 +2832,8 @@ void Unit::warp(const map::Terrain* terrain, const Vector3& at) {
     set_position(p);
     note_snap(); // a jump, not drawn sliding there
     place_now();
+    // CUnitMotion::Warp advances its coords twice: no velocity is left to coast on.
+    ground_speed_ = 0;
     reset_lift_ground();
     // CUnitMotion::Warp's target is where it now is, and the navigator's
     // move is aborted: AINAVEVENT_Aborted reaches the task listening, the
@@ -3230,18 +3240,29 @@ void Unit::coast(f64 dt, const map::Terrain* terrain) {
         return;
     }
     const f32 step = static_cast<f32>(dt);
-    // A unit made without its blueprint's physics stops at once.
-    const f32 brake =
-        drive_.max_brake > 0 ? drive_.max_brake * accel_mult_ * step : std::abs(ground_speed_);
-    ground_speed_ = ground_speed_ > 0 ? std::max(0.0f, ground_speed_ - brake)
-                                      : std::min(0.0f, ground_speed_ + brake);
+    // Moho's CUnitMotion::CalcMoveCommon with no spline node (faf-re): under
+    // 0.001 a tick it stops; else its velocity is damped to 0.8 and braked by
+    // up to MaxBrake (MaxAcceleration if none), which leaves a slow one going
+    // back a fifth of its speed. Retail's Striker after a move: 2.04, 1.29,
+    // 0.69, 0.21, then still. A unit made without its blueprint's physics
+    // stops at once.
+    const f32 old_speed = ground_speed_;
+    if (std::abs(old_speed) * step < 0.001f) {
+        ground_speed_ = 0;
+        return;
+    }
+    const f32 rate = drive_.max_brake > 0 ? drive_.max_brake : drive_.max_accel;
+    const f32 brake = rate > 0 ? rate * accel_mult_ * step : std::abs(old_speed);
+    const f32 braked = std::min(std::abs(old_speed), brake);
+    ground_speed_ = 0.8f * old_speed - (old_speed > 0 ? braked : -braked);
     // Along the way it was going (last tick's velocity), as Moho brakes the
     // velocity vector: its hull may turn under it now, to its weapons' work
     // (face_weapons_work), and braking along the hull curved the stop.
     Vector3 p = pending_position();
     const f32 travel = std::sqrt(velocity_.x * velocity_.x + velocity_.z * velocity_.z);
     if (travel > 1e-4f) {
-        const f32 along = std::abs(ground_speed_) * step / travel;
+        // Signed against the way it was going: backward once braked past still.
+        const f32 along = ground_speed_ * (old_speed > 0 ? 1.0f : -1.0f) * step / travel;
         p.x += velocity_.x * along;
         p.z += velocity_.z * along;
     } else {

@@ -57,11 +57,6 @@ void apply_game_options_to_sim(const GameOptionsConfig& options,
         const std::string* cheats = options.string("CheatsEnabled");
         sim.set_cheats_enabled(cheats && *cheats == "true");
     }
-    if (const std::string* overflow = options.string("TeamShareOverflow")) {
-        // FAF values: 'enabled' / 'disabled'. Enable only when explicitly on.
-        const std::string& v = *overflow;
-        sim.set_team_share_overflow(v == "enabled" || v == "on" || v == "true" || v == "all");
-    }
     // "Off" or none: no No Rush
     const double no_rush_minutes = options.number("NoRushOption").value_or(0.0);
     if (no_rush_minutes > 0.0) {

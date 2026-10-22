@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import final
 
 SKIPPED = 77
 CONNECT_SECONDS = 120  # the game loads FA's data and builds its renderer first
@@ -47,6 +48,7 @@ def encode(name: str, *args: int | str) -> bytes:
     return out
 
 
+@final
 class Link:
     """The client's end of the link: commands out, whole commands in."""
 
@@ -141,7 +143,7 @@ def run(exe: str, port: int, user_dir: Path) -> int:
         deadline = time.monotonic() + CONNECT_SECONDS
         while True:
             try:
-                conn, _ = server.accept()
+                conn = server.accept()[0]
                 break
             except TimeoutError:
                 code = game.poll()
@@ -172,7 +174,7 @@ def run(exe: str, port: int, user_dir: Path) -> int:
     finally:
         if game.poll() is None:
             game.kill()
-            game.wait()
+            _ = game.wait()
         server.close()
 
 
