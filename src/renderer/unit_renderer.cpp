@@ -533,6 +533,7 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
         for (int reflected = 0; reflected < 2; ++reflected) {
             auto& groups = mesh_groups[fading][reflected];
             std::vector<const GPUMesh*> ordered;
+            ordered.reserve(groups.size());
             for (const auto& [gpu, gd] : groups) ordered.push_back(gpu);
             // Equal SortOrder groups follow entity order, independent of GPU addresses.
             std::sort(ordered.begin(), ordered.end(), [&](const GPUMesh* a, const GPUMesh* b) {
