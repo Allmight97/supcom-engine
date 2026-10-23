@@ -77,8 +77,6 @@ public:
     static constexpr f64 kDoubleClickSeconds = 0.5;
     static constexpr f64 kDoubleClickPixels = 2.0;
     void on_cursor_pos(f64 x, f64 y);
-    /// The window's cursor over this is the UI's (the player's --ui-scale)
-    void set_ui_zoom(f64 zoom) { ui_zoom_ = zoom; }
     void on_scroll(f64 y_offset);
     void on_char(u32 codepoint);
 
@@ -156,7 +154,6 @@ private:
     std::vector<UIEvent> pending_events_;
     f64 mouse_x_ = 0;
     f64 mouse_y_ = 0;
-    f64 ui_zoom_ = 1.0;
     u8 buttons_down_ = 0; ///< kMouseLeft... held now
     /// The last press, which the next may make a double-click
     f64 last_press_time_ = -1.0;

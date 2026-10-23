@@ -132,10 +132,7 @@ public:
     void set_offscreen_scale(f32 scale) { offscreen_scale_ = scale; }
     /// The player's zoom of the UI on top of the display's scale (--ui-scale):
     /// the root frame is the window's points over it
-    void set_ui_zoom(f32 zoom) {
-        ui_zoom_ = zoom;
-        ui_dispatch_.set_ui_zoom(zoom);
-    }
+    void set_ui_zoom(f32 zoom) { ui_zoom_ = zoom; }
     f32 ui_zoom() const { return ui_zoom_; }
 
     /// One-time scene upload (terrain mesh, static buffers, and the meshes
