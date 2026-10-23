@@ -5277,6 +5277,9 @@ void test_flags(TestContext& ctx) {
 // ── Weapon fire target layer caps test ──
 void test_layercap(TestContext& ctx) {
     spdlog::info("=== LAYERCAP TEST: Weapon fire target layer caps ===");
+    // Weapons pick only what their army senses (SimState::weapons_know); this
+    // tests the weapon, not intel, so with the fog off it sees everything.
+    ctx.sim.set_fog_of_war("none");
 
     // Run initial ticks for session setup
     for (osc::u32 i = 0; i < 10; i++) ctx.sim.tick();
@@ -5304,6 +5307,8 @@ void test_layercap(TestContext& ctx) {
 
     // Test 1: Sub-only caps drops forced Land target
     {
+        // A held target is revalidated each TargetCheckInterval; this makes the next tick check it.
+        (void)ctx.lua_state.do_string("__lc_weapon_ref:ResetTarget()");
         auto r = ctx.lua_state.do_string(
             "local w = __lc_weapon_ref\n"
             "local enemy = __lc_enemy_ref\n"
@@ -5325,6 +5330,7 @@ void test_layercap(TestContext& ctx) {
 
     // Test 2: None caps drops forced target
     {
+        (void)ctx.lua_state.do_string("__lc_weapon_ref:ResetTarget()");
         auto r = ctx.lua_state.do_string(
             "local w = __lc_weapon_ref\n"
             "local enemy = __lc_enemy_ref\n"
@@ -5346,6 +5352,7 @@ void test_layercap(TestContext& ctx) {
 
     // Test 3: Land caps retains forced Land target
     {
+        (void)ctx.lua_state.do_string("__lc_weapon_ref:ResetTarget()");
         auto r = ctx.lua_state.do_string(
             "local w = __lc_weapon_ref\n"
             "local enemy = __lc_enemy_ref\n"
@@ -7400,6 +7407,9 @@ void test_weapon(TestContext& ctx) {
 // units on Seton's Clutch, away from the commanders.
 void test_targeting(TestContext& ctx) {
     spdlog::info("=== TARGETING TEST: how weapons choose targets ===");
+    // Weapons pick only what their army senses (SimState::weapons_know); this
+    // tests the weapon, not intel, so with the fog off it sees everything.
+    ctx.sim.set_fog_of_war("none");
     int pass = 0, fail = 0;
     auto lua_check = [&](const char* what, const char* code) {
         auto r = ctx.lua_state.do_string(code);
