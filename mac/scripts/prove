@@ -8,6 +8,11 @@ From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout
 upstream/main) it picks the checks: any change under src/, tests/, cmake/, third_party/, CMake files,
 vcpkg.json or a shader runs unit, mp, gate (failures rerun once), format, metrics and smoke; a change
 under src/renderer or to a shader adds the render check; anything else (docs) runs metrics only.
+A C++ change (.cpp, .hpp, .h) under src/ or tests/ also runs tidy: clang-tidy 22 (from PyPI through uvx, with
+the root's .clang-tidy and DIR/build/play) over the changed .cpp files and the .cpp files that include a changed
+header, compared with tools/clang_tidy_baseline.txt through DIR's tools/clang_tidy_ratchet.py. A finding in
+those files or changed headers above its (path, check) baseline fails and is printed. Under `--base main`
+(upstream's own changes, as sync-upstream proves them) tidy is skipped: upstream's CI checks them.
 An engine change also runs `parity check --ratchet` (mac/tools/parity): OpenSupCom against the stored
 captures of the original for each probe whose baseline matched; it is skipped, with a reason, when the
 fork has no reference store or no gated probe. The probe sources are the stored, pinned ones; the build is
@@ -16,9 +21,13 @@ It never builds: it stops if DIR/build/play is missing and notes a build older t
 is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; while a suite runs, a line
 every 10 minutes gives elapsed minutes, CPU and memory of its process tree. The block prints last.
 """
+import collections
+import concurrent.futures
 import contextlib
 import fcntl
+import importlib.util
 import io
+import json
 import os
 import re
 import subprocess
@@ -31,8 +40,12 @@ PARITY = f'{TOOLKIT}/tools/parity/parity'
 ENGINE = ('src/', 'tests/', 'cmake/', 'third_party/')
 ENGINE_FILES = ('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json')
 SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
+TIDY_SOURCES = ('src/', 'tests/')
+TIDY_SUFFIXES = ('.cpp', '.hpp', '.h')
+UPSTREAMS_OWN = "the changes are upstream's own; its CI checks them"
 HEARTBEAT_SECONDS = 600
-ORDER = ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'parity', 'render']
+ORDER = ['unit', 'mp', 'gate', 'format', 'tidy', 'metrics', 'smoke', 'parity', 'render']
+ENGINE_SKIPS = {'render': 'no change under src/renderer or to a shader', 'tidy': 'no C++ change under src/ or tests/'}
 
 
 def checks_for(paths):
@@ -46,8 +59,10 @@ def checks_for(paths):
         chosen |= {'unit', 'mp', 'gate', 'format', 'smoke', 'parity'}
     if render:
         chosen.add('render')
-    why = 'no engine change' if not engine else 'no change under src/renderer or to a shader'
-    return [c for c in ORDER if c in chosen], {c: why for c in ORDER if c not in chosen}
+    if any(p.startswith(TIDY_SOURCES) and p.endswith(TIDY_SUFFIXES) for p in paths):
+        chosen.add('tidy')
+    return [c for c in ORDER if c in chosen], {c: ENGINE_SKIPS[c] if engine else 'no engine change'
+                                               for c in ORDER if c not in chosen}
 
 
 def commands(base, root):
@@ -146,6 +161,91 @@ def run_suite(root, name, argv, env):
     return result.returncode == 0
 
 
+def load_ratchet(root):
+    """The tree's own tools/clang_tidy_ratchet.py as a module: its baseline reader, finding pattern and paths."""
+    spec = importlib.util.spec_from_file_location('clang_tidy_ratchet', f'{root}/tools/clang_tidy_ratchet.py')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def tidy_sources(root, paths, compiled):
+    """Changed .cpp files, and the .cpp files that include a changed header, that build/play compiles."""
+    cpp = {p for p in paths if p.endswith('.cpp')}
+    for header in (p for p in paths if p.endswith(('.hpp', '.h'))):
+        include = rf'#include[[:space:]]+"([^"]*/)?{re.escape(os.path.basename(header))}"'
+        cpp |= set(sh(root, ['git', 'grep', '-l', '-E', include, '--', *(f'{d}*.cpp' for d in TIDY_SOURCES)]).stdout.split())
+    return sorted(cpp & compiled)
+
+
+def tidy_scope(paths, sources):
+    return set(sources) | {p for p in paths if p.endswith(('.hpp', '.h'))}
+
+
+def compiled_sources(root):
+    with open(f'{root}/build/play/compile_commands.json') as f:
+        entries = json.load(f)
+    return {os.path.relpath(os.path.normpath(os.path.join(e['directory'], e['file'])), root) for e in entries}
+
+
+def tidy_findings(output, root, warning):
+    """{(path, check): [finding lines]}: each finding once, however many files include its header."""
+    seen, found = set(), collections.defaultdict(list)
+    for line in output.splitlines():
+        match = warning.match(line.strip())
+        if match:
+            path = os.path.relpath(os.path.normpath(match['path']), root)
+            where = (path, match['line'], match['col'], match['check'])
+            if where not in seen:
+                seen.add(where)
+                found[(path, match['check'])].append(line.strip())
+    return found
+
+
+def tidy_worse(found, baseline, scope):
+    """{(path, check): (baseline count, now)} for the findings in SCOPE above their baseline."""
+    return {key: (baseline[key], len(lines)) for key, lines in found.items()
+            if key[0] in scope and len(lines) > baseline[key]}
+
+
+def tidy_tool(root):
+    """(clang-tidy path, its major.minor version, error)."""
+    code = "import clang_tidy, os; print(os.path.join(os.path.dirname(clang_tidy.__file__), 'data', 'bin', 'clang-tidy'))"
+    found = sh(root, ['uvx', '-q', '--from', 'clang-tidy>=22,<23', 'python', '-c', code])
+    path = found.stdout.strip()
+    if found.returncode or not path:
+        return '', '', found.stderr.strip() or 'uvx gave no clang-tidy path'
+    return path, re.search(r'version (\d+\.\d+)', sh(root, [path, '--version']).stdout)[1], ''
+
+
+def run_tidy(root, paths):
+    """(passed, the Tested line)."""
+    ratchet = load_ratchet(root)
+    sources = tidy_sources(root, paths, compiled_sources(root))
+    if not sources:
+        return True, '- clang-tidy: no changed or affected source file is in build/play'
+    tool, version, error = tidy_tool(root)
+    sdk = sh(root, ['xcrun', '--show-sdk-path']).stdout.strip()
+    if error or not sdk:
+        print(f'prove: tidy: cannot find clang-tidy 22 or the SDK: {error or "xcrun gave no SDK path"}', flush=True)
+        return False, '- clang-tidy: FAIL (cannot find clang-tidy 22 or the SDK)'
+    argv = [tool, '-p', 'build/play', '--quiet', '--extra-arg=-isysroot', f'--extra-arg={sdk}']
+    with concurrent.futures.ThreadPoolExecutor(os.cpu_count() or 4) as pool:
+        runs = list(pool.map(lambda source: sh(root, [*argv, source]), sources))
+    shown = f'- clang-tidy {version} on {len(sources)} source files against tools/clang_tidy_baseline.txt'
+    failed = [(s, r) for s, r in zip(sources, runs) if r.returncode]
+    for source, run in failed:
+        print(f'prove: tidy: {source}: clang-tidy exited {run.returncode}; it did not analyze the file', flush=True)
+        print('\n'.join((run.stdout + run.stderr).strip().splitlines()[-20:]), flush=True)
+    found = tidy_findings('\n'.join(r.stdout + r.stderr for r in runs), root, ratchet.WARNING)
+    worse = tidy_worse(found, ratchet.read_baseline()[1], tidy_scope(paths, sources))
+    for (path, check), (was, now) in sorted(worse.items()):
+        print(f'NEW  {path} [{check}]: {was} -> {now}', flush=True)
+        print('\n'.join(found[(path, check)]), flush=True)
+    return not failed and not worse, shown + (': FAIL' if failed or worse else ': pass')
+
+
 def main():
     args = sys.argv[1:]
     if '--self-test' in args:
@@ -156,7 +256,11 @@ def main():
     diff = sh(root, ['git', 'diff', '--name-only', f'{base}...HEAD'])
     if diff.returncode:
         sys.exit(f'prove: cannot diff {base}...HEAD in {root}: {diff.stderr.strip()}')
-    chosen, skipped = checks_for(diff.stdout.split())
+    changed = diff.stdout.split()
+    chosen, skipped = checks_for(changed)
+    if base == 'main' and 'tidy' in chosen:
+        chosen.remove('tidy')
+        skipped['tidy'] = UPSTREAMS_OWN
     print(f'prove: {len(diff.stdout.split())} changed paths; checks: {" ".join(chosen)}', flush=True)
     cmds = commands(base, root)
     env = recipe_env(root)
@@ -182,12 +286,18 @@ def main():
         print(f'prove: check {name}', flush=True)
         if name == 'parity' and parity_error:
             print(parity_error, flush=True)
-        results[name] = False if name == 'parity' and parity_error else run_check(root, name, cmds[name], env)
+        if name == 'tidy':
+            results[name], shown_tidy = run_tidy(root, changed)
+        else:
+            results[name] = False if name == 'parity' and parity_error else run_check(root, name, cmds[name], env)
         print(f'prove: check {name}: {"pass" if results[name] else "FAIL"}', flush=True)
     print(f'\n### Tested\n\nBase `{base}`, tree `{root}`.\n')
     for name in chosen:
         if name == 'parity':
             print(parity_line(gated, results[name], parity_error))
+            continue
+        if name == 'tidy':
+            print(shown_tidy)
             continue
         shown = f'mac/scripts/format {base}' if name == 'format' else \
             ' '.join(cmds[name]).replace(f'{TOOLKIT}/scripts', 'mac/scripts')
@@ -197,6 +307,46 @@ def main():
     for note in notes:
         print(f'- note: {note}')
     sys.exit(0 if all(results.values()) else 1)
+
+
+def tidy_self_test():
+    compiled = {'src/a/x.cpp', 'src/a/y.cpp', 'src/b/z.cpp', 'tests/t.cpp'}
+    with tempfile.TemporaryDirectory() as tree:
+        git = ['git', '-C', tree]
+        subprocess.run([*git, 'init', '-q'], check=True)
+        for name, text in (('src/a/x.cpp', '#include "b/h.hpp"\n'), ('src/a/y.cpp', '#include "h.hpp"\n'),
+                           ('src/b/z.cpp', '#include "other.hpp"\n'), ('tests/t.cpp', '#include "src/b/xh.hpp"\n'),
+                           ('src/b/h.hpp', ''), ('src/b/other.hpp', '')):
+            os.makedirs(os.path.dirname(f'{tree}/{name}'), exist_ok=True)
+            with open(f'{tree}/{name}', 'w') as f:
+                f.write(text)
+        subprocess.run([*git, 'add', '--', 'src', 'tests'], check=True)
+        assert tidy_sources(tree, ['src/b/z.cpp'], compiled) == ['src/b/z.cpp']
+        assert tidy_sources(tree, ['src/b/h.hpp'], compiled) == ['src/a/x.cpp', 'src/a/y.cpp']
+        assert tidy_sources(tree, ['src/b/h.hpp', 'src/b/z.cpp', 'tests/t.cpp'], compiled) == \
+            ['src/a/x.cpp', 'src/a/y.cpp', 'src/b/z.cpp', 'tests/t.cpp']
+        assert tidy_sources(tree, ['src/b/h.hpp', 'src/gone.cpp'], compiled) == ['src/a/x.cpp', 'src/a/y.cpp']
+        assert tidy_sources(tree, ['src/b/unused.hpp'], compiled) == []
+    warning = re.compile(r'^(?P<path>[^:\s]+):(?P<line>\d+):(?P<col>\d+): warning: .* \[(?P<check>[\w.,-]+)\]$')
+    root = '/r'
+    output = '\n'.join([
+        '/r/src/a/../b/h.hpp:4:3: warning: use nullptr [modernize-use-nullptr]',
+        '/r/src/a/../b/h.hpp:4:3: warning: use nullptr [modernize-use-nullptr]',
+        '/r/src/b/h.hpp:9:1: warning: use nullptr [modernize-use-nullptr]',
+        '/r/src/a/x.cpp:7:2: warning: sorting pointers [bugprone-nondeterministic-pointer-iteration-order]',
+        '/r/src/a/x.cpp:7:2: error: not a warning [clang-diagnostic-error]',
+        '   4 | not a finding line'])
+    found = tidy_findings(output, root, warning)
+    assert {k: len(v) for k, v in found.items()} == {('src/b/h.hpp', 'modernize-use-nullptr'): 2,
+                                                     ('src/a/x.cpp', 'bugprone-nondeterministic-pointer-iteration-order'): 1}, found
+    baseline = collections.Counter({('src/b/h.hpp', 'modernize-use-nullptr'): 2})
+    scope = tidy_scope(['src/b/h.hpp'], ['src/a/x.cpp'])
+    assert tidy_worse(found, baseline, scope) == {('src/a/x.cpp', 'bugprone-nondeterministic-pointer-iteration-order'): (0, 1)}
+    assert tidy_worse(found, baseline, {'src/b/h.hpp'}) == {}, 'a finding outside the changed files is not this change\'s'
+    baseline[('src/b/h.hpp', 'modernize-use-nullptr')] = 1
+    assert tidy_worse(found, baseline, {'src/b/h.hpp'}) == {('src/b/h.hpp', 'modernize-use-nullptr'): (1, 2)}
+    baseline[('src/b/h.hpp', 'modernize-use-nullptr')] = 5
+    assert tidy_worse(found, baseline, scope) != {} and ('src/b/h.hpp', 'modernize-use-nullptr') not in tidy_worse(found, baseline, scope)
 
 
 def heartbeat_self_test():
@@ -215,10 +365,17 @@ def heartbeat_self_test():
 
 def self_test():
     assert checks_for(['docs/a.md', 'README.md'])[0] == ['metrics']
-    assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'parity']
+    assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'tidy', 'metrics', 'smoke', 'parity']
     assert checks_for(['src/renderer/a.cpp'])[0] == ORDER
     assert checks_for(['src/app/a.cpp'])[1] == {'render': 'no change under src/renderer or to a shader'}
-    assert checks_for(['assets/x.frag'])[0] == ORDER
+    assert checks_for(['assets/x.frag'])[0] == [c for c in ORDER if c != 'tidy']
+    assert checks_for(['assets/x.frag'])[1] == {'tidy': 'no C++ change under src/ or tests/'}
+    assert 'tidy' in checks_for(['tests/sim/a_test.cpp'])[0] and 'tidy' in checks_for(['src/sim/a.hpp'])[0]
+    assert 'tidy' in checks_for(['src/sim/a.h'])[0]
+    for path in ('src/app/mac_window.mm', 'src/app/notes.md', 'CMakeLists.txt', 'cmake/a.cmake', 'third_party/x/a.cpp'):
+        assert 'tidy' not in checks_for([path])[0], path
+    assert checks_for(['CMakeLists.txt'])[1]['tidy'] == 'no C++ change under src/ or tests/'
+    assert checks_for(['docs/a.md'])[1]['tidy'] == 'no engine change'
     assert checks_for(['srcs/a.cpp', 'mac/scripts/x'])[0] == ['metrics']
     assert commands('upstream/main', '/up')['parity'][-3:] == ['--ratchet', '--root', '/up']
     line = parity_line(['timing', 'crowd'], True)
@@ -240,6 +397,7 @@ def self_test():
         assert listed['crash'][0] == [] and listed['crash'][2], f'a failed listing with empty output is an error: {listed["crash"]}'
         assert 'DAMAGED' in listed['noisy'][2], listed['noisy']
         assert 'FAIL' in parity_line([], False, listed['noisy'][2]) and 'DAMAGED' in parity_line([], False, listed['noisy'][2])
+    tidy_self_test()
     heartbeat_self_test()
     print('prove self-test passed')
 
