@@ -273,6 +273,13 @@ def test_gather():
     test_gather_options()
 
 
+def test_brief_gather():
+    quick = Repo()
+    raw = gather.gather(quick, ROOT, News(), fetch=False, full=False, now=NOW)
+    assert [w['branch'] for w in raw['worktrees']] == ['main', 'up/x'], 'the brief still knows which branches worktrees hold'
+    assert not any(c.startswith('status') for c in quick.seen) and raw['parity'] is None
+
+
 def test_gather_options():
     quick = Repo()
     gather.gather(quick, ROOT, News(), fetch=False, now=NOW)
@@ -300,5 +307,6 @@ def run():
     test_json(snap)
     test_html(snap)
     test_gather()
+    test_brief_gather()
     print('pulse self-test passed')
     return 0

@@ -209,10 +209,11 @@ class Gatherer:
         return {**entry, 'changes': len(status.out.splitlines()) if status.rc == 0 else None,
                 'ts': int(stamp.out) if stamp.rc == 0 and stamp.out.strip().isdigit() else 0}
 
-    def worktrees(self):
+    def worktrees(self, full):
+        """The worktrees, which decide what is deletable; FULL adds each one's changes and last commit."""
         found = parse_worktrees(self.need('git', self.git('worktree', 'list', '--porcelain')) or '')
         with futures.ThreadPoolExecutor(6) as pool:
-            done = list(pool.map(self.worktree, found))
+            done = list(pool.map(self.worktree, found)) if full else [{**w, 'changes': None, 'ts': 0} for w in found]
         return [{**w, 'primary': i == 0} for i, w in enumerate(done)]
 
     def parity(self):
@@ -228,10 +229,10 @@ def gather(run, root, news, fetch=True, full=True, now=None):
     g = Gatherer(run, root, news)
     if fetch:
         g.fetch()
-    jobs = {'fork': g.fork, 'open': g.open_prs, 'others': g.others, 'branches': g.branches}
+    jobs = {'fork': g.fork, 'open': g.open_prs, 'others': g.others, 'branches': g.branches, 'closed': g.closed,
+            'worktrees': lambda: g.worktrees(full), 'news': lambda: g.upstream(full)}
     if full:
-        jobs.update(worktrees=g.worktrees, parity=g.parity)
-    jobs.update(closed=g.closed, news=lambda: g.upstream(full))
+        jobs['parity'] = g.parity
     with futures.ThreadPoolExecutor(len(jobs)) as pool:
         done = {name: pool.submit(job) for name, job in jobs.items()}
         found = {name: future.result() for name, future in done.items()}
@@ -239,5 +240,5 @@ def gather(run, root, news, fetch=True, full=True, now=None):
     fork['behind'] = facts['behind']
     return {'now': now or datetime.now().astimezone().isoformat(timespec='seconds'), 'fork': fork,
             'open': found['open'], 'others': found['others'], 'closed': found['closed'], 'matters': facts['matters'],
-            'landings': facts['landings'], 'branches': found['branches'], 'worktrees': found.get('worktrees', []),
+            'landings': facts['landings'], 'branches': found['branches'], 'worktrees': found['worktrees'],
             'parity': found.get('parity'), 'errors': g.errors}
