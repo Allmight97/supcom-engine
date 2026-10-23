@@ -164,6 +164,9 @@ class Gatherer:
         except self.news.Fail as error:
             self.fail('git', str(error))
             return facts
+        except OSError as error:
+            self.fail(error.filename or 'gh', f'{error.filename or "gh"} not found')
+            return facts
         if matters is None:
             self.fail('gh', 'upstream-news could not list the upstream PRs')
         facts['matters'] = [{'number': p['number'], 'author': p['author']['login'], 'title': p['title'],

@@ -275,6 +275,13 @@ def test_gather_options():
     quick = Repo()
     gather.gather(quick, ROOT, News(), fetch=False, now=NOW)
     assert not any(c.startswith('fetch') for c in quick.seen), '--no-fetch must not fetch'
+    class NoGh(News):
+        def open_prs(self):
+            raise FileNotFoundError(2, 'No such file', 'gh')
+
+    missing = judge.assemble(gather.gather(Repo(), ROOT, NoGh(), fetch=False, now=NOW))
+    assert missing['errors'] == [{'source': 'gh', 'message': 'gh not found'}] and missing['fork']['main']
+    assert 'pushed-no-pr' not in [i['code'] for i in missing['needs_you']], 'without PR facts no branch is called unpublished'
     broken = judge.assemble(gather.gather(Repo(fail_gh=True), ROOT, News(), fetch=False, now=NOW))
     assert broken['errors'] and broken['errors'][0]['source'] == 'gh' and broken['prs'] == []
 

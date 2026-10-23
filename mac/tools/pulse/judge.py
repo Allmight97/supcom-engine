@@ -210,9 +210,9 @@ def delete_item(branch_list):
     return [item('delete-branches', '; '.join(parts), why)] if parts else []
 
 
-def branch_items(branch_list):
+def branch_items(branch_list, pr_facts):
     items = [item('pushed-no-pr', f'{b["name"]} is pushed to origin with no PR',
-                  f'{b["ahead_upstream"]} commits could go upstream') for b in branch_list if pushed_without_pr(b)]
+                  f'{b["ahead_upstream"]} commits could go upstream') for b in branch_list if pr_facts and pushed_without_pr(b)]
     return items + delete_item(branch_list)
 
 
@@ -221,7 +221,8 @@ def needs_you(snapshot):
     behind = snapshot['fork'].get('behind')
     if behind:
         items.append(item('sync-due', f'fork main is {behind} commits behind upstream', 'run mac/scripts/sync-upstream'))
-    return items + branch_items(snapshot['branches']) + overlap_items(snapshot['overlap'])
+    gh_ok = not any(e['source'] == 'gh' for e in snapshot['errors'])
+    return items + branch_items(snapshot['branches'], gh_ok) + overlap_items(snapshot['overlap'])
 
 
 def label_map(entries, key='number'):
