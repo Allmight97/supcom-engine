@@ -19,15 +19,50 @@ struct NullPlatform {
 TEST_CASE("Shutting down one renderer leaves another's window open", "[renderer][window]") {
     osc::renderer::Renderer outer;
     osc::renderer::Renderer inner;
-    if (!outer.init(64, 64, "outer", /*offscreen=*/true) ||
-        !inner.init(64, 64, "inner", /*offscreen=*/true))
-        SKIP("no Vulkan device");
+    if (!outer.init(64, 64, "outer", /*offscreen=*/true)) SKIP("no Vulkan device");
+    REQUIRE(inner.init(64, 64, "inner", /*offscreen=*/true));
 
     inner.shutdown();
     glfwGetError(nullptr);
     outer.set_window_title("still open");
 
     REQUIRE(glfwGetError(nullptr) == GLFW_NO_ERROR);
+}
+
+TEST_CASE("Each window's input reaches its own renderer", "[renderer][window]") {
+    osc::renderer::Renderer outer;
+    osc::renderer::Renderer inner;
+    if (!outer.init(64, 64, "outer", /*offscreen=*/true)) SKIP("no Vulkan device");
+    REQUIRE(inner.init(64, 64, "inner", /*offscreen=*/true));
+
+    GLFWwindow* const window = outer.glfw_window();
+    REQUIRE(window);
+    const auto key = glfwSetKeyCallback(window, nullptr);
+    const auto button = glfwSetMouseButtonCallback(window, nullptr);
+    const auto cursor = glfwSetCursorPosCallback(window, nullptr);
+    const auto character = glfwSetCharCallback(window, nullptr);
+    glfwSetKeyCallback(window, key);
+    glfwSetMouseButtonCallback(window, button);
+    glfwSetCursorPosCallback(window, cursor);
+    glfwSetCharCallback(window, character);
+    REQUIRE(key);
+    REQUIRE(button);
+    REQUIRE(cursor);
+    REQUIRE(character);
+
+    cursor(window, 12.0, 34.0);
+    CHECK(outer.ui_dispatch().mouse_x() == 12.0);
+    CHECK(outer.ui_dispatch().mouse_y() == 34.0);
+    CHECK(inner.ui_dispatch().mouse_x() == 0.0);
+    CHECK(inner.ui_dispatch().mouse_y() == 0.0);
+
+    inner.shutdown();
+    cursor(window, 56.0, 78.0);
+    key(window, GLFW_KEY_A, 0, GLFW_PRESS, 0);
+    button(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+    character(window, 'a');
+    CHECK(outer.ui_dispatch().mouse_x() == 56.0);
+    CHECK(outer.ui_dispatch().mouse_y() == 78.0);
 }
 
 TEST_CASE("GLFW runs while any window is open", "[window]") {
