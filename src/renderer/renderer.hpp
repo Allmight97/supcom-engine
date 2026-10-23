@@ -28,6 +28,7 @@
 #include "renderer/playable_rect.hpp"
 #include "renderer/recon_view.hpp"
 #include "renderer/unit_renderer.hpp"
+#include "renderer/window.hpp"
 #include "renderer/sky_renderer.hpp"
 #include "renderer/boundary_renderer.hpp"
 #include "renderer/cartographic_renderer.hpp"
@@ -72,7 +73,6 @@
 #include <unordered_set>
 #include <vector>
 
-struct GLFWwindow;
 struct GLFWcursor;
 struct lua_State;
 
@@ -204,6 +204,7 @@ public:
 
     /// Clean up all Vulkan resources.
     void shutdown();
+    ~Renderer() { shutdown(); }
 
     /// Mouse scroll callback (called from GLFW callback).
     void on_scroll(f64 y_offset);
@@ -839,7 +840,7 @@ private:
     void refresh_ui_scale();
 
     // GLFW
-    GLFWwindow* window_ = nullptr;
+    WindowPtr window_;
     u32 window_width_ = 0;
     u32 window_height_ = 0;
     f32 ui_scale_ = 1.0f;
