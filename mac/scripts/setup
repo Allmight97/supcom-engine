@@ -6,7 +6,7 @@
 
 The guards live outside the tree so they survive branches without mac/: it copies the git hooks to
 .git/mac-hooks/ and points core.hooksPath there, and copies the Claude hooks to .git/mac-hooks/claude/.
-It writes those Claude hooks, a session-start hook that prints `mac/scripts/upstream-news --brief`,
+It writes those Claude hooks, a session-start hook that prints `mac/tools/pulse/pulse --brief`,
 Apple's game-porting-skills and the supcom plugin marketplace (mac/agents/mods, its plugins enabled)
 into .claude/settings.local.json, keeping other settings; adds .local/ and /mac/work/
 to .git/info/exclude; and sets upstream's push URL to DISABLED (origin is JStar's fork).
@@ -32,9 +32,9 @@ SUPCOM_PLUGINS = ['supcom-capture@supcom', 'supcom-docs@supcom', 'supcom-upstrea
 def hooks(claude_dir, up_tree, main):
     shell, real_input = ({'type': 'command', 'command': shlex.quote(os.path.join(claude_dir, name))}
                          for name in CLAUDE_HOOKS)
-    news = shlex.quote(os.path.join(main, 'mac/scripts/upstream-news'))
+    pulse = shlex.quote(os.path.join(main, 'mac/tools/pulse/pulse'))
     start = (f'cat {shlex.quote(os.path.join(os.path.dirname(claude_dir), "up-tree-rules.txt"))}' if up_tree
-             else f'{news} --brief || echo "upstream-news failed: run {news} to see why"')
+             else f'python3 -I {pulse} --brief || echo "pulse failed: run python3 -I {pulse} to see why"')
     return {'PreToolUse': [{'matcher': 'Bash', 'hooks': [shell, real_input]},
                            {'matcher': 'mcp__.*', 'hooks': [real_input]}],
             'SessionStart': [{'hooks': [{'type': 'command', 'timeout': 30, 'command': start}]}]}

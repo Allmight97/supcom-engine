@@ -205,6 +205,8 @@ root, osc = map(pathlib.Path, sys.argv[1:])
 module = runpy.run_path(str(root / 'scripts/setup'))
 settings = json.loads((osc / '.claude/settings.local.json').read_text())
 hooks = (osc / '.git/mac-hooks').resolve()
+start = settings['hooks']['SessionStart'][0]['hooks'][0]['command']
+assert start.startswith('python3 -I ') and 'mac/tools/pulse/pulse' in start and '--brief' in start, start
 assert settings['enabledPlugins']['other@test']
 assert settings['enabledPlugins'][module['APPLE_PLUGIN']]
 assert settings['extraKnownMarketplaces']['other']['source']['repo'] == 'example/other'

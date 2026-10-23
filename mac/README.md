@@ -52,6 +52,7 @@ The table lists the `play` flags that osc drives, and the other scripts:
 | `mac/scripts/play -- --fps-cap -2` | A frame-rate cap (`-2`: 2 below the refresh rate; `0`: none) |
 | `mac/scripts/osc-smoke` | Headless AI skirmish; fails on any error |
 | `mac/scripts/osc-render-check` | Hidden rendered capture; fails unless the driver is KosmicKrisp and there are no errors |
+| `mac/tools/pulse/pulse` | Where the project stands now: what needs a decision, the upstream PRs, branches and worktrees (`--html` for a page) |
 | `mac/scripts/upstream-news` | What upstream landed or is working on that touches the Mac; run before any Mac change |
 | `mac/scripts/check` | The toolkit's own checks (required before every commit that touches `mac/`) |
 | `mac/scripts/setup` | Install the commit and push guards and the Claude settings (after a clone or a hook change) |

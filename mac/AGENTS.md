@@ -13,6 +13,7 @@ root `AGENTS.md` holds the rules for every agent; this file routes toolkit work.
 - Upstream: `mac/scripts/upstream-news` (what upstream is doing), `mac/scripts/sync-upstream` (merge it into the
   fork), `mac/scripts/up-refresh` (keep an up/* PR current), `mac/scripts/prove` (the engine checks a change
   needs, with the Tested block for the PR text). The upstream-pr skill holds the PR practice.
+- Status: `mac/tools/pulse/pulse` (what needs JStar now, live; its `--brief` runs at session start, `--detail` shows all).
 - `mac/work/` (ignored): the player's game (`game`), the reference corpus of the original (`traces`, `logs`, and
   `parity/refs`, the write-once captures of `mac/tools/parity`),
   the Ghidra project, the Vulkan SDK, play-test evidence, `downloads` (acquired originals: never patch the only

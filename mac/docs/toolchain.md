@@ -20,11 +20,16 @@ selects another). The Mac build recipe is in `mac/recipe/`:
 - `mac/scripts/upstream-news`: fetches upstream, lists what landed since the fork's `main`
   (Mac-area items marked `MAC`) and the open upstream PRs that matter to the fork: `MAC` (a
   Mac area) or `OVERLAP` (touches an engine file the fork changed, listed), and prints the
-  merge command. Run it before starting any Mac change. Its `--brief` form runs at every
-  session start (a hook `mac/scripts/setup` writes); its `--markdown` form is the body of the
+  merge command. Run it before starting any Mac change. Its `--markdown` form is the body of the
   fork's issue "Upstream Mac watch", rewritten daily by `.github/workflows/mac-upstream-watch.yml`.
   `/supcom-upstream:shape [topic]` has a Sonnet agent map those PRs against our commits before an
   upstream PR is shaped.
+- `mac/tools/pulse/pulse`: where the project stands now, read live from git, GitHub (read only) and the
+  parity store: what needs JStar (a failing check, an overlap, branches safe to delete), his open and landed
+  upstream PRs, branches and worktrees. Its `--brief` form runs at every session start (a hook
+  `mac/scripts/setup` writes); `--detail` lifts the 40-line cap; `--html` writes `mac/work/pulse.html` for him
+  to read and keeps that look in `mac/work/pulse-last.json` for the next page's "since your last look". It
+  gets upstream's facts from `upstream-news`'s functions and stores nothing else. Options are in its header.
 - `mac/scripts/sync-upstream`: merges upstream main into the fork on a sync branch (named in the script),
   resolves conflicts in `docs/current-state.md`'s metric lines itself, stops on any other conflict
   (resolve keeping both sides' intent, then `--resume`), builds, recomputes the metrics, runs the
