@@ -2,7 +2,8 @@
 -- builds and repairs, logged every tick from the order: the builder's state
 -- and progress, the work's fraction and health, and the first bot's state,
 -- focus and progress. The bots' build, repair and effect callbacks are
--- logged as they run, with the order a start names.
+-- logged as they run, with the order a start names. Only the scene's own
+-- bots are watched: the other armies' Cybran builders spawn bots too.
 -- Ample resources, so the economy plays no part. Five scenes, in turn, each
 -- cleaned up after:
 -- - "cybran": a Cybran T1 engineer builds a power generator; its scripts
@@ -36,7 +37,7 @@ end
 local CALLBACKS = {'OnStartBuild', 'OnStopBuild', 'OnFailedToBuild', 'OnStartRepair', 'OnStopRepair',
                    'OnStartReclaim', 'OnStopReclaim', 'CreateBuildEffects', 'StopBuildingEffects'}
 
-local scene, t, bots = '', 0, {}
+local scene, t, bots, builder_of_scene = '', 0, {}, nil
 
 -- Each callback, logged as it runs, on the bots alone
 local function watch(bot)
@@ -59,7 +60,9 @@ local EffectUtil = import('/lua/EffectUtilities.lua')
 local spawn_build_bots = EffectUtil.SpawnBuildBots
 EffectUtil.SpawnBuildBots = function(builder, unitBeingBuilt, numBots, bag)
     local spawned = spawn_build_bots(builder, unitBeingBuilt, numBots, bag)
-    for _, bot in spawned do watch(bot) end
+    if builder == builder_of_scene then
+        for _, bot in spawned do watch(bot) end
+    end
     return spawned
 end
 
@@ -92,6 +95,7 @@ local function clean(units)
         if not bot:BeenDestroyed() then bot:Destroy() end
     end
     bots = {}
+    builder_of_scene = nil
     WaitTicks(5)
 end
 
@@ -100,6 +104,7 @@ end
 local function ProbeBuild(army, name, engineer_bp, generator_bp, x, z, steps, helper)
     scene = name
     local eng = spawn(engineer_bp, army, x, z)
+    builder_of_scene = eng
     WaitTicks(5)
     local bot = nil
     if helper then
