@@ -225,7 +225,7 @@ Every tick from the order, t=0 to 330, it logs a row for each scene:
 
 It also logs the engineer's `OnStartBuild`, `OnStopBuild`, `OnStartRepair` and `OnStopRepair`, as they run, wrapped on that engineer alone (only those the scripts define). Its `t` is the loop index of a `WaitTicks(1)` loop, since the original's sim has no `GetGameTick`. It is done at `PROBE assist done`.
 
-Asked on 2026-10-22: the original once; the engine on main c9055933 and with the guard's walk to its build place.
+Asked on 2026-10-22: the original twice, the two runs matching; the engine on main c9055933 and with the guard's walk to its build place.
 
 | Probe | The original | The engine | So |
 |---|---|---|---|

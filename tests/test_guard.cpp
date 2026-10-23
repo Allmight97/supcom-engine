@@ -373,17 +373,21 @@ struct FactoryAtWork {
     Unit* unit;
 };
 
+Unit* build_unit(SimState& sim, Unit& factory, f32 x, f32 z) {
+    Unit* unit = still(sim, 0, x, z);
+    unit->set_is_being_built(true);
+    unit->set_fraction_complete(0.1f);
+    factory.set_build_target_id(unit->entity_id());
+    return unit;
+}
+
 FactoryAtWork factory_at_work(SimState& sim, f32 x, f32 z, f32 unit_x, f32 unit_z) {
     Unit* factory = still(sim, 0, x, z);
     factory->add_category("FACTORY");
     factory->set_footprint_size(5.0f, 5.0f);
     factory->set_skirt(8.0f, 8.0f, 0.0f, 0.0f);
     factory->set_build_time(100000.0);
-    Unit* unit = still(sim, 0, unit_x, unit_z);
-    unit->set_is_being_built(true);
-    unit->set_fraction_complete(0.1f);
-    factory->set_build_target_id(unit->entity_id());
-    return {factory, unit};
+    return {factory, build_unit(sim, *factory, unit_x, unit_z)};
 }
 
 Unit* engineer_of(SimState& sim, f32 x, f32 z) {
@@ -455,4 +459,63 @@ TEST_CASE("A guarding engineer that walked up to a factory goes on helping on ev
         REQUIRE(eng->is_building());
     }
     CHECK(unit->fraction_complete() > 0.1f);
+}
+
+TEST_CASE("A guarding engineer keeps chasing a mobile factory, never a place it has left",
+          "[guard][assist]") {
+    LuaGuard g;
+    SimState sim(g.L, nullptr);
+    flat(sim);
+    const auto [factory, unit] = factory_at_work(sim, 60.5f, 50.5f, 60.5f, 47.5f);
+    factory->set_motion_type("RULEUMT_Land");
+    Unit* eng = engineer_of(sim, 60.5f, 80.5f);
+    eng->push_command(guard(factory, 1), true);
+
+    for (int t = 0; t < 100; ++t) {
+        factory->set_position({factory->position().x + 0.2f, 0.0f, factory->position().z});
+        unit->set_position({unit->position().x + 0.2f, 0.0f, unit->position().z});
+        sim.tick();
+        const auto goal = eng->navigator().goal();
+        INFO("tick " << t << " goal " << goal.x << "," << goal.z << " factory "
+                     << factory->position().x);
+        REQUIRE(std::hypot(goal.x - factory->position().x, goal.z - factory->position().z) < 8.0f);
+    }
+    CHECK(factory->position().x > 79.0f);
+    CHECK(eng->position().x > 65.0f);
+}
+
+TEST_CASE("A guarding engineer displaced between a factory's builds walks back to the build place "
+          "for the next",
+          "[guard][assist]") {
+    LuaGuard g;
+    SimState sim(g.L, nullptr);
+    flat(sim);
+    const auto [factory, first] = factory_at_work(sim, 60.5f, 50.5f, 60.5f, 47.5f);
+    Unit* eng = engineer_of(sim, 60.5f, 80.5f);
+    eng->push_command(guard(factory, 1), true);
+
+    sim.tick();
+    const osc::sim::Vector3 place = eng->navigator().goal();
+    for (int t = 0; t < 200 && !eng->is_building(); ++t) sim.tick();
+    REQUIRE(eng->is_building());
+
+    factory->set_build_target_id(0);
+    first->set_is_being_built(false);
+    sim.tick();
+    REQUIRE_FALSE(eng->is_building());
+
+    eng->set_position({60.5f, 0.0f, 80.5f});
+    const Unit* second = build_unit(sim, *factory, 60.5f, 47.5f);
+    int started = -1;
+    for (int t = 0; t < 200 && started < 0; ++t) {
+        sim.tick();
+        if (eng->is_building()) started = t;
+    }
+    REQUIRE(started >= 0);
+    CHECK(eng->build_target_id() == second->entity_id());
+    CHECK(std::hypot(eng->position().x - place.x, eng->position().z - place.z) < 1.5f);
+    for (int t = 0; t < 100; ++t) {
+        sim.tick();
+        REQUIRE(eng->is_building());
+    }
 }
