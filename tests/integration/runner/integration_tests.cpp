@@ -5292,9 +5292,8 @@ void test_layercap(TestContext& ctx) {
         "if not u then error('no entity 1') end\n"
         "local w = u:GetWeapon(1)\n"
         "if not w then error('entity 1 has no weapon') end\n"
-        "w:ChangeMaxRadius(999)\n"  // ensure range covers the whole map
-        // A visible enemy beside the ACU: army 2's own ACU is under fog of
-        // war across the map, and fogged units are not weapon targets.
+        "w:ChangeMaxRadius(999)\n" // ensure range covers the whole map
+        // A land enemy beside the ACU, to aim at
         "local p = u:GetPosition()\n"
         "local enemy = CreateUnitHPR('uel0106', 2, p[1] + 12, p[2], p[3], 0, 0, 0)\n"
         "if not enemy then error('no enemy found') end\n"
