@@ -1,0 +1,19 @@
+#!/bin/sh
+# Run one staged probe on the original in the CrossOver bottle (called by `parity capture`).
+#   tools/parity/capture STAGE_DIR LOG MARKER TIMEOUT [GAME ARGS...]
+# STAGE_DIR holds init.lua and the probe's hooks; the game runs them from a copy (GAME_RUN_STAGE). The game logs to
+# LOG.partial; LOG appears only once MARKER is in it and the game is stopped. The log's basename must be unique.
+set -eu
+main() {
+cd "$(dirname "$0")/../.."
+. tools/lib/game-run.sh
+stage=$1 log=$2 marker=$3 timeout=$4
+shift 4
+GAME_RUN_STAGE=$stage
+GAME_RUN_WINDOW="640 480"
+game_run_start original stage/init.lua "$log" "$@"
+game_run_wait_marker "$marker" "$timeout"
+sleep 2
+game_run_finish
+}
+main "$@"

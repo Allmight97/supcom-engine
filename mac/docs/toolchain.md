@@ -327,9 +327,13 @@ Each run also:
   dead process is cleared); an original-game run refuses when `active_mods`
   names a mod the original would load (its `Documents` mods folder or
   `gamedata/mods.scd`); mods only FAF has, such as JStar's M28AI, are ignored;
-- copies `mac/tools/` and `mac/agents/faf-autorun` to `mac/work/capture-run/NAME/` and
-  runs from there, so editing a hook during a run changes nothing; capture
-  scripts run from `main() { …; }; main "$@"` for the same reason;
+- copies `mac/tools/` and `mac/agents/faf-autorun` to a new `mac/work/capture-run/NAME.XXXXXX/` (never
+  reusing or clearing an old one) and runs from there, so editing a hook during a run changes nothing; capture
+  scripts run from `main() { …; }; main "$@"` for the same reason; a tool's
+  files from elsewhere (`mac/tools/parity` stages probe sources and a
+  generated init) go in as `GAME_RUN_STAGE=DIR`, copied to `GAME_RUN_DIR/stage`;
+- finds its game to stop by the full path of `NAME.log.partial` on the game's command line, reaps it quietly,
+  and with `GAME_RUN_WATCH=FILE` appends each phase, the 10-minute heartbeat and the reason a run stops to FILE;
 - checks itself every 5 s (`mac/tools/lib/capture.py watch`): it stops on the
   first Lua error or unknown unit type, when a hook the game loaded has not
   logged `HOOKCHECK|/<mount>/<path>|ok` within 90 s (every hook ends with
@@ -446,8 +450,45 @@ while an installed supcom plugin differs from its source in version or content.
 
 ### Comparisons
 
-`/supcom-capture:compare KIND ORIGINAL OSC` runs one comparator on a capture of the original
-and the matching OpenSupCom file:
+Tick-level comparison with the original goes through `mac/tools/parity/parity` (options in its header). It runs
+upstream's probes (`tools/moho_probes/PROBE`, the same init on both sides) and compares through one strict core.
+Each probe has an adapter in `mac/tools/parity/adapters.py`: its row identity (scene, phase, leg, clock), what its
+clock means, its fields with types and tolerance, the rows a complete run holds and the line that ends it.
+
+- `parity capture PROBE` freezes the probe's committed sources and the generated init into a package, stages the
+  run from that package, runs the probe on the original through `game-run.sh` (a 640x480 window, the done marker,
+  a deadline) and stores the package, log, `.setup` and `record.json` read-only in
+  `mac/work/parity/refs/PROBE/RUN_ID/`. It stores every run that reached its marker without a Lua error; whether a
+  run is usable is judged each time it is read. The store never replaces a run. It prints a `watch:` file first
+  (game-run phases and the 10-minute heartbeat): follow it with a Monitor (mac/tools/AGENTS.md).
+- Reading a stored run is one boundary (`runs.py`): its files match the refs manifest, the source package equals the
+  hashes recorded when it ran (pinned git blobs and the `.setup` stage hashes, both ways), the log is a complete run
+  of the probe (done marker, every expected row, no Lua error). Anything else is `INVALID`, never a pass.
+- The baseline is a consequence: a second capture of the same experiment (a different stored run, the same source
+  package, executable, game data and contract) that MATCHes the first records `baseline` in `refs/PROBE/decisions/`.
+  The first `check` that MATCHes the baseline records `gate`.
+- `parity run PROBE [--root DIR]` runs the probe on OpenSupCom (`DIR/build/play/opensupcom`, `--init`, `--fa-path`,
+  `--user-dir` scratch, `--log`) with the baseline's frozen sources and validates the log itself, because a plain
+  `--ticks` run exits 0 on a Lua failure. A run that is not a MATCH is kept as `mac/work/parity/runs/PROBE/latest`.
+- `parity check PROBE...|--all` compares OpenSupCom with the baseline: `MATCH`, `DIFFERS` (first divergence with
+  scene, phase, tick, field and both values, plus a count), `INVALID` (malformed, duplicate or non-finite rows,
+  nothing compared, an incomplete run, a damaged reference) or `NO-REF`. `parity compare PROBE ORIGINAL.log OSC.log`
+  compares two logs, each checked as a complete run first. A value the original cannot report (the engineer
+  probe's `GetGameTick`) or only records (the crowd probe's positions) is stored and not judged; blueprint numbers
+  compare as 32-bit floats, integers exactly.
+- `parity list [--gated]` shows each probe's runs, baseline and gate, and exits 1 on any damaged stored file or
+  decision. `mac/scripts/prove` reads `list --gated`, then runs `parity check --ratchet` on every engine change
+  (the Tested block says "the original-game parity probes (...): match"). It skips the step, with a reason, only
+  where there is no store or the listing succeeds and gates nothing; a failed listing fails `prove`.
+- `parity verify|backup` cover the store (`refs`) and the older corpus (`traces`, read only): a manifest of sha256
+  per file in `mac/work/parity/manifests/` (new files of the store are listed as they are stored), a check against
+  it, and a copy to a directory that is verified by checksum and never overwrites a different file. Where the
+  second copy lives is JStar's decision.
+- `python3 -I mac/tools/parity/parity --self-test` runs on synthetic fixtures, without game data.
+- `mac/scripts/mutate FILE OLD NEW -- COMMAND` is the negative control: it applies one edit, runs COMMAND and
+  restores FILE from a saved copy (not through git); rebuild after it.
+
+`/supcom-capture:compare` runs the older per-format comparators on captures from the other tools:
 
 - `motion`: `python3 -I mac/tools/motion-compare/motion_compare.py ORIGINAL.log OSC.log`
 - `intel`: `python3 -I mac/tools/intel-compare/intel_compare.py ORIGINAL.log OSC.log [--check]`

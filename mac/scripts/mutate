@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Negative control: run COMMAND with one edit applied to FILE, then put FILE back exactly as it was.
+
+  mac/scripts/mutate FILE OLD NEW -- COMMAND [ARGS...]
+  mac/scripts/mutate --self-test
+
+OLD must occur once in FILE. The original is saved to a temporary copy first and restored in a `finally`
+(also on Ctrl-C and SIGTERM), then compared byte for byte; the restore never goes through git. COMMAND
+runs in the current folder and its exit status is this script's. A command that must rebuild does so itself:
+  mac/scripts/mutate src/sim/unit.cpp 'a = 1;' 'a = 2;' -- sh -c 'bash mac/recipe/build.sh && parity check timing'
+Build again afterwards: this script restores the source, not the build. The restored file gets a new
+modification time, so the build sees it changed.
+"""
+import contextlib
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+
+
+def mutate(path, old, new, command):
+    with open(path, 'rb') as f:
+        original = f.read()
+    if original.count(old.encode()) != 1:
+        sys.exit(f'mutate: {old!r} occurs {original.count(old.encode())} times in {path}, not once')
+    saved = tempfile.NamedTemporaryFile(prefix='mutate-', delete=False)
+    saved.close()
+    shutil.copy2(path, saved.name)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    try:
+        with open(path, 'wb') as f:
+            f.write(original.replace(old.encode(), new.encode()))
+        print(f'mutate: {path}: {old!r} -> {new!r}', file=sys.stderr, flush=True)
+        return subprocess.run(command).returncode
+    finally:
+        shutil.copyfile(saved.name, path)
+        shutil.copymode(saved.name, path)
+        os.utime(path)
+        with open(path, 'rb') as f:
+            restored = f.read() == original
+        os.unlink(saved.name)
+        print(f'mutate: {path} {"restored" if restored else "NOT RESTORED"}', file=sys.stderr, flush=True)
+        if not restored:
+            os._exit(3)
+
+
+def self_test():
+    with tempfile.TemporaryDirectory() as tmp, open(os.devnull, 'w') as quiet, contextlib.redirect_stderr(quiet):
+        path = os.path.join(tmp, 'f.txt')
+        with open(path, 'w') as f:
+            f.write('one two\n')
+        os.chmod(path, 0o640)
+        os.utime(path, (1000000000, 1000000000))
+        seen = os.path.join(tmp, 'seen')
+        probe = [sys.executable, '-c', f'import sys; open({seen!r}, "w").write(open({path!r}).read()); sys.exit(7)']
+        assert mutate(path, 'two', 'three', probe) == 7
+        assert open(seen).read() == 'one three\n', 'the command saw the mutation'
+        assert open(path).read() == 'one two\n' and os.stat(path).st_mode & 0o777 == 0o640, 'restored with its mode'
+        assert os.stat(path).st_mtime > os.stat(seen).st_mtime - 1, 'restored with a new modification time'
+        try:
+            mutate(path, 'absent', 'x', probe)
+            raise AssertionError('an absent OLD must be refused')
+        except SystemExit:
+            pass
+        try:
+            mutate(path, 'two', 'three', [sys.executable, '-c', 'import os, signal; os.kill(os.getppid(), signal.SIGTERM); import time; time.sleep(5)'])
+            raise AssertionError('SIGTERM must propagate')
+        except SystemExit as e:
+            assert e.code == 143
+        assert open(path).read() == 'one two\n', 'restored after SIGTERM'
+    print('mutate self-test passed')
+
+
+def main():
+    args = sys.argv[1:]
+    if args == ['--self-test']:
+        return self_test()
+    if len(args) < 5 or args[3] != '--':
+        sys.exit(__doc__.strip())
+    sys.exit(mutate(args[0], args[1], args[2], args[4:]))
+
+
+if __name__ == '__main__':
+    main()

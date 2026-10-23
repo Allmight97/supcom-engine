@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Does OpenSupCom behave like the original, tick by tick? Probes run on both, compared through one strict core.
+
+  parity capture PROBE            run upstream's probe on the original (CrossOver; opens a game window) and store it
+                                  under mac/work/parity/refs (read-only). A second capture that MATCHes the first
+                                  makes the baseline. Phases go to the `watch:` file it prints first.
+  parity run PROBE [--root DIR] [--tree]
+                                  run it on OpenSupCom (DIR/build/play, default this checkout) with the baseline's
+                                  frozen sources (--tree: the tree's); print the log's path
+  parity compare PROBE ORIGINAL.log OSC.log [-v]
+                                  compare two logs, each first checked as a complete run: MATCH, DIFFERS or INVALID
+  parity check PROBE...|--all [--root DIR] [--ratchet]
+                                  run OpenSupCom and compare with the baseline: MATCH, DIFFERS, INVALID or NO-REF.
+                                  The first MATCH gates the probe; --ratchet checks the gated probes only
+  parity list [--gated]           the store: runs, baseline, gate per probe (--gated: the gated names only).
+                                  Exit 1 if any stored file, source package or decision is damaged
+  parity verify [AREA...] [--root DEST]
+                                  check areas (refs, traces) or their backup under DEST against their manifests
+  parity backup DEST [AREA...]    copy areas to DEST and verify the copy by checksum
+  parity --self-test
+
+Exit status: 0 MATCH or success, 1 DIFFERS or a failed check, 2 INVALID (a run, log or reference that cannot be used).
+Options live here; what each probe means (clock, fields, expected rows) is in adapters.py.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import adapters  # noqa: E402
+import core  # noqa: E402
+import runs  # noqa: E402
+import store  # noqa: E402
+
+
+def adapter_for(probe):
+    if probe not in adapters.ADAPTERS:
+        sys.exit(f'parity: no adapter for {probe!r}; probes: {" ".join(adapters.ADAPTERS)}')
+    return adapters.ADAPTERS[probe]
+
+
+def option(args, flag, default=None):
+    if flag in args:
+        i = args.index(flag)
+        value = args[i + 1]
+        del args[i:i + 2]
+        return value
+    return default
+
+
+def switch(args, flag):
+    if flag in args:
+        args.remove(flag)
+        return True
+    return False
+
+
+def cmd_capture(args):
+    probe = args[0]
+    adapter = adapter_for(probe)
+    target, problems, work = runs.capture_original(adapter, probe)
+    if not target:
+        print(f'INVALID capture, kept in {work}:\n  ' + '\n  '.join(problems[:5]))
+        return 2
+    print(f'stored {target}' + ''.join(f'\n  {p}' for p in problems))
+    baseline = runs.settle(adapter, probe)
+    print(f'baseline recorded: {baseline}' if baseline else f'{probe}: no baseline yet (needs a second capture that MATCHes)')
+    return 1 if problems else 0
+
+
+def cmd_run(args):
+    root = os.path.abspath(option(args, '--root', runs.TREE))
+    tree = switch(args, '--tree')
+    probe = args[0]
+    adapter = adapter_for(probe)
+    base, problems = runs.reference(adapter, probe)
+    if problems:
+        print(f'INVALID {probe}: the stored reference cannot be used: {problems[0]}')
+        return 2
+    log, record, problems, out = runs.run_probe(adapter, probe, root, base, tree)
+    kept = runs.keep(probe, out)
+    if problems:
+        print(f'INVALID {probe}: {problems[0]} ({len(problems)} problems; run kept in {kept})')
+        return 2
+    print(f'{os.path.join(kept, os.path.basename(log))}\n  {record["counts"]} in {record["seconds"]} s')
+    return 0
+
+
+def cmd_compare(args):
+    verbose = switch(args, '-v')
+    probe, ref, new = args
+    result = core.compare(adapter_for(probe), core.Log('original', runs.read(ref), runs.original_errors),
+                          core.Log('opensupcom', runs.read(new, 'utf-8'), runs.osc_errors))
+    print(f'{result.status} {result.summary}')
+    if verbose:
+        print('\n'.join('  ' + d for d in result.detail))
+    return result.code
+
+
+def cmd_check(args):
+    root = os.path.abspath(option(args, '--root', runs.TREE))
+    ratchet, every = switch(args, '--ratchet'), switch(args, '--all')
+    names = args
+    if ratchet or every:
+        names = [p for p in store.probes() if not ratchet or store.gate(p)]
+        if not names:
+            print('parity: no probe to check' + (' (none is gated)' if ratchet else ''))
+            return 0
+    worst = 0
+    for probe in names:
+        status, summary = runs.check(adapter_for(probe), probe, root)
+        print(f'{status} {summary}', flush=True)
+        failing = (status == 'DIFFERS' and (bool(store.gate(probe)) or not every)) or (status == 'NO-REF' and not every)
+        worst = max(worst, 2 if status == 'INVALID' else int(failing))
+    return worst
+
+
+def cmd_list(args):
+    only_gated = switch(args, '--gated')
+    status = 0
+    for probe in store.probes():
+        problems, baseline, gated, count = runs.survey(probe)
+        gated = gated and not problems
+        if not only_gated:
+            print(f'{probe}: runs {count}, baseline {baseline or "none"}, {"gated" if gated else "not gated"}')
+        elif gated:
+            print(probe)
+        for p in problems:
+            print(f'{probe}: DAMAGED {p}', file=sys.stderr if only_gated else sys.stdout)
+        status |= bool(problems)
+    return status
+
+
+def cmd_verify(args):
+    root = option(args, '--root')
+    status = 0
+    for area in args or [a for a in store.AREAS if os.path.exists(store.manifest_path(a)) or root]:
+        count, problems = store.verify_area(area, root)
+        print(f'{"FAIL" if problems else "OK"} {area}: {count if count is not None else "?"} files'
+              + ''.join(f'\n  {p}' for p in problems[:10]) + (f'\n  ... {len(problems)} problems' if len(problems) > 10 else ''))
+        status |= bool(problems)
+    return status
+
+
+def cmd_backup(args):
+    dest = os.path.abspath(args[0])
+    status = 0
+    for area in args[1:] or ['refs']:
+        copied, problems = store.backup(area, dest)
+        print(f'FAIL {area}: ' + '; '.join(problems[:5]) if problems
+              else f'OK {area}: {copied} files copied to {dest}, verified by checksum')
+        status |= bool(problems)
+    return status
+
+
+COMMANDS = {'capture': cmd_capture, 'run': cmd_run, 'compare': cmd_compare, 'check': cmd_check, 'list': cmd_list,
+            'verify': cmd_verify, 'backup': cmd_backup}
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ['--self-test']:
+        import selftest
+        return selftest.run()
+    if not args or args[0] not in COMMANDS:
+        sys.exit(__doc__.strip())
+    return COMMANDS[args[0]](args[1:])
+
+
+if __name__ == '__main__':
+    sys.exit(main())
