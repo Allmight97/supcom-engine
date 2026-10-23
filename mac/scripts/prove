@@ -11,7 +11,8 @@ under src/renderer or to a shader adds the render check; anything else (docs) ru
 A C++ change (.cpp, .hpp, .h) under src/ or tests/ also runs tidy: clang-tidy 22 (from PyPI through uvx, with
 the root's .clang-tidy and DIR/build/play) over the changed .cpp files and the .cpp files that include a changed
 header, compared with tools/clang_tidy_baseline.txt through DIR's tools/clang_tidy_ratchet.py. A finding in
-those files or changed headers above its (path, check) baseline fails and is printed. Under `--base main`
+a changed file above its (path, check) baseline fails and is printed; an includer is analyzed only to reach
+its changed headers (its own findings may be ones the Mac sees and Linux CI does not). Under `--base main`
 (upstream's own changes, as sync-upstream proves them) tidy is skipped: upstream's CI checks them.
 An engine change also runs `parity check --ratchet` (mac/tools/parity): OpenSupCom against the stored
 captures of the original for each probe whose baseline matched; it is skipped, with a reason, when the
@@ -179,8 +180,8 @@ def tidy_sources(root, paths, compiled):
     return sorted(cpp & compiled)
 
 
-def tidy_scope(paths, sources):
-    return set(sources) | {p for p in paths if p.endswith(('.hpp', '.h'))}
+def tidy_scope(paths):
+    return {p for p in paths if p.endswith(TIDY_SUFFIXES)}
 
 
 def compiled_sources(root):
@@ -239,7 +240,7 @@ def run_tidy(root, paths):
         print(f'prove: tidy: {source}: clang-tidy exited {run.returncode}; it did not analyze the file', flush=True)
         print('\n'.join((run.stdout + run.stderr).strip().splitlines()[-20:]), flush=True)
     found = tidy_findings('\n'.join(r.stdout + r.stderr for r in runs), root, ratchet.WARNING)
-    worse = tidy_worse(found, ratchet.read_baseline()[1], tidy_scope(paths, sources))
+    worse = tidy_worse(found, ratchet.read_baseline()[1], tidy_scope(paths))
     for (path, check), (was, now) in sorted(worse.items()):
         print(f'NEW  {path} [{check}]: {was} -> {now}', flush=True)
         print('\n'.join(found[(path, check)]), flush=True)
@@ -340,7 +341,8 @@ def tidy_self_test():
     assert {k: len(v) for k, v in found.items()} == {('src/b/h.hpp', 'modernize-use-nullptr'): 2,
                                                      ('src/a/x.cpp', 'bugprone-nondeterministic-pointer-iteration-order'): 1}, found
     baseline = collections.Counter({('src/b/h.hpp', 'modernize-use-nullptr'): 2})
-    scope = tidy_scope(['src/b/h.hpp'], ['src/a/x.cpp'])
+    assert tidy_worse(found, baseline, tidy_scope(['src/b/h.hpp'])) == {}, 'an includer\'s own finding is not this change\'s'
+    scope = tidy_scope(['src/b/h.hpp', 'src/a/x.cpp'])
     assert tidy_worse(found, baseline, scope) == {('src/a/x.cpp', 'bugprone-nondeterministic-pointer-iteration-order'): (0, 1)}
     assert tidy_worse(found, baseline, {'src/b/h.hpp'}) == {}, 'a finding outside the changed files is not this change\'s'
     baseline[('src/b/h.hpp', 'modernize-use-nullptr')] = 1

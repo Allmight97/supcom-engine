@@ -75,9 +75,9 @@ ctest --test-dir build/play -L gate --output-on-failure
 
 `mac/scripts/prove` runs these for a change and adds `tidy` for C++ under `src/` or `tests/`: clang-tidy 22 (from
 PyPI through uvx, as `mac/scripts/format` gets clang-format) over the changed `.cpp` files and the `.cpp` files
-that directly include a changed header, with `build/play`. A finding above its `tools/clang_tidy_baseline.txt`
-count for that (path, check), in those files or the changed headers, fails; the baseline comes from Linux, so a
-macOS-only finding can fail a file upstream's CI accepts. `--base main` skips it. A suite that runs long prints
+that directly include a changed header, with `build/play`. A finding in a changed file above its
+`tools/clang_tidy_baseline.txt` count for that (path, check) fails; includers' own findings do not count, since
+the baseline comes from Linux and the Mac sees a few it lacks. `--base main` skips it. A suite that runs long prints
 a heartbeat every 10 minutes.
 
 `mac/scripts/osc-render-check` renders the hidden SCMP_009 capture and fails unless the game's log line names the KosmicKrisp
