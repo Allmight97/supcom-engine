@@ -37,7 +37,7 @@ root `AGENTS.md` holds the rules for every agent; this file routes toolkit work.
 - When OSC and the original disagree, a capture of the original decides, not a decompile or a guess. Tie
   findings about the original to the executable's SHA-256 and function addresses; label inferences.
 - No online play until the Mac passes OSC's cross-OS lockstep check (#10).
-- The original runs only in CrossOver under Rosetta, which macOS 28 removes: capture what the corpus needs (#15).
+- The original runs only in CrossOver under Rosetta. Apple says macOS 27 is the last release with full Rosetta; macOS 28 keeps a subset for older games, and whether CrossOver still works is unknown: capture what the corpus needs (#15).
 
 ## Verification
 
