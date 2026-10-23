@@ -3,6 +3,7 @@
 #include "blueprints/footprint.hpp"
 #include "sim/occupancy.hpp"
 #include "sim/category_set.hpp"
+#include "sim/econ_request.hpp"
 #include "sim/entity.hpp"
 #include "sim/navigator.hpp"
 #include "sim/pose.hpp"
@@ -88,18 +89,34 @@ struct UnitEconomy {
     f64 dock_repair_energy = 0.0;
     /// Moho's CUnitCaptureTask asks through a request of its own, apart from the unit's.
     f64 capture_energy = 0.0;
-    /// The share of its consumption request the economy granted this tick,
-    /// and the share its work goes at (Moho's ResourceConsumed, what
-    /// GetResourceConsumed answers): last tick's grant, so a request made in
-    /// one tick is granted in the next and worked from the one after; 0 as
-    /// soon as it stops asking (Unit::HandleResourceManagement).
-    f64 granted = 0.0;
+    EconRequest silo_request;
+    EconRequest dock_repair_request;
+    EconRequest capture_request;
+    /// Moho's mConsumptionData: its consumption and the engine's upkeep, a tick's worth.
+    EconRequest consumption_request;
+    /// The share of its request its grants covered at its last step (Moho's
+    /// ResourceConsumed, what GetResourceConsumed answers), which its work
+    /// goes at until the next.
     f64 resource_consumed = 0.0;
-    /// What the economy took for its consumption request this tick, for the
-    /// next tick's work: given back to the army if it stops asking first, as
-    /// Moho's SetConsumptionActive(false) returns a request's mGranted.
-    f64 granted_mass = 0.0;
-    f64 granted_energy = 0.0;
+    /// What it spent this tick, a second (Moho's mResourcesSpent).
+    f64 spent_mass = 0.0;
+    f64 spent_energy = 0.0;
+
+    bool asking() const {
+        return consumption_active || (maintenance_active && energy_maintenance_override > 0.0);
+    }
+    void ask_consumption(f64 dt) {
+        const bool upkeep = maintenance_active && energy_maintenance_override > 0.0;
+        consumption_request.requested = {
+            static_cast<f32>((consumption_active ? consumption_mass : 0.0) * dt),
+            static_cast<f32>(((consumption_active ? consumption_energy : 0.0) +
+                              (upkeep ? energy_maintenance_override : 0.0)) *
+                             dt)};
+    }
+    void spend(EconValue spent, f64 dt) {
+        spent_mass += spent.mass / dt;
+        spent_energy += spent.energy / dt;
+    }
 
     /// Moho's mMaintainenceCost: a silo's missile under way asks through it
     /// too (CAiSiloBuildImpl).
@@ -107,10 +124,8 @@ struct UnitEconomy {
     f64 energy_requested() const { return consumption_energy + silo_energy + capture_energy; }
     f64 mass_produced() const { return produced_mass + reclaimed_mass; }
     f64 energy_produced() const { return produced_energy + reclaimed_energy; }
-    f64 mass_consumed() const { return (consumption_active ? consumption_mass : 0.0) + silo_mass; }
-    f64 energy_consumed() const {
-        return (consumption_active ? consumption_energy : 0.0) + silo_energy + capture_energy;
-    }
+    f64 mass_consumed() const { return spent_mass; }
+    f64 energy_consumed() const { return spent_energy; }
 };
 
 /// An air staging platform's service (its blueprint's AI.RefuelingMultiplier,
@@ -240,7 +255,8 @@ public:
     bool is_unit() const override { return true; }
 
     const std::string& unit_id() const { return unit_id_; }
-    void set_unit_id(const std::string& id) { unit_id_ = id; }
+    InternedString interned_unit_id() const { return unit_id_; }
+    void set_unit_id(std::string_view id) { unit_id_ = InternedString(id); }
 
     i32 weapon_count() const {
         return static_cast<i32>(weapons_.size());
@@ -609,6 +625,9 @@ public:
     void update(f64 dt, SimContext& ctx);
     /// Moho's Unit::HandleResourceManagement, the end of its stage-A step.
     void manage_resources(ArmyBrain* army);
+    /// Moho's Unit::SetConsumptionActive: each call that stops it banks the
+    /// request's grant as `army`'s next income, and the request keeps it.
+    void set_consumption_active(bool on, ArmyBrain* army);
     /// Moho's CUnitReclaimTask banks what it reclaims in its army.
     void bank_reclaim(ArmyBrain* army);
 
@@ -1561,6 +1580,7 @@ private:
     bool motion_tick(f64 dt, SimContext& ctx);
     void take_step(f64 dt, SimContext& ctx);
     void tick_silo(f64 dt, SimContext& ctx);
+    bool take_grant(EconRequest& request, const SimContext& ctx);
     void tick_upkeep(f64 dt, SimContext& ctx);
     void end_silo_assist(lua_State* L, EntityRegistry& registry);
     void tend_unfinished(SimContext& ctx);
@@ -1631,7 +1651,7 @@ private:
     OrderStep order_reclaim(UnitCommand& cmd, f64 dt, SimContext& ctx);
     OrderStep reclaim_work(UnitCommand& cmd, f64 dt, SimContext& ctx);
     OrderStep order_repair(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_eff);
-    OrderStep order_capture(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_eff);
+    OrderStep order_capture(UnitCommand& cmd, f64 dt, SimContext& ctx);
     /// A repair of a unit under construction (Moho's repair task builds it):
     /// it builds alongside any builder, and completes it if it gets there
     /// first.
@@ -1773,7 +1793,7 @@ private:
     /// Wait at a beacon until a ferry takes the unit, then board it.
     OrderStep order_wait_for_ferry(UnitCommand& cmd, SimContext& ctx);
 
-    std::string unit_id_;
+    InternedString unit_id_;
     std::string armor_type_ = "Default";
     f32 build_rate_ = 1.0f;
     f32 cap_cost_ = 1.0f;           // Moho's RUnitBlueprint default

@@ -1,5 +1,6 @@
 #define VMA_IMPLEMENTATION
 #include "renderer/renderer.hpp"
+#include "renderer/render_scripts.hpp"
 #include "renderer/vk_cmd.hpp"
 #include "core/cursor.hpp"
 #include "core/fullscreen.hpp"
@@ -44,6 +45,7 @@ extern "C" {
 #include <cstring>
 #include <filesystem>
 #include <ostream>
+#include <sstream>
 #include <unordered_map>
 
 /// Log a Vulkan/VMA error with file and line context.
@@ -231,6 +233,17 @@ bool Renderer::create_window(u32 width, u32 height, const std::string& title, bo
         spdlog::error("Failed to create GLFW window");
         glfwTerminate();
         return false;
+    }
+    // An offscreen capture is the size asked for, whatever the screen's:
+    // Windows keeps a window within the screens' height unless its own
+    // limits allow more (a 2x capture of a laptop's frame outgrows a 1440p
+    // screen). The limit is a Vulkan image's usual largest, so a test that
+    // resizes the window later can still grow it.
+    if (offscreen) {
+        constexpr int kLargestImage = 16384;
+        glfwSetWindowSizeLimits(window_, GLFW_DONT_CARE, GLFW_DONT_CARE, kLargestImage,
+                                kLargestImage);
+        glfwSetWindowSize(window_, static_cast<int>(width), static_cast<int>(height));
     }
     // The system's cursor stays hidden until FA's cursor is made it
     // (update_system_cursor); offscreen, the engine draws FA's
@@ -999,6 +1012,7 @@ void Renderer::record_shadow_pass(u32 fi, const std::array<f32, 16>& view_proj) 
         casters.bones = bone_ds_[fi];
         casters.albedo_fallback = texture_cache_.fallback_descriptor();
         casters.lane = static_cast<u32>(fidelity());
+        casters.capture_dispatch = record_dispatch_;
         casters.strategic = strategic_icon_renderer_.is_strategic_zoom();
         shadow_casters_.record(cmd_, light_vp, casters);
     }
@@ -1557,6 +1571,7 @@ void Renderer::inject_map_border(lua_State* L, const std::vector<std::string>& m
 }
 
 void Renderer::clear_scene() {
+    clear_dispatch();
     vkDeviceWaitIdle(device_);
     feedback_blips_.clear();         // the old world's order marks
     range_blueprints_.clear();       // read again from the next UI state
@@ -1608,6 +1623,8 @@ void Renderer::clear_scene() {
     runtime_decals_.clear();
     emitter_bp_cache_.clear();
     terrain_ = nullptr;
+    terrain_source_ = nullptr;
+    terrain_snapshot_.reset();
     height_bounds_.reset();
     shadow_camera_valid_ = false;
     beam_bp_cache_.clear();
@@ -1674,7 +1691,10 @@ void Renderer::build_scene(const map::Terrain* terrain, blueprints::BlueprintSto
     emitter_bp_cache_.set_vfs(vfs);
     beam_bp_cache_.set_vfs(vfs);
     trail_bp_cache_.set_vfs(vfs);
-    terrain_ = terrain; // the water particles snap to (M214c)
+    terrain_source_ = terrain;
+    terrain_snapshot_ = terrain ? std::make_unique<map::Terrain>(*terrain) : nullptr;
+    terrain_ = terrain_snapshot_.get();
+    terrain = terrain_; // every render subsystem uses owned heights
     if (!terrain) {
         spdlog::warn("No terrain loaded — skipping scene build");
         return;
@@ -2086,6 +2106,12 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
                       const BuildGhost* ghost, lua_State* L,
                       ui::UIControlRegistry* ui_registry,
                       const std::unordered_set<u32>* selected_ids) {
+    const RenderScriptScope scripts(!scripts_suspended_);
+    if (!scripts_suspended_ && terrain_source_ && terrain_snapshot_ &&
+        (terrain_source_->flattenings_resets() != terrain_->flattenings_resets() ||
+         terrain_source_->flattenings().size() != terrain_->flattenings().size())) {
+        terrain_snapshot_->copy_deformations_from(*terrain_source_);
+    }
     const std::vector<SceneView> views = drawn_views();
     split_ = views.size() > 1;
     for (const SceneView& v : views) {
@@ -2096,8 +2122,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
         camera_.camera_follow(follow.source, follow.projectile, follow.timeout);
     }
     events.camera_follows.clear();
-    camera_game_time_ =
-        view.cur() ? (static_cast<f64>(view.cur()->tick) + view.alpha()) * 0.1 : 0.0;
+    camera_game_time_ = view.cur() ? view.time() * 0.1 : 0.0;
     // FA's own game interface replaces the C++ HUD placeholders.
     {
         bool world_ui = false;
@@ -2179,6 +2204,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
     cartographic_view_.reset(); // until a minimap view draws it
     update_frame_scene(fi, vp, frustum, view, events, ghost, L, ui_registry, selected_ids);
 
+    if (record_dispatch_) clear_dispatch();
     // Record command buffer
     begin_commands(fi);
     gpu_queries_.begin(cmd_, fi, frame_sequence_ + 1);
@@ -2201,8 +2227,9 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
             });
     }
 
-    const f32 ticks = view.cur() ? static_cast<f32>(view.cur()->tick) + view.alpha() : 0.0f;
+    const f32 ticks = static_cast<f32>(view.time());
     record_view(fi, vp, frustum, ticks, false);
+    capture_view_dispatch(0);
     std::vector<ScreenLayers> layers{{view_area_, overlay_renderer_.drawn()}};
 
     // Each view draws through its own camera (CUIWorldView::GetCamera)
@@ -2214,6 +2241,7 @@ void Renderer::render(const sim::FrameView& view, sim::WorldEvents& events,
         update_view_units(other, frustum2, view, ghost, L, selected_ids);
         update_view_effects(other, vp2, frustum2, view, events, ghost, L, selected_ids, false);
         record_view(other, vp2, frustum2, ticks, true);
+        capture_view_dispatch(1);
         layers.push_back({view_area_, overlay_renderer_.drawn()});
         set_frame_slot(fi);
         use_view(views.front());
@@ -2267,6 +2295,7 @@ void Renderer::record_view(u32 fi, const std::array<f32, 16>& vp, const Frustum&
     // ==================== NORMALS ====================
     collect_frame_decals(frustum, ticks);
     gpu_queries_.mark(cmd_, GpuFrameQueries::Pass::Normals);
+
     record_normal_pass(fi, vp);
 
     // ==================== REFLECTION ====================
@@ -2555,6 +2584,33 @@ Renderer::VramUsage Renderer::vram_usage() const {
     return usage;
 }
 
+static void clear_group_dispatch(const UnitRenderer& units) {
+    for (const auto& group : units.mesh_groups()) group.dump_dispatch.clear();
+}
+
+void Renderer::clear_dispatch() {
+    dump_views_.clear();
+    clear_group_dispatch(unit_renderer_);
+    clear_group_dispatch(minimap_units_);
+}
+
+void Renderer::set_record_dispatch(bool record) {
+    record_dispatch_ = record;
+    if (!record) clear_dispatch();
+}
+
+void Renderer::capture_view_dispatch(u32 view) {
+    if (!record_dispatch_) return;
+    // The next view replaces the groups; capture while their buffer slot still agrees.
+    std::ostringstream dump;
+    unit_renderer_.dump(dump);
+    std::istringstream input(dump.str());
+    std::string captured;
+    for (std::string line; std::getline(input, line);)
+        captured += fmt::format("{} | view={}\n", line, view);
+    dump_views_.push_back(std::move(captured));
+}
+
 void Renderer::dump_frame(std::ostream& out) const {
     auto quad_line = [](const UIInstance& q) {
         return fmt::format("{:.3f} {:.3f} {:.3f} {:.3f} | {:.4f} {:.4f} {:.4f} {:.4f} | "
@@ -2581,7 +2637,16 @@ void Renderer::dump_frame(std::ostream& out) const {
     };
 
     out << "[units]\n";
-    unit_renderer_.dump(out);
+    if (record_dispatch_) {
+        for (const auto& view : dump_views_) out << view;
+    } else unit_renderer_.dump(out);
+    if (minimap_meshes_gathered_) {
+        out << "[minimap-units]\n";
+        std::ostringstream dump;
+        minimap_units_.dump(dump);
+        std::istringstream input(dump.str());
+        for (std::string line; std::getline(input, line);) out << line << " | view=minimap\n";
+    }
     section("overlay", quads(overlay_renderer_.quads()));
     {
         // Each icon with its texture, in draw order: the order is Moho's
@@ -2645,6 +2710,22 @@ void Renderer::dump_frame(std::ostream& out) const {
                                        e.seen ? "seen" : "unseen"));
     }
     section("emitters", std::move(emitters));
+}
+
+const char* Renderer::mesh_pipeline_role(VkPipeline pipeline) const {
+    if (pipeline == mesh_pipeline_) return "mesh";
+    if (pipeline == mesh_fade_pipeline_) return "fade";
+    if (pipeline == mesh_overlay_pipeline_) return "overlay";
+    if (pipeline == mesh_cube_pipeline_) return "cube";
+    if (pipeline == mesh_outer_cloud_pipeline_) return "outer_cloud";
+    if (pipeline == mesh_feedback_pipeline_) return "feedback";
+    if (pipeline == mesh_glow_pipeline_) return "glow";
+    static constexpr std::array<const char*, 6> shields = {
+        "shield:Blend",   "shield:BlendUnculled", "shield:AddRGB",
+        "shield:AddRGBA", "shield:Fill",          "shield:BlendDepthWrite"};
+    for (size_t i = 0; i < shield_pipelines_.size(); ++i)
+        if (pipeline == shield_pipelines_[i]) return shields[i];
+    return "unknown";
 }
 
 void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16>& vp,
@@ -2714,6 +2795,7 @@ void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16
     }
 
     VkPipeline bound = mesh_pipeline_;
+    u32 draw_order = 0;
     for (auto& group : unit_renderer_.mesh_groups()) {
         if (!group.mesh || group.instance_count == 0) continue;
         // Moho's buckets (M213b): a technique's render stage puts it
@@ -2844,6 +2926,23 @@ void Renderer::draw_meshes(VkCommandBuffer cmd, u32 fi, const std::array<f32, 16
                                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                 sizeof(mesh_pc), &mesh_pc);
             vkc::draw_indexed(cmd, group.mesh->index_count, group.instance_count, 0, 0, 0);
+            if (record_dispatch_) {
+                const char* stage_name = "all";
+                switch (stage) {
+                case MeshPass::All: break;
+                case MeshPass::BeforeWater: stage_name = "pre-water"; break;
+                case MeshPass::AfterWater: stage_name = "post-water"; break;
+                case MeshPass::AfterEffects: stage_name = "post-effect"; break;
+                case MeshPass::Reflection: stage_name = "reflection"; break;
+                }
+                group.dump_dispatch.push_back(fmt::format(
+                    "technique={} stage={} pass={} pipeline={} drawn={} lane={} shader_id={} "
+                    "shadow={} bucket={} order={}",
+                    mesh_technique_name(technique), stage_name, mesh_pc.pass,
+                    mesh_pipeline_role(passes[pass]), mesh_technique_name(drawn), mesh_pc.lane,
+                    mesh_pc.technique, mesh_pc.shadow_mode, group.fading ? "fading" : "opaque",
+                    draw_order++));
+            }
             if (stage != MeshPass::Reflection && mesh_pc.technique < mesh_draws_.size())
                 ++mesh_draws_[mesh_pc.technique];
         }
@@ -2926,6 +3025,7 @@ void Renderer::draw_cartographic_groups(
     vkc::bind_descriptor_sets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0,
                               static_cast<u32>(sets.size()), sets.data(), 0, nullptr);
     VkPipeline bound = VK_NULL_HANDLE;
+    u32 draw_order = 0;
     const int lane = std::clamp(fidelity(), 0, 2);
     for (const auto& group : units.mesh_groups()) {
         if (!group.mesh || group.instance_count == 0) continue;
@@ -2934,7 +3034,19 @@ void Renderer::draw_cartographic_groups(
             group.ghost ? cartographic_technique("UnitPlace", lane)
                         : group.mesh->cartographic[static_cast<size_t>(lane)];
         const CartographicMeshPasses passes = cartographic_mesh_passes(technique);
-        if (passes.count == 0) continue;
+        static constexpr std::array<const char*, 7> names = {
+            "None", "Unit", "Feature", "Feedback", "Place", "Build", "Shield"};
+        const char* stage =
+            &units == &minimap_units_ ? "cartographic-minimap" : "cartographic-main";
+        if (passes.count == 0) {
+            if (record_dispatch_)
+                group.dump_dispatch.push_back(
+                    fmt::format("technique={} stage={} pass=none pipeline=none drawn=None lane={} "
+                                "shader_id=none bucket={} order=none",
+                                mesh_technique_name(drawn_technique(group)), stage, lane,
+                                group.fading ? "fading" : "opaque"));
+            continue;
+        }
         VkDescriptorSet albedo = group.texture_ds ? group.texture_ds : fallback;
         vkc::bind_descriptor_sets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &albedo, 0,
                                   nullptr);
@@ -2957,6 +3069,15 @@ void Renderer::draw_cartographic_groups(
                                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                 sizeof(push), &push);
             vkc::draw_indexed(cmd, group.mesh->index_count, group.instance_count, 0, 0, 0);
+            if (record_dispatch_) {
+                group.dump_dispatch.push_back(
+                    fmt::format("technique={} stage={} pass={} pipeline={} drawn={} lane={} "
+                                "shader_id={} bucket={} order={}",
+                                mesh_technique_name(drawn_technique(group)), stage, push.pass,
+                                cartographic_pipeline_role(pipeline, pipelines),
+                                names[static_cast<size_t>(technique)], lane, push.technique,
+                                group.fading ? "fading" : "opaque", draw_order++));
+            }
             ++draws[static_cast<u32>(technique)];
         }
     }
@@ -3054,24 +3175,22 @@ void Renderer::render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry) 
 
     // The frame's step, as render() takes it (fixed for scripted runs and
     // captures).
-    {
-        const f64 now = glfwGetTime();
-        f32 dt = (last_frame_time_ > 0.0) ? static_cast<f32>(now - last_frame_time_) : 0.0f;
-        last_frame_time_ = now;
-        if (fixed_frame_dt_ > 0.0f) dt = fixed_frame_dt_;
-        frame_dt_ = dt;
-    }
+    frame_dt_ = take_frame_dt();
 
     // The UI, before the command buffer: its frame callbacks (the movies
     // play on there), its events, then its quads, with the movies' new
     // frames staged for the copy below.
     if (ui_registry && L) {
-        if (frame_dt_ > 0.0f && frame_dt_ < 1.0f)
-            ui_dispatch_.update_controls(L, *ui_registry, static_cast<f64>(frame_dt_));
-        ui_dispatch_.dispatch_events(L, *ui_registry);
+        if (!ui_ran_early_) {
+            if (frame_dt_ > 0.0f && frame_dt_ < 1.0f)
+                ui_dispatch_.update_controls(L, *ui_registry, static_cast<f64>(frame_dt_));
+            ui_dispatch_.dispatch_events(L, *ui_registry);
+        }
+        ui_ran_early_ = false;
         movie_textures_.prepare(*ui_registry, fi);
         update_system_cursor(L);
         ui_renderer_.set_scale(ui_scale_);
+        PROFILE_ZONE("UI::tree");
         ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_, ui_width(), ui_height(),
                             static_cast<f32>(ui_dispatch_.mouse_x()),
                             static_cast<f32>(ui_dispatch_.mouse_y()));
@@ -3098,71 +3217,75 @@ void Renderer::render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry) 
 
 void Renderer::update_world_shapes(lua_State* L, const sim::FrameView& frame,
                                    const Frustum& frustum, const BuildGhost* ghost, u32 fi) {
-    // The world's size of one of the UI's points at a spot: the LOD metric
-    // (the view's width at its depth) over the view's width in points
-    sim::Vector3 eye;
-    view_camera_->eye_position(eye.x, eye.y, eye.z);
-    sim::Vector3 forward{view_camera_->focus_x() - eye.x, view_camera_->focus_y() - eye.y,
-                         view_camera_->focus_z() - eye.z};
-    const f32 length =
-        std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
-    if (length > 0.0f) forward = {forward.x / length, forward.y / length, forward.z / length};
-    const f32 fov = view_camera_->fov();
-    const f32 width = view_points()[0] > 0 ? static_cast<f32>(view_points()[0]) : 1.0f;
-    world_shapes_.begin([eye, forward, fov, width](const sim::Vector3& p) {
-        return lod_metric(p, eye, forward, fov) / width;
-    });
+    if (!scripts_suspended_) {
+        // The world's size of one of the UI's points at a spot: the LOD metric
+        // (the view's width at its depth) over the view's width in points
+        sim::Vector3 eye;
+        view_camera_->eye_position(eye.x, eye.y, eye.z);
+        sim::Vector3 forward{view_camera_->focus_x() - eye.x, view_camera_->focus_y() - eye.y,
+                             view_camera_->focus_z() - eye.z};
+        const f32 length =
+            std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
+        if (length > 0.0f) forward = {forward.x / length, forward.y / length, forward.z / length};
+        const f32 fov = view_camera_->fov();
+        const f32 width = view_points()[0] > 0 ? static_cast<f32>(view_points()[0]) : 1.0f;
+        world_shapes_.begin([eye, forward, fov, width](const sim::Vector3& p) {
+            return lod_metric(p, eye, forward, fov) / width;
+        });
 
-    // Placing a structure: its pad and the pads of the structures standing or
-    // under way, outlined on the ground, those in view (build_outlines)
-    if (ghost) {
-        for (const PadOutline& o : build_outlines(structure_pads(frame, &recon_), *ghost)) {
-            const f32 cx = (o.site.x0 + o.site.x1) * 0.5f;
-            const f32 cz = (o.site.z0 + o.site.z1) * 0.5f;
-            const f32 reach = std::max(o.site.x1 - o.site.x0, o.site.z1 - o.site.z0);
-            if (!frustum.is_sphere_visible(cx, o.y, cz, reach)) continue;
-            world_shapes_.box({o.site.x0, o.y, o.site.z0}, o.site.x1 - o.site.x0,
-                              o.site.z1 - o.site.z0, o.color, 0.0f);
-        }
-    }
-
-    const ui::WorldView* view = view_world_view_;
-    if (!view && L) {
-        lua_pushstring(L, "__osc_world_view");
-        lua_rawget(L, LUA_REGISTRYINDEX);
-        view = static_cast<const ui::WorldView*>(lua_touserdata(L, -1));
-        lua_pop(L, 1);
-    }
-    if (view && view->custom_render() && view->lua_table_ref() >= 0) {
-        const int top = lua_gettop(L);
-        lua_rawgeti(L, LUA_REGISTRYINDEX, view->lua_table_ref());
-        if (lua_istable(L, -1)) {
-            lua_pushstring(L, "OnRenderWorld");
-            lua_gettable(L, -2);
-            if (lua_isfunction(L, -1)) {
-                lua_pushvalue(L, -2);
-                lua_pushnumber(L, static_cast<lua_Number>(frame_dt_));
-                lua_pushstring(L, kWorldShapesKey);
-                lua_pushlightuserdata(L, &world_shapes_);
-                lua_rawset(L, LUA_REGISTRYINDEX);
-                if (lua_pcall(L, 2, 0, 0) != 0) {
-                    spdlog::warn("OnRenderWorld: {}",
-                                 lua_isstring(L, -1) ? lua_tostring(L, -1) : "(error)");
-                }
-                lua_pushstring(L, kWorldShapesKey);
-                lua_pushnil(L);
-                lua_rawset(L, LUA_REGISTRYINDEX);
+        // Placing a structure: its pad and the pads of the structures standing or
+        // under way, outlined on the ground, those in view (build_outlines)
+        if (ghost) {
+            for (const PadOutline& o : build_outlines(structure_pads(frame, &recon_), *ghost)) {
+                const f32 cx = (o.site.x0 + o.site.x1) * 0.5f;
+                const f32 cz = (o.site.z0 + o.site.z1) * 0.5f;
+                const f32 reach = std::max(o.site.x1 - o.site.x0, o.site.z1 - o.site.z0);
+                if (!frustum.is_sphere_visible(cx, o.y, cz, reach)) continue;
+                world_shapes_.box({o.site.x0, o.y, o.site.z0}, o.site.x1 - o.site.x0,
+                                  o.site.z1 - o.site.z0, o.color, 0.0f);
             }
         }
-        lua_settop(L, top);
+
+        const ui::WorldView* view = view_world_view_;
+        if (!view && L) {
+            lua_pushstring(L, "__osc_world_view");
+            lua_rawget(L, LUA_REGISTRYINDEX);
+            view = static_cast<const ui::WorldView*>(lua_touserdata(L, -1));
+            lua_pop(L, 1);
+        }
+        if (view && view->custom_render() && view->lua_table_ref() >= 0) {
+            const int top = lua_gettop(L);
+            lua_rawgeti(L, LUA_REGISTRYINDEX, view->lua_table_ref());
+            if (lua_istable(L, -1)) {
+                lua_pushstring(L, "OnRenderWorld");
+                lua_gettable(L, -2);
+                if (lua_isfunction(L, -1)) {
+                    lua_pushvalue(L, -2);
+                    lua_pushnumber(L, static_cast<lua_Number>(frame_dt_));
+                    lua_pushstring(L, kWorldShapesKey);
+                    lua_pushlightuserdata(L, &world_shapes_);
+                    lua_rawset(L, LUA_REGISTRYINDEX);
+                    if (lua_pcall(L, 2, 0, 0) != 0) {
+                        spdlog::warn("OnRenderWorld: {}",
+                                     lua_isstring(L, -1) ? lua_tostring(L, -1) : "(error)");
+                    }
+                    lua_pushstring(L, kWorldShapesKey);
+                    lua_pushnil(L);
+                    lua_rawset(L, LUA_REGISTRYINDEX);
+                }
+            }
+            lua_settop(L, top);
+        }
+
+        cached_world_shapes_[view_world_view_] = world_shapes_.quads();
     }
 
     // Each a quad of the batch: white (FromSolidColor 0xFFFFFFFF) times its
     // colour, as two triangles
     std::vector<WorldQuadBatch::Quad> quads;
-    quads.reserve(world_shapes_.quads().size());
+    quads.reserve(cached_world_shapes_[view_world_view_].size());
     VkDescriptorSet white = texture_cache_.fallback_descriptor();
-    for (const ShapeQuad& s : world_shapes_.quads()) {
+    for (const ShapeQuad& s : cached_world_shapes_[view_world_view_]) {
         const std::array<f32, 4> c = {static_cast<f32>((s.color >> 16) & 0xFFu) / 255.0f,
                                       static_cast<f32>((s.color >> 8) & 0xFFu) / 255.0f,
                                       static_cast<f32>(s.color & 0xFFu) / 255.0f,
@@ -3178,6 +3301,35 @@ void Renderer::update_world_shapes(lua_State* L, const sim::FrameView& frame,
         quads.push_back(q);
     }
     world_shapes_batch_.upload(quads, fi);
+}
+
+f32 Renderer::take_frame_dt() {
+    if (ui_ran_early_) return early_dt_;
+    const f64 now = glfwGetTime();
+    f32 dt = (last_frame_time_ > 0.0) ? static_cast<f32>(now - last_frame_time_) : 0.0f;
+    last_frame_time_ = now;
+    if (fixed_frame_dt_ > 0.0f) dt = fixed_frame_dt_;
+    return dt;
+}
+
+void Renderer::skip_ui_frame() {
+    scripts_suspended_ = true;
+    ui_ran_early_ = false;
+    early_dt_ = take_frame_dt();
+    ui_ran_early_ = true;
+}
+
+void Renderer::run_ui_frame(lua_State* L, ui::UIControlRegistry* ui_registry, bool world) {
+    scripts_suspended_ = false;
+    ui_ran_early_ = false;
+    early_dt_ = take_frame_dt();
+    ui_ran_early_ = true;
+    if (!ui_registry || !L) return;
+    if (early_dt_ > 0.0f && early_dt_ < 1.0f) {
+        if (world) ui_renderer_.advance_animations(L, *ui_registry, early_dt_);
+        ui_dispatch_.update_controls(L, *ui_registry, static_cast<f64>(early_dt_));
+    }
+    ui_dispatch_.dispatch_events(L, *ui_registry);
 }
 
 void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const Frustum& frustum,
@@ -3208,36 +3360,40 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
     // The frame's step, which the particles and overlays run on, with or
     // without a UI (an offscreen test has none).
     {
-        const f64 now = glfwGetTime();
-        f32 dt = (last_frame_time_ > 0.0) ? static_cast<f32>(now - last_frame_time_) : 0.0f;
-        last_frame_time_ = now;
-        if (fixed_frame_dt_ > 0.0f) dt = fixed_frame_dt_;
-        frame_dt_ = dt;
-        wave_clock_ += static_cast<f64>(dt);
+        frame_dt_ = take_frame_dt();
+        wave_clock_ += static_cast<f64>(frame_dt_);
     }
     // The order marks, aged by the frame (Moho's UpdateCommandFeedbackBlips)
     feedback_blips_.update(frame_dt_);
 
-    world_meshes_ = ui_registry ? shown_world_meshes(*ui_registry) : std::vector<WorldMeshDraw>{};
-    border_meshes_ = map_border_meshes(L);
+    if (!scripts_suspended_) {
+        world_meshes_ =
+            ui_registry ? shown_world_meshes(*ui_registry) : std::vector<WorldMeshDraw>{};
+        border_meshes_ = map_border_meshes(L);
+    }
     update_view_units(fi, frustum, view, ghost, L, selected_ids);
 
     // Update UI quads (walk control tree, read LazyVar positions)
-    if (ui_registry) {
+    if (ui_registry && scripts_suspended_) ui_renderer_.reuse_frame();
+    if (ui_registry && !scripts_suspended_) {
         PROFILE_ZONE("Render::ui_update");
         const f32 dt = frame_dt_;
         total_time_ += dt;
-        if (dt > 0.0f && dt < 1.0f) {
-            ui_renderer_.advance_animations(L, *ui_registry, dt);
-            ui_dispatch_.update_controls(L, *ui_registry, static_cast<f64>(dt));
+        if (!ui_ran_early_) {
+            if (dt > 0.0f && dt < 1.0f) {
+                ui_renderer_.advance_animations(L, *ui_registry, dt);
+                ui_dispatch_.update_controls(L, *ui_registry, static_cast<f64>(dt));
+            }
+            ui_dispatch_.dispatch_events(L, *ui_registry);
         }
-        ui_dispatch_.dispatch_events(L, *ui_registry);
+        ui_ran_early_ = false;
         // FA's minimap WorldView shows the minimap, drawn with the UI.
         WorldViewPainter minimap_painter;
         if (!legacy_hud_active_) {
             painted_minimap_.clear();
             minimap_painter = [&](const ui::WorldView& wv, const ui::ControlRect& r,
                                   std::vector<UIQuad>& out) {
+                PROFILE_ZONE("UI::minimap");
                 const size_t first = out.size();
                 std::optional<PlayableRect> resources;
                 if (wv.resource_rendering() && terrain_) {
@@ -3271,6 +3427,7 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
         movie_textures_.prepare(*ui_registry, fi);
         update_system_cursor(L);
         ui_renderer_.set_scale(ui_scale_);
+        PROFILE_ZONE("UI::tree");
         ui_renderer_.update(L, *ui_registry, texture_cache_, font_cache_, ui_width(), ui_height(),
                             static_cast<f32>(ui_dispatch_.mouse_x()),
                             static_cast<f32>(ui_dispatch_.mouse_y()), minimap_painter);
@@ -3288,12 +3445,13 @@ void Renderer::update_frame_scene(u32 fi, const std::array<f32, 16>& vp, const F
     update_view_effects(fi, vp, frustum, view, events, ghost, L, selected_ids, true);
     update_minimap_meshes(view, L, fi);
 
+
     // The terrain's Time (M212f): set when the terrain would re-tessellate,
     // so TTerrainGlow's lava stands still under a still camera, as in FA.
-    if (const sim::WorldSnapshot* cur = view.cur()) {
+    if (view.cur()) {
         const u64 decals = static_cast<u64>(runtime_decals_.decal_draws().size()) |
                            (static_cast<u64>(runtime_decals_.splat_count()) << 32);
-        terrain_time_.update(camera_.view(), decals, static_cast<f32>(cur->tick) + view.alpha());
+        terrain_time_.update(camera_.view(), decals, static_cast<f32>(view.time()));
     }
 
     // Update minimap (terrain bg, units' icons, camera frustum box)
@@ -3461,7 +3619,10 @@ void Renderer::update_view_effects(u32 fi, const std::array<f32, 16>& vp, const 
     // FA's water: this frame's camera and time (M213a)
     water_renderer_.update(*view_camera_, vp, unit_renderer_.shader_time(), fi);
     // The sky: its time is the tick and the interpolant, unwrapped (M210b)
-    sky_renderer_.update(*view_camera_, vp, view.cur() ? view.cur()->tick : 0, view.alpha(), fi);
+    const f64 sky_time = view.cur() ? view.time() : 0.0;
+    const f64 sky_tick = std::floor(sky_time);
+    sky_renderer_.update(*view_camera_, vp, static_cast<u32>(sky_tick),
+                         static_cast<f32>(sky_time - sky_tick), fi);
 
     // Scripts' decals and splats: this tick's, as the player's army sees
     // them (M212c)
@@ -4710,6 +4871,7 @@ Renderer::capture_cartographic(const map::Terrain& terrain, const CartographicRe
     }
     CartographicRenderer::Meshes draw_meshes_into;
     if (with_meshes) {
+        if (record_dispatch_) clear_group_dispatch(minimap_units_);
         // The last frame's gather, from its slot's instances and bones
         draw_meshes_into = [&](VkCommandBuffer c, const f32* vp) {
             draw_minimap_meshes(c, minimap_fi_, vp);

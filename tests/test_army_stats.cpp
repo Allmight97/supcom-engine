@@ -20,9 +20,14 @@ extern "C" {
 #include <lua.h>
 }
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
+#include <set>
+#include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -61,8 +66,14 @@ TEST_CASE("Army stats use Moho's names and meanings", "[army][stats]") {
     // Retail's score (aibrain.lua) reads these: Units_Killed is the army's
     // *losses*, Enemies_Killed its kills, Units_History what it built.
     osc::sim::ArmyBrain brain;
-    brain.record_unit_built("uel0101", 52.0, 260.0);
-    brain.record_unit_built("uel0101", 52.0, 260.0);
+    osc::sim::Unit scout;
+    scout.set_blueprint_id("uel0101");
+    scout.set_is_being_built(true);
+    brain.record_unit_made(scout);
+    brain.record_unit_made(scout);
+    scout.set_is_being_built(false);
+    brain.record_unit_built(scout, 52.0, 260.0);
+    brain.record_unit_built(scout, 52.0, 260.0);
     brain.record_unit_lost("uel0101", 52.0, 260.0);
     brain.record_enemy_killed("url0001", 18000.0, 5000000.0, /*commander=*/true);
     brain.record_enemy_killed("url0106", 30.0, 150.0, false);
@@ -108,8 +119,8 @@ TEST_CASE("Army economy stats: totals, rates and waste", "[army][stats][economy]
     // The rates are a tick's worth, as Moho's: 10/s and 4/s, 0.1 s a tick.
     CHECK(std::abs(brain.get_stat("Economy_Income_Mass") - 1.0) < 1e-9);
     CHECK(std::abs(brain.get_stat("Economy_TotalProduced_Mass") - 10.0) < 1e-9);
-    CHECK(std::abs(brain.get_stat("Economy_TotalConsumed_Mass") - 4.0) < 1e-9);
-    CHECK(std::abs(brain.get_stat("Economy_Output_Mass") - 0.4) < 1e-9);
+    CHECK(brain.get_stat("Economy_TotalConsumed_Mass") == Catch::Approx(4.0));
+    CHECK(brain.get_stat("Economy_Output_Mass") == Catch::Approx(0.4));
     CHECK(brain.get_stat("UnitCap_Current") == 2.0);
     CHECK(brain.get_stat("UnitCap_MaxCap") == 500.0);
 
@@ -118,6 +129,122 @@ TEST_CASE("Army economy stats: totals, rates and waste", "[army][stats][economy]
         economy_tick(brain, registry, 0.1); // 40 s
     }
     CHECK(brain.get_stat("Economy_AccumExcess_Mass") > 0.0);
+}
+
+TEST_CASE("The economy sets the stored, storage and peak storage stats each tick",
+          "[army][stats][economy]") {
+    const bool mass = GENERATE(true, false);
+    const auto [first, second] =
+        GENERATE(std::pair{500.0, 100.0}, std::pair{100.0, 800.0}, std::pair{300.0, 300.0});
+    const std::string lane = mass ? "Mass" : "Energy";
+    osc::sim::EntityRegistry registry;
+    osc::sim::ArmyBrain brain;
+    brain.set_index(0);
+    auto store = std::make_unique<osc::sim::Unit>();
+    store->set_army(0);
+    store->economy().production_active = true;
+    (mass ? store->economy().production_mass : store->economy().production_energy) = 30.0;
+    double& storage = mass ? store->economy().storage_mass : store->economy().storage_energy;
+    storage = first;
+    registry.register_entity(std::move(store));
+
+    for (int i = 0; i < 10; ++i) {
+        economy_tick(brain, registry, 0.1);
+    }
+    CHECK(brain.get_stat("Economy_Stored_" + lane) == Catch::Approx(30.0));
+    CHECK(brain.get_stat("Economy_MaxStorage_" + lane) == first);
+    CHECK(brain.get_stat("Economy_PeakStorage_" + lane) == first);
+
+    storage = second;
+    for (int i = 0; i < 400; ++i) {
+        economy_tick(brain, registry, 0.1);
+    }
+    CHECK(brain.get_stat("Economy_Stored_" + lane) == second);
+    CHECK(brain.get_stat("Economy_MaxStorage_" + lane) == second);
+    CHECK(brain.get_stat("Economy_PeakStorage_" + lane) == std::max(first, second));
+}
+
+TEST_CASE("Economy_Reclaimed totals what reclaim brought in, and nothing else",
+          "[army][stats][economy]") {
+    const bool mass = GENERATE(true, false);
+    const double rate = GENERATE(0.0, 3.0, 25.0);
+    const std::string lane = mass ? "Mass" : "Energy";
+    osc::sim::EntityRegistry registry;
+    osc::sim::ArmyBrain brain;
+    brain.set_index(0);
+    auto engineer = std::make_unique<osc::sim::Unit>();
+    engineer->set_army(0);
+    engineer->economy().production_active = true;
+    engineer->economy().production_mass = 1.0;
+    engineer->economy().production_energy = 20.0;
+    (mass ? engineer->economy().reclaim_mass : engineer->economy().reclaim_energy) = rate;
+    auto* e = engineer.get();
+    registry.register_entity(std::move(engineer));
+
+    for (int i = 0; i < 10; ++i) {
+        brain.bank(5.0, 50.0);
+        economy_tick(brain, registry, 0.1);
+    }
+    CHECK(brain.get_stat("Economy_Reclaimed_" + lane) == Catch::Approx(rate).margin(1e-9));
+    CHECK(brain.get_stat(mass ? "Economy_Reclaimed_Energy" : "Economy_Reclaimed_Mass") == 0.0);
+
+    e->stop_reclaiming();
+    for (int i = 0; i < 10; ++i) {
+        economy_tick(brain, registry, 0.1);
+    }
+    CHECK(brain.get_stat("Economy_Reclaimed_" + lane) == Catch::Approx(rate).margin(1e-9));
+}
+
+TEST_CASE("Economy_Trend is what the units produce less what the army asks, a second",
+          "[army][stats][economy]") {
+    const bool mass = GENERATE(true, false);
+    const auto [produced, asked] =
+        GENERATE(std::pair{10.0, 4.0}, std::pair{2.0, 9.0}, std::pair{0.0, 0.0});
+    const std::string lane = mass ? "Mass" : "Energy";
+    osc::sim::EntityRegistry registry;
+    osc::sim::ArmyBrain brain;
+    brain.set_index(0);
+    auto unit = std::make_unique<osc::sim::Unit>();
+    unit->set_army(0);
+    unit->economy().production_active = true;
+    unit->economy().consumption_active = true;
+    (mass ? unit->economy().production_mass : unit->economy().production_energy) = produced;
+    (mass ? unit->economy().consumption_mass : unit->economy().consumption_energy) = asked;
+    (mass ? unit->economy().reclaim_mass : unit->economy().reclaim_energy) = 7.0;
+    registry.register_entity(std::move(unit));
+
+    for (int i = 0; i < 5; ++i) {
+        brain.bank(30.0, 300.0);
+        economy_tick(brain, registry, 0.1);
+    }
+    CHECK(brain.get_stat("Economy_Trend_" + lane) == Catch::Approx(produced - asked).margin(1e-9));
+}
+
+TEST_CASE("Economy_TotalProduced sums each tick's Economy_Income, whatever its sign",
+          "[army][stats][economy]") {
+    const double given = GENERATE(-30.0, -10.0, 0.0, 20.0);
+    osc::sim::EntityRegistry registry;
+    osc::sim::ArmyBrain brain;
+    brain.set_index(0);
+    auto producer = std::make_unique<osc::sim::Unit>();
+    producer->set_army(0);
+    producer->economy().production_active = true;
+    producer->economy().production_mass = 10.0;
+    producer->economy().production_energy = 10.0;
+    registry.register_entity(std::move(producer));
+
+    double incomes_mass = 0.0;
+    double incomes_energy = 0.0;
+    for (int i = 0; i < 10; ++i) {
+        brain.bank(given, given);
+        economy_tick(brain, registry, 0.1);
+        incomes_mass += brain.get_stat("Economy_Income_Mass");
+        incomes_energy += brain.get_stat("Economy_Income_Energy");
+    }
+    CHECK(incomes_mass == Catch::Approx(10.0 + given).margin(1e-9));
+    CHECK(brain.get_stat("Economy_TotalProduced_Mass") == Catch::Approx(incomes_mass).margin(1e-9));
+    CHECK(brain.get_stat("Economy_TotalProduced_Energy") ==
+          Catch::Approx(incomes_energy).margin(1e-9));
 }
 
 TEST_CASE("A paused unit keeps producing, and its army pays what the unit asks",
@@ -143,7 +270,7 @@ TEST_CASE("A paused unit keeps producing, and its army pays what the unit asks",
         economy_tick(brain, registry, 0.1);
     }
     CHECK(std::abs(brain.get_stat("Economy_TotalProduced_Mass") - 2.0) < 1e-9);
-    CHECK(brain.economy().mass.requested == 4.0);
+    CHECK(brain.economy().mass.requested == Catch::Approx(4.0));
     CHECK(brain.get_stat("Economy_TotalConsumed_Mass") > 0.0);
 
     s->economy().consumption_active = false;
@@ -216,10 +343,10 @@ TEST_CASE("A stats trigger fires once, when all its conditions hold", "[army][st
     osc::sim::ArmyBrain brain;
     brain.set_stat("Units_Active", 3);
     brain.set_stat("Economy_Ratio_Mass", 0.05);
-    brain.add_stat_trigger({"Economy_Ratio_Mass", "Low", "LessThan", 0.1, ""});
-    brain.add_stat_trigger({"Units_Active", "Both", "GreaterThanOrEqual", 3, ""});
-    brain.add_stat_trigger({"Economy_Ratio_Mass", "Both", "GreaterThan", 0.5, ""});
-    brain.add_stat_trigger({"Units_Active", "Cat", "GreaterThan", 0, "category"});
+    brain.add_stat_trigger({"Economy_Ratio_Mass", "Low", "LessThan", 0.1, std::nullopt});
+    brain.add_stat_trigger({"Units_Active", "Both", "GreaterThanOrEqual", 3, std::nullopt});
+    brain.add_stat_trigger({"Economy_Ratio_Mass", "Both", "GreaterThan", 0.5, std::nullopt});
+    brain.add_stat_trigger({"Units_Active", "Cat", "GreaterThan", 0, std::set<std::string>{}});
 
     CHECK(brain.take_fired_triggers() == std::vector<std::string>{"Low"});
     CHECK(brain.take_fired_triggers().empty());
@@ -228,7 +355,7 @@ TEST_CASE("A stats trigger fires once, when all its conditions hold", "[army][st
     CHECK(brain.take_fired_triggers() == std::vector<std::string>{"Both"});
 
     brain.remove_stat_trigger("Units_Active", "Cat");
-    brain.add_stat_trigger({"Units_Active", "Equal3", "Equal", 3, ""});
+    brain.add_stat_trigger({"Units_Active", "Equal3", "Equal", 3, std::nullopt});
     CHECK(brain.take_fired_triggers() == std::vector<std::string>{"Equal3"});
 }
 
@@ -1033,15 +1160,15 @@ TEST_CASE("The player plays the army set up as human, not the first", "[session]
 
 TEST_CASE("A request is granted by whether it wants the resource that ran short", "[economy]") {
     // Energy ran short: every request wanting energy gets the pooled share
-    osc::sim::GrantRatios energy_short{0.5, 0.8, false};
-    CHECK(energy_short.of(0.0, 20.0) == 0.5); // an upkeep
-    CHECK(energy_short.of(4.0, 20.0) == 0.5); // a build
-    CHECK(energy_short.of(4.0, 0.0) == 0.8);  // mass alone
+    osc::sim::GrantRatios energy_short{0.5f, 0.8f, false};
+    CHECK(energy_short.of(0.0, 20.0) == 0.5f); // an upkeep
+    CHECK(energy_short.of(4.0, 20.0) == 0.5f); // a build
+    CHECK(energy_short.of(4.0, 0.0) == 0.8f);  // mass alone
     // Mass ran short: the build gets the pooled share, the upkeep its share
     // of what was left
-    osc::sim::GrantRatios mass_short{0.3, 0.9, true};
-    CHECK(mass_short.of(0.0, 20.0) == 0.9);
-    CHECK(mass_short.of(4.0, 20.0) == 0.3);
+    osc::sim::GrantRatios mass_short{0.3f, 0.9f, true};
+    CHECK(mass_short.of(0.0, 20.0) == 0.9f);
+    CHECK(mass_short.of(4.0, 20.0) == 0.3f);
 }
 
 namespace {
@@ -1125,7 +1252,7 @@ TEST_CASE("A mass stall slows a build but not an energy upkeep", "[economy]") {
     CHECK(g.single == 1.0);
     CHECK(g.of(10.0, 50.0) == Catch::Approx(0.5));
     CHECK(g.of(0.0, 100.0) == 1.0);
-    CHECK(e.builder->economy().granted == Catch::Approx(0.5));
+    CHECK(e.builder->economy().consumption_request.limiting_rate() == Catch::Approx(0.5));
     // The upkeep is granted in full, so it stays on (a mass stall stops no
     // radar, cloak or shield)
     CHECK(e.upkeep->economy().maintenance_active);
@@ -1155,7 +1282,7 @@ TEST_CASE("A request is worked from two ticks after it is made, as Moho's Resour
     econ.consumption_mass = 4.0;
     econ.consumption_energy = 19.0;
     economy_tick(e.brain, e.registry, 0.1); // the next tick: granted
-    CHECK(econ.granted == 1.0);
+    CHECK(econ.consumption_request.limiting_rate() == 1.0f);
     CHECK(econ.resource_consumed == 0.0);
     economy_tick(e.brain, e.registry, 0.1); // the one after: worked
     CHECK(econ.resource_consumed == 1.0);
@@ -1163,14 +1290,13 @@ TEST_CASE("A request is worked from two ticks after it is made, as Moho's Resour
     // tick after a factory's unit is done)
     econ.consumption_active = false;
     economy_tick(e.brain, e.registry, 0.1);
-    CHECK(econ.granted == 0.0);
     CHECK(econ.resource_consumed == 0.0);
 }
 
 TEST_CASE("A request that stops before working its grant gives it back", "[economy]") {
     // Moho's SetConsumptionActive(false) returns the request's mGranted to
-    // the army's stores: a build done (or cancelled) the tick after a grant
-    // wastes nothing
+    // the army's next income: a build done (or cancelled) the tick after a
+    // grant wastes nothing
     Economy e(0.0, 0.0);
     e.brain.set_stored_resources(500.0, 2000.0);
     auto& econ = e.builder->economy();
@@ -1180,11 +1306,11 @@ TEST_CASE("A request that stops before working its grant gives it back", "[econo
     economy_tick(e.brain, e.registry, 0.1); // granted, taken from the stores
     CHECK(e.brain.economy().mass.stored == Catch::Approx(499.6));
     CHECK(e.brain.economy().energy.stored == Catch::Approx(1998.0));
-    econ.consumption_active = false; // done before working it
+    e.builder->set_consumption_active(false, &e.brain); // done before working it
     economy_tick(e.brain, e.registry, 0.1);
     CHECK(e.brain.economy().mass.stored == Catch::Approx(500.0));
     CHECK(e.brain.economy().energy.stored == Catch::Approx(2000.0));
-    CHECK(econ.granted_mass == 0.0);
+    CHECK(e.brain.economy().mass.income == Catch::Approx(4.0));
 }
 
 TEST_CASE("An upkeep set through the engine's own fields reads granted too", "[economy]") {
@@ -1216,6 +1342,84 @@ TEST_CASE("An economy with enough grants every request in full", "[economy]") {
     CHECK(e.brain.grant_ratios().single == 1.0);
     CHECK(e.brain.mass_efficiency() == 1.0);
     CHECK(e.brain.economy().mass.stored == Catch::Approx(800.0 + 0.5 - 0.4));
+}
+
+TEST_CASE("A unit's request keeps what it was granted, and works at the share of what it asks "
+          "that the grant covers",
+          "[economy]") {
+    enum class Change { None, Raised, Lowered, Stopped, Restarted };
+    const Change change =
+        GENERATE(Change::None, Change::Raised, Change::Lowered, Change::Stopped, Change::Restarted);
+    CAPTURE(static_cast<int>(change));
+    Economy e(5.0, 100.0);
+    e.brain.set_stored_resources(800.0, 4000.0);
+    auto& econ = e.builder->economy();
+    econ.consumption_active = true;
+    econ.consumption_energy = 2.0;
+    for (int i = 0; i < 3; ++i) {
+        economy_tick(e.brain, e.registry, 0.1);
+    }
+    switch (change) {
+    case Change::None: break;
+    case Change::Raised:
+        econ.consumption_energy = 62.0;
+        econ.consumption_mass = 10.0;
+        break;
+    case Change::Lowered: econ.consumption_energy = 1.0; break;
+    case Change::Stopped:
+    case Change::Restarted: e.builder->set_consumption_active(false, &e.brain); break;
+    }
+    e.registry.for_each_unit(
+        [&](osc::sim::Entity& u) { static_cast<osc::sim::Unit&>(u).manage_resources(&e.brain); });
+    const double worked = econ.resource_consumed;
+    e.brain.update_economy(e.registry, 0.1);
+    const double asked = e.brain.economy().energy.requested;
+    const double income = e.brain.economy().energy.income;
+    if (change == Change::Restarted) {
+        e.builder->set_consumption_active(true, &e.brain);
+        e.builder->manage_resources(&e.brain);
+    }
+    switch (change) {
+    case Change::None:
+        CHECK(worked == 1.0);
+        CHECK(asked == Catch::Approx(2.0));
+        CHECK(income == Catch::Approx(100.0));
+        break;
+    case Change::Raised:
+        CHECK(worked == 0.0);
+        CHECK(asked == Catch::Approx(60.0));
+        CHECK(e.brain.economy().mass.requested == Catch::Approx(10.0));
+        break;
+    case Change::Lowered:
+        CHECK(worked == 1.0);
+        CHECK(asked == Catch::Approx(0.0).margin(1e-6));
+        break;
+    case Change::Stopped:
+        CHECK(worked == 0.0);
+        CHECK(asked == Catch::Approx(0.0).margin(1e-6));
+        CHECK(income == Catch::Approx(102.0));
+        break;
+    case Change::Restarted:
+        CHECK(income == Catch::Approx(102.0));
+        CHECK(econ.resource_consumed == 1.0);
+        break;
+    }
+}
+
+TEST_CASE("An army sums what its requests are short of in floats, as Moho's economy does",
+          "[economy]") {
+    const float short_of = GENERATE(6e-8f, 1e-6f);
+    CAPTURE(short_of);
+    Economy e(0.0, 0.0);
+    e.brain.set_stored_resources(0.0, 50.0);
+    e.builder->economy().consumption_active = true;
+    e.builder->economy().consumption_energy = 1000.0;
+    osc::sim::EconRequest whole;
+    whole.requested.energy = 1.0f;
+    whole.granted.energy = 1.0f - short_of;
+    e.brain.add_request(whole);
+    e.brain.update_economy(e.registry, 0.1);
+    CHECK(e.brain.grant_ratios().dual == 0.5);
 }
 
 TEST_CASE("GetUnitsAroundPoint and GetNumUnitsAroundPoint find centres strictly within the radius, "

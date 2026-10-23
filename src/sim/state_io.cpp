@@ -26,7 +26,7 @@ namespace osc::sim {
 namespace {
 
 constexpr char kMagic[8] = {'O', 'S', 'C', 'S', 'I', 'M', '0', '1'};
-constexpr u32 kVersion = 77; // 2: entities' wanted loops (M216b); 3: emitter overrides (M214d);
+constexpr u32 kVersion = 81; // 2: entities' wanted loops (M216b); 3: emitter overrides (M214d);
                              // 4: jammers' fake blips (M215e); 5: intel handles (M215g);
                              // 6: weapons' lead physics;
                              // 7: unit cap costs, the army's cap exemption, build cap waits;
@@ -105,6 +105,10 @@ constexpr u32 kVersion = 77; // 2: entities' wanted loops (M216b); 3: emitter ov
                              // 75: units' NaturalProducer
                              // 76: no team share option, share banks or resources' overflow
                              // 77: units' last banked production and reclaim for GetEconData
+                             // 78: stats triggers' category blueprints
+                             // 79: armies' reclaim totals and pending production
+                             // 80: whole-tick requests' grants; economy events' ticks left
+                             // 81: units' consumption requests' grants and spending
 
 
 // Past any game's ids (entities_ is indexed by id: a late game's runs to a
@@ -411,6 +415,9 @@ void StateIO::save(StateWriter& w, const SimState& sim) {
     // game_time_: tick_count_'s
     // post_loads_run_: the host's count of post-loads, not game state
     // stepping_events_: the economy events the entity walk steps, within it
+    // save_request_: a save asked for this tick, taken before the next
+    // ticking_elsewhere_: the host's, whose thread runs the tick
+
     save(w, sim.command_scheduler_);
     w.u32v(sim.command_delay_);
     // local_command_sink_, local_callback_sink_, human_input_active_: the

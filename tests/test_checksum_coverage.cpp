@@ -3,9 +3,11 @@
 // that differ in it don't share a checksum), and a game saved with it set,
 // restored and played on matches the one that went on.
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "sim/army_brain.hpp"
+#include "sim/economy_event.hpp"
 #include "sim/manipulator.hpp"
 #include "sim/platoon.hpp"
 #include "sim/saved_game.hpp"
@@ -140,6 +142,10 @@ TEST_CASE("State that decides a unit's next move changes the sync checksum, in i
             {"banked energy production", "units", [&] { u.economy().produced_energy = 5; }},
             {"banked mass reclaim", "units", [&] { u.economy().reclaimed_mass = 2; }},
             {"banked energy reclaim", "units", [&] { u.economy().reclaimed_energy = 6; }},
+            {"mass spent", "units", [&] { u.economy().spent_mass = 1; }},
+            {"energy spent", "units", [&] { u.economy().spent_energy = 5; }},
+            {"a consumption grant held", "units",
+             [&] { u.economy().consumption_request.granted.energy = 0.5f; }},
             {"unit state", "units", [&] { u.set_unit_state("Busy", true); }},
             {"busy", "units", [&] { u.set_busy(true); }},
             {"blocked command queue", "units", [&] { u.set_block_command_queue(true); }},
@@ -368,6 +374,10 @@ TEST_CASE("A game saved with that state, restored and played on, matches", "[syn
         attack.target_id = ids[1];
         attack.facing_clock = 5;
         u.push_command(attack, false);
+        osc::sim::EconomyEvent* drain = sim.economy_events().create(ids[0], 0.0, 10.0, 1.0);
+        drain->step();
+        drain->step();
+        drain->request().granted.energy = 0.5f;
     };
     LuaGuard ga;
     SimState a(ga.L, nullptr);
@@ -404,6 +414,11 @@ TEST_CASE("A game saved with that state, restored and played on, matches", "[syn
     CHECK(u.vert_event() == "Down");
     CHECK(u.air_combat().circle_reverse);
     CHECK(u.command_queue().front().formed);
+    REQUIRE(b.economy_events().count() == 1);
+    b.economy_events().for_each([](const osc::sim::EconomyEvent& drain) {
+        CHECK(drain.progress() == Catch::Approx(0.2));
+        CHECK(drain.request().granted.energy == 0.5f);
+    });
     // A collision detector's bone that was below its foot height still is:
     // a footfall or crash isn't told again after a load (roadmap item 5).
     const osc::sim::CollisionDetectorManipulator* detector = nullptr;
@@ -429,7 +444,7 @@ TEST_CASE("Banked production and reclaim reports survive a snapshot",
     econ.production_energy = 20;
     econ.consumption_active = true;
     econ.consumption_energy = 10;
-    econ.granted = 0.25;
+    econ.consumption_request.granted.energy = 0.25f;
     econ.reclaim_mass = 2;
     econ.reclaim_energy = 6;
     u.bank_reclaim(a.get_army(0));

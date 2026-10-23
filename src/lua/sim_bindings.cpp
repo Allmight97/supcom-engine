@@ -205,6 +205,15 @@ static bool blueprint_initial_auto_mode(lua_State* L, const blueprints::Blueprin
     return on;
 }
 
+/// Moho's Unit, made: its army's unit stats (faf-re unit/core/Unit.cpp:13160-13195)
+static void count_made(sim::SimState& sim, u32 id) {
+    auto* e = sim.entity_registry().find(id);
+    auto* brain = e ? sim.get_army(e->army()) : nullptr;
+    if (brain && e->is_unit()) {
+        brain->record_unit_made(*static_cast<sim::Unit*>(e));
+    }
+}
+
 /// Moho's Unit, as it is made: SetAutoMode(AI.InitialAutoMode) just before
 /// OnPreCreate, which tells the script OnAutoModeOn or OnAutoModeOff either
 /// way (Unit::SetAutoMode always does). `tbl` is the unit's table.
@@ -579,6 +588,7 @@ static u32 spawn_complete_unit(lua_State* L, sim::SimState& sim, const char* bp_
             unit_ptr->fire_adjacency_callbacks(sim.entity_registry(), L);
         }
     }
+    count_made(sim, id);
 
     // Auto-add fully-built units to their army's ArmyPool platoon.
     // In the original GPG engine, every completed unit is in ArmyPool by default;
@@ -695,6 +705,9 @@ static int l_create_building_unit(lua_State* L) {
         }
     } else {
         lua_pop(L, 1);
+    }
+    if (auto* sim = get_sim(L)) {
+        count_made(*sim, id);
     }
 
     // Do NOT call OnStopBeingBuilt — that happens when construction finishes
@@ -3929,14 +3942,16 @@ static int l_SetArmyOutOfGame(lua_State* L) {
     return 0;
 }
 
+// Moho's cfunc_SetArmyEconomyL banks both amounts, as GiveResource: income at the next economy.
 static int l_SetArmyEconomy(lua_State* L) {
     auto* sim = get_sim(L);
     i32 army = resolve_army(L, 1, sim);
     f64 mass = luaL_checknumber(L, 2);
     f64 energy = luaL_checknumber(L, 3);
-    if (sim) {
-        auto* brain = sim->get_army(army);
-        if (brain) brain->set_stored_resources(mass, energy);
+    auto* brain = sim ? sim->get_army(army) : nullptr;
+    if (brain) {
+        brain->bank(mass / sim::SimState::SECONDS_PER_TICK,
+                    energy / sim::SimState::SECONDS_PER_TICK);
     }
     return 0;
 }
