@@ -10,7 +10,8 @@ Conflicts only in docs/current-state.md's metric lines resolve themselves (statu
 recomputes them after the build); any other conflict stops the script with the list, for a person or
 agent to resolve keeping both sides' intent, then `--resume`. When every check passes it prints the
 command that merges the branch into main. It refuses to start while the branch exists. The checks are
-mac/scripts/prove's. It never pushes. Phases print as `sync: <phase>` lines.
+mac/scripts/prove's. It never pushes. Phases print as `sync: <phase>` lines; the build's phases and
+10-minute heartbeat (its stderr) show on the terminal.
 """
 import os
 import re
@@ -58,8 +59,10 @@ def resolve_metric_conflicts(text):
 
 def build_and_check():
     print('sync: build', flush=True)
-    out = run('bash', 'mac/recipe/build.sh', capture=True, check=False, env={**os.environ, 'OSC_ROOT': OSC}).stdout
-    if 'BUILD_OK' not in out:
+    build = subprocess.run(['bash', 'mac/recipe/build.sh'], cwd=OSC, text=True, stdout=subprocess.PIPE,
+                           env={**os.environ, 'OSC_ROOT': OSC})
+    print(build.stdout, end='', flush=True)
+    if 'BUILD_OK' not in build.stdout:
         sys.exit('sync: build failed: .local/build.log')
     run('python3', 'tools/status_metrics.py', 'update', '--build-dir', 'build/play')
     if git('status', '--porcelain', 'docs/current-state.md'):

@@ -8,7 +8,8 @@ In the worktree where the branch is checked out (`git worktree list`): fetch ups
 upstream/main into the branch with a merge commit (never a rebase), build that tree with the fork's
 recipe, run mac/scripts/prove --root on it, and print the push command. On conflict it stops with the
 list and leaves the merge for a person or agent: resolve, commit, then run it again (it resumes at the
-build). It never pushes. Phases print as `up-refresh: <phase>` lines.
+build). It never pushes. Phases print as `up-refresh: <phase>` lines; the build's phases and 10-minute
+heartbeat (its stderr) show on the terminal.
 """
 import os
 import subprocess
@@ -59,8 +60,9 @@ def main():
     else:
         print('up-refresh: upstream/main is already merged')
     print('up-refresh: build', flush=True)
-    build = subprocess.run(['bash', 'mac/recipe/build.sh'], cwd=OSC, text=True, capture_output=True,
+    build = subprocess.run(['bash', 'mac/recipe/build.sh'], cwd=OSC, text=True, stdout=subprocess.PIPE,
                            env={**os.environ, 'OSC_ROOT': tree})
+    print(build.stdout, end='', flush=True)
     if 'BUILD_OK' not in build.stdout:
         sys.exit(f'up-refresh: build failed: {tree}/.local/build.log')
     print('up-refresh: prove', flush=True)
