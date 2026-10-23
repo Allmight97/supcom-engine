@@ -4,10 +4,40 @@
 #include "renderer/window.hpp"
 
 #include <GLFW/glfw3.h>
+#include <vulkan/vulkan.h>
+
+#include <cstdint>
+#include <cstring>
+#include <vector>
 
 using osc::renderer::open_window;
 
 namespace {
+
+/// Whether a Vulkan device exists, asked before any window: a machine without one
+/// skips the renderer tests without starting GLFW.
+bool vulkan_device() {
+    uint32_t count = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> extensions(count);
+    vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
+    VkInstanceCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    const char* portability = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+    for (const auto& e : extensions) {
+        if (std::strcmp(e.extensionName, portability) == 0) {
+            info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+            info.enabledExtensionCount = 1;
+            info.ppEnabledExtensionNames = &portability;
+        }
+    }
+    VkInstance instance = VK_NULL_HANDLE;
+    if (vkCreateInstance(&info, nullptr, &instance) != VK_SUCCESS) return false;
+    uint32_t devices = 0;
+    vkEnumeratePhysicalDevices(instance, &devices, nullptr);
+    vkDestroyInstance(instance, nullptr);
+    return devices > 0;
+}
 
 struct NullPlatform {
     NullPlatform() { glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL); }
@@ -17,9 +47,10 @@ struct NullPlatform {
 } // namespace
 
 TEST_CASE("Shutting down one renderer leaves another's window open", "[renderer][window]") {
+    if (!vulkan_device()) SKIP("no Vulkan device");
     osc::renderer::Renderer outer;
     osc::renderer::Renderer inner;
-    if (!outer.init(64, 64, "outer", /*offscreen=*/true)) SKIP("no Vulkan device");
+    REQUIRE(outer.init(64, 64, "outer", /*offscreen=*/true));
     REQUIRE(inner.init(64, 64, "inner", /*offscreen=*/true));
 
     inner.shutdown();
@@ -30,9 +61,10 @@ TEST_CASE("Shutting down one renderer leaves another's window open", "[renderer]
 }
 
 TEST_CASE("Each window's input reaches its own renderer", "[renderer][window]") {
+    if (!vulkan_device()) SKIP("no Vulkan device");
     osc::renderer::Renderer outer;
     osc::renderer::Renderer inner;
-    if (!outer.init(64, 64, "outer", /*offscreen=*/true)) SKIP("no Vulkan device");
+    REQUIRE(outer.init(64, 64, "outer", /*offscreen=*/true));
     REQUIRE(inner.init(64, 64, "inner", /*offscreen=*/true));
 
     GLFWwindow* const window = outer.glfw_window();
