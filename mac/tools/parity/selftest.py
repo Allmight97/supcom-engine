@@ -46,6 +46,18 @@ def engineer_log():
     return '\n'.join(lines + ['PROBE eng-build done']) + '\n'
 
 
+def guardassist_log():
+    lines = []
+    for scene in adapters.GuardAssist.scenes:
+        for t in adapters.GuardAssist.steps:
+            focus = 'uel0201#1' if t >= 10 else 'none'
+            lines.append(f'PROBE assist {scene} t={t} at=306.00,808.00 gap=14.14 ugap=-1.00 state=Guarding focus={focus} '
+                         f'eprog=0.100 fprog=0.200 ftarget=uel0201#1 req=100.00/50.00')
+            if t == 9:
+                lines += [f'PROBE assist {scene} event OnStartBuild t=9']
+    return '\n'.join(lines + ['PROBE assist done']) + '\n'
+
+
 def crowd_log(short=0):
     lines = []
     for v in range(6):
@@ -176,9 +188,26 @@ def test_engineer_and_crowd():
     expect(stopped.status == 'DIFFERS' and 'phase=short' in stopped.summary, stopped.summary)
 
 
+def test_guardassist():
+    log = guardassist_log()
+    expect(problems_of('guardassist', log) == [], problems_of('guardassist', log))
+    expect(compare('guardassist', log, log).status == 'MATCH', 'a log matches itself')
+    refocused = compare('guardassist', log, change(log, 'far t=40 at=306.00,808.00 gap=14.14 ugap=-1.00 state=Guarding focus=uel0201#1',
+                                                   'far t=40 at=306.00,808.00 gap=14.14 ugap=-1.00 state=Guarding focus=none'))
+    expect(refocused.status == 'DIFFERS' and 'scene=far phase=step tick=40 field=focus' in refocused.summary, refocused.summary)
+    missing = '\n'.join(l for l in log.splitlines() if 'near t=100 ' not in l) + '\n'
+    expect(compare('guardassist', log, missing).status == 'INVALID', 'a missing row is invalid')
+    moved = compare('guardassist', log, change(log, 'far t=40 at=306.00,808.00 gap=14.14 ugap=-1.00', 'far t=40 at=307.25,809.50 gap=15.00 ugap=3.00'))
+    expect(moved.status == 'MATCH' and moved.recorded > 0, 'position, gap and ugap are recorded, not judged')
+    late = change(change(log, 'PROBE assist near event OnStartBuild t=9\n', ''), 'PROBE assist near t=11 ',
+                  'PROBE assist near event OnStartBuild t=10\nPROBE assist near t=11 ')
+    expect(compare('guardassist', log, late).status == 'DIFFERS', 'an event at another step differs')
+    expect(compare('guardassist', log, change(log, 'PROBE assist far event OnStartBuild t=9\n', '')).status == 'DIFFERS', 'a missing event')
+
+
 def test_valid_logs():
     cases = {'timing': timing_log(), 'economy': economy_log(), 'engineer': engineer_log(), 'crowd': crowd_log(2),
-             'blueprints': blueprints_log()}
+             'guardassist': guardassist_log(), 'blueprints': blueprints_log()}
     for name, log in cases.items():
         marker = adapters.ADAPTERS[name].marker
         expect(problems_of(name, log) == [], f'{name}: a complete log is valid: {problems_of(name, log)}')
@@ -406,7 +435,7 @@ def test_check_against_another_root():
 
 def run():
     for test in (test_core, test_compare_demands_a_complete_run, test_blueprint_values, test_engineer_and_crowd,
-                 test_valid_logs, test_init, test_manifests_and_backup, test_repeat_rule, test_damaged_reference,
+                 test_guardassist, test_valid_logs, test_init, test_manifests_and_backup, test_repeat_rule, test_damaged_reference,
                  test_check_exit_codes, test_check_against_another_root):
         test()
     print('parity self-test passed')

@@ -289,4 +289,49 @@ class Blueprints(Adapter):
         return [] if n >= self.min_blueprints else [f'only {n} blueprints logged']
 
 
-ADAPTERS = {a.name: a for a in (Timing(), Economy(), Engineer(), Crowd(), Blueprints())}
+class GuardAssist(Adapter):
+    name = 'guardassist'
+    clock = ('t is the loop index of a WaitTicks(1) loop from the guard order, 0 to 330 (one sim tick a step); '
+             'a callback\'s after_t is the last t logged before it. Positions and gaps are recorded, not judged: '
+             'steering differences must not hide the assist\'s timing')
+    marker = 'assist done'
+    osc_ticks = 900
+    original_timeout = 900
+    scenes = ('far', 'near')
+    steps = range(331)
+    callbacks = ('OnStartBuild', 'OnStopBuild', 'OnStartRepair', 'OnStopRepair')
+    step_keys = ('at', 'gap', 'ugap', 'state', 'focus', 'eprog', 'fprog', 'ftarget', 'req')
+    types = {'at.x': Recorded(F), 'at.z': Recorded(F), 'gap': Recorded(F), 'ugap': Recorded(F), 'state': T, 'focus': T,
+             'eprog': F, 'fprog': F, 'ftarget': T, 'req.energy': F, 'req.mass': F, 'name': T, 'after_t': I}
+
+    def parse(self, payload, state):
+        if payload == self.marker:
+            return Row('done')
+        parts = payload.split()
+        if len(parts) < 3 or parts[0] != 'assist' or parts[1] not in self.scenes:
+            raise Malformed('not an assist row')
+        scene = parts[1]
+        if parts[2] == 'event':
+            if len(parts) != 5 or parts[3] not in self.callbacks or not parts[4].startswith('t='):
+                raise Malformed('event row')
+            Int().parse(parts[4][2:])
+            state[scene] = state.get(scene, 0) + 1
+            fields = {'name': parts[3], 'after_t': state.get(f't.{scene}', -1)}
+            return Row(scene, 'event', f'{state[scene]:03d}', fields=fields)
+        if not parts[2].startswith('t='):
+            raise Malformed('not an assist row')
+        raw = tokens(' '.join(parts[:2] + parts[3:]), ('assist', scene), self.step_keys)
+        split(raw, 'at', 'xz', self.types)
+        split(raw, 'req', ('energy', 'mass'), self.types, '/')
+        t = Int().parse(parts[2][2:])
+        state[f't.{scene}'] = t
+        return Row(scene, 'step', '', t, typed(self.types, raw))
+
+    def variable(self, identity):
+        return identity[1] == 'event'
+
+    def expected(self):
+        return [(scene, 'step', '', t) for scene in self.scenes for t in self.steps] + [('done', '', '', None)]
+
+
+ADAPTERS = {a.name: a for a in (Timing(), Economy(), Engineer(), Crowd(), Blueprints(), GuardAssist())}
