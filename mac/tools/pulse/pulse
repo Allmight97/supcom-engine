@@ -4,7 +4,7 @@ branches, worktrees and the parity store, rendered three ways. It stores nothing
 
   pulse                 text for agents and the terminal: NEEDS YOU first, capped at about 40 lines
   pulse --detail        the same without the cap: URLs, longer SHAs, every branch and probe
-  pulse --brief         the header and NEEDS YOU only (the session-start hook)
+  pulse --brief         the header and NEEDS YOU only (the session-start hook; gives up after 25 s)
   pulse --json          the snapshot as JSON (schema 1)
   pulse --html          write mac/work/pulse.html, open it, then keep this look in mac/work/pulse-last.json
                         so the next --html lists what changed since (--no-open writes without opening)
@@ -16,6 +16,7 @@ traceback in --brief.
 """
 import json
 import os
+import signal
 import subprocess
 import sys
 
@@ -29,6 +30,7 @@ ROOT = os.environ.get('OSC_ROOT', os.path.dirname(os.path.dirname(os.path.dirnam
 WORK = os.path.join(ROOT, 'mac/work')
 PAGE = os.path.join(WORK, 'pulse.html')
 LAST = os.path.join(WORK, 'pulse-last.json')
+BRIEF_SECONDS = 25
 
 
 def snapshot(fetch, full=True):
@@ -61,11 +63,30 @@ def html_view(snap, open_page):
         subprocess.run(['open', PAGE])
 
 
+def failure_line(error):
+    return f'pulse: failed ({type(error).__name__}: {error}); run {os.path.join(ROOT, "mac/tools/pulse/pulse")} to see why'
+
+
+def stop_everything(line):
+    """Print LINE and end pulse with the gh and git children it started, which may be hung."""
+    print(line, flush=True)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    os.killpg(0, signal.SIGTERM)
+    os._exit(0)
+
+
+def give_up(signum, frame):
+    stop_everything(failure_line(TimeoutError(f'no answer within {BRIEF_SECONDS} s')))
+
+
 def brief_view(fetch):
+    os.setpgrp()
+    signal.signal(signal.SIGALRM, give_up)
+    signal.alarm(BRIEF_SECONDS)
     try:
         print(views.brief(snapshot(fetch, full=False)))
     except Exception as error:
-        print(f'pulse: failed ({type(error).__name__}: {error}); run {os.path.join(ROOT, "mac/tools/pulse/pulse")} to see why')
+        stop_everything(failure_line(error))
     return 0
 
 

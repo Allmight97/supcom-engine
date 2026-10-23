@@ -3,7 +3,6 @@
 those in Mac areas (MAC) and those touching an engine file the fork changed (OVERLAP, with the files).
 
   mac/scripts/upstream-news             fetch upstream, list missing landings and those open PRs
-  mac/scripts/upstream-news --brief     only the count behind and those PRs
   mac/scripts/upstream-news --markdown  the same as a GitHub issue body (the fork's daily watch), plus JStar's upstream PRs
   mac/scripts/upstream-news --contributions  JStar's upstream PRs: open, landed (the landing commit) or closed
   mac/scripts/upstream-news --behind    print only the count of upstream commits missing from main
@@ -183,11 +182,6 @@ def report():
         return print('gh unavailable' if mine is None else '\n'.join(map(contribution_line, mine)))
     if '--markdown' in sys.argv:
         return markdown(open_prs())
-    if '--brief' in sys.argv:
-        prs = open_prs()
-        print(f'Upstream: {behind()} commits not in main; open PRs that matter to the fork '
-              f'({"gh unavailable" if prs is None else len(prs)}; mac/scripts/upstream-news for detail):')
-        return print('\n'.join(pr_line(p) for p in prs or []))
     items = landed()
     print(f'{behind()} upstream commits not in {base()} ({len(items)} landings):')
     for item in items:
