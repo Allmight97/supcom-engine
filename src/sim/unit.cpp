@@ -1462,19 +1462,27 @@ bool Unit::progress_build(f64 dt, EntityRegistry& registry, lua_State* L,
         return false;
     }
 
+    // A helper with no build rate does none of the work, so it leaves the
+    // completion to a builder that does, and holds as a paused one would.
+    const bool idle_helper = build_rate_ <= 0 && build_repairs_ && build_time_ > 0;
+
     // Guard: if an assister already pushed fraction to 1.0 this tick
     if (target->fraction_complete() >= 1.0f) {
+        if (idle_helper && target->is_unit() && static_cast<Unit*>(target)->is_being_built()) {
+            return true;
+        }
         if (built) *built = true;
         finish_build(registry, L, true, grid);
         return false;
     }
-    if (build_time_ <= 0) {
-        fail_build(registry, L);
-        return false;
-    }
-    if (paused_ || build_rate_ <= 0) {
+    if (paused_ || idle_helper) {
         work_progress_ = target->fraction_complete();
         return true;
+    }
+
+    if (build_time_ <= 0 || build_rate_ <= 0) {
+        fail_build(registry, L);
+        return false;
     }
 
     f32 progress_rate = build_rate_ / static_cast<f32>(build_time_);
@@ -1708,8 +1716,7 @@ bool Unit::progress_build_assist(f64 dt, EntityRegistry& registry,
     if (!target || target->destroyed())
         return false;
 
-    if (build_time_ <= 0)
-        return false;
+    if (build_time_ <= 0) return false;
 
     if (target->fraction_complete() >= 1.0f)
         return false;

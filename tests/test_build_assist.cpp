@@ -600,11 +600,15 @@ TEST_CASE("A helper with no build rate takes up the build it guards and adds no 
     Unit* bot = w.engineer("bot", 14.0f);
     bot->set_build_rate(0.0f);
     eng->push_command(order(CommandType::Repair, *w.site, 1), true);
+    // The original's guard of the frame ends with it, one of its builder goes
+    // on; the engine keeps both (as the test of a guard's help above pins).
+    bool guards_builder = false;
     SECTION("guarding the unit under construction") {
         bot->push_command(order(CommandType::Guard, *w.site, 2), true);
     }
     SECTION("guarding its builder") {
         bot->push_command(order(CommandType::Guard, *eng, 2), true);
+        guards_builder = true;
     }
     for (int tick = 0; tick < 20 && !bot->is_building(); ++tick) {
         w.sim.tick();
@@ -629,8 +633,49 @@ TEST_CASE("A helper with no build rate takes up the build it guards and adds no 
     w.sim.tick();
     CHECK(w.log().find("bot stop") != std::string::npos);
     CHECK_FALSE(bot->is_building());
-    REQUIRE(bot->command_queue().size() == 1);
-    CHECK(bot->command_queue().front().type == CommandType::Guard);
+    if (guards_builder) {
+        REQUIRE(bot->command_queue().size() == 1);
+        CHECK(bot->command_queue().front().type == CommandType::Guard);
+    }
+}
+
+TEST_CASE("A helper with no build rate leaves the build's completion to a builder that works on it",
+          "[build][assist][guard]") {
+    AssistSim w;
+    const std::string code = R"(
+        function hear_built(site)
+            site.OnStopBeingBuilt = function(self, builder)
+                table.insert(log, 'built by ' .. tostring(builder and builder.name))
+            end
+        end
+    )";
+    REQUIRE(luaL_loadbuffer(w.L, code.c_str(), code.size(), "built") == 0);
+    REQUIRE(lua_pcall(w.L, 0, 0, 0) == 0);
+    lua_getglobal(w.L, "hear_built");
+    lua_rawgeti(w.L, LUA_REGISTRYINDEX, w.site->lua_table_ref());
+    REQUIRE(lua_pcall(w.L, 1, 0, 0) == 0);
+    // The bot ticks first; the helper, last, brings the build to 1 after the
+    // engineer's turn, so the next tick the bot is first to see it done.
+    Unit* bot = w.engineer("bot", 14.0f);
+    bot->set_build_rate(0.0f);
+    Unit* eng = w.engineer("eng", 16.0f);
+    Unit* helper = w.engineer("helper", 18.0f);
+    bot->push_command(order(CommandType::Guard, *w.site, 1), true);
+    eng->push_command(order(CommandType::Repair, *w.site, 2), true);
+    helper->push_command(order(CommandType::Guard, *eng, 3), true);
+    for (int tick = 0; tick < 20 && !(bot->is_building() && helper->is_building()); ++tick) {
+        w.sim.tick();
+    }
+    REQUIRE(bot->is_building());
+    REQUIRE(helper->is_building());
+    w.log();
+    w.site->set_fraction_complete(0.985f);
+    w.sim.tick();
+    REQUIRE(w.site->fraction_complete() >= 1.0f);
+    REQUIRE(w.site->is_being_built());
+    w.sim.tick();
+    CHECK_FALSE(w.site->is_being_built());
+    CHECK(w.log().find("built by eng") != std::string::npos);
 }
 
 TEST_CASE("A repairer with no build rate takes up a damaged unit's repair and heals nothing",
