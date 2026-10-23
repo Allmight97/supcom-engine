@@ -100,10 +100,9 @@ def branch_state(b):
 
 
 def branch_line(b, snap, detail):
-    held = f' [worktree {b["worktree"].rsplit("/", 1)[-1]}]' if b['worktree'] else ''
     age = labels.age(b['last_commit_at'], snap['checked_at'])
     extra = f'  +{b["ahead"]}/-{b["behind"]} {age}' if detail else f'  {age}'
-    return f'{b["name"]}{extra}  {branch_state(b)}{held}'.rstrip()
+    return f'{b["name"]}{extra}  {branch_state(b)}'.rstrip()
 
 
 def branch_lines(snap, detail):
@@ -119,9 +118,8 @@ def worktree_lines(snap, detail):
         state = 'unknown' if w['dirty'] is None else f'{w["changes"]} uncommitted' if w['dirty'] else 'clean'
         name = w['path'] if detail else w['path'].rstrip('/').rsplit('/', 1)[-1]
         pr = f'  PR #{w["pr"]["number"]} {labels.pr_state(w["pr"])}' if w['pr'] else ''
-        done = '  branch done' if w['branch_done'] else ''
         age = labels.age(w['last_commit_at'], snap['checked_at']) if w['last_commit_at'] else '?'
-        out.append(f'{name}  {w["branch"] or "detached " + w["head"]}  {state}  last commit {age} ago{pr}{done}')
+        out.append(f'{name}  {w["branch"] or "detached " + w["head"]}  {state}  last commit {age} ago{pr}')
     return out
 
 

@@ -58,9 +58,10 @@ def raw_fixture():
                      branch('up/nopr', ahead=3, ahead_up=2, pushed=True, files=['src/nopr.cpp']),
                      branch('up/atup'), branch('mac/merged'), branch('mac/work', ahead=2, unpushed=2),
                      branch('scratch/merges', ahead=3, own=0), branch('scratch/inside', ahead=2, own=0, inside=['scratch/merges']),
-                     branch('scratch/own', ahead=2, own=2), branch('claude/held')],
+                     branch('scratch/own', ahead=2, own=2), branch('claude/held'), branch('claude/sess'), branch('claude/free')],
         'worktrees': [{'path': ROOT, 'head': 'a' * 8, 'branch': 'main', 'changes': 0, 'ts': 1_760_000_000, 'primary': True},
-                      {'path': '/w/held', 'head': 'c' * 8, 'branch': 'claude/held', 'changes': 3, 'ts': 1_760_000_000, 'primary': False}]}
+                      {'path': '/w/held', 'head': 'c' * 8, 'branch': 'claude/held', 'changes': 3, 'ts': 1_760_000_000, 'primary': False},
+                      {'path': '/w/sess', 'head': 'd' * 8, 'branch': 'mac/work', 'changes': 0, 'ts': 1_760_000_000, 'primary': False}]}
 
 
 def by(items, key, value):
@@ -87,13 +88,14 @@ def test_parsers():
 
 def test_branches(snap):
     verdict = {b['name']: (b['deletable'], b['reason']) for b in snap['branches']}
-    for name in ('up/landed', 'up/dropped', 'up/atup', 'mac/merged', 'scratch/merges', 'scratch/inside', 'claude/held'):
+    for name in ('up/landed', 'up/dropped', 'up/atup', 'mac/merged', 'scratch/merges', 'scratch/inside', 'claude/free'):
         assert verdict[name][0], f'{name} is done: {verdict[name]}'
-    for name in ('up/open', 'up/stack', 'up/nopr', 'mac/work', 'scratch/own'):
+    for name in ('up/open', 'up/stack', 'up/nopr', 'mac/work', 'scratch/own', 'claude/held', 'claude/sess'):
         assert not verdict[name][0], f'{name} holds work: {verdict[name]}'
     assert 'open PR #10' in verdict['up/open'][1], 'an open PR blocks deletion even at 0 commits ahead of main'
     assert 'commits not in main' in verdict['up/dropped'][1] and 'landed' in verdict['up/landed'][1]
-    assert by(snap['branches'], 'name', 'claude/held')['worktree'] == '/w/held'
+    held = by(snap['branches'], 'name', 'claude/held')
+    assert held['worktree'] == '/w/held' and 'worktree held' in held['reason'], 'a merged branch checked out in a worktree is never deletable'
 
 
 def test_overlap(snap):
@@ -115,7 +117,7 @@ def test_needs_you(snap):
     assert codes.index('checks-failed') < codes.index('sync-due') < codes.index('delete-branches') < codes.index('overlap')
     assert 'linux-gcc' in by(snap['needs_you'], 'code', 'checks-failed')['text']
     delete = by(snap['needs_you'], 'code', 'delete-branches')
-    assert 'up/landed' in delete['text'] and 'claude/held (worktree held)' in delete['text'] and 'git branch -D' in delete['why']
+    assert 'up/landed' in delete['text'] and 'claude/free' in delete['text'] and 'claude/held' not in delete['text'] and 'claude/sess' not in delete['text'] and 'git branch -D' in delete['why']
     assert all(set(i) == {'code', 'text', 'why', 'link'} for i in snap['needs_you'])
     quiet = copy.deepcopy(raw_fixture())
     quiet.update(open=[pr(10, 'up/open')], fork={**quiet['fork'], 'behind': 0}, branches=[], others=[], matters=[], worktrees=[])

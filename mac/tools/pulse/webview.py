@@ -133,9 +133,8 @@ def worktree_block(snap):
         pr = w['pr']
         rows.append([f'<code>{e(w["path"])}</code>', e(w['branch'] or 'detached ' + w['head']), state,
                      e(labels.age(w['last_commit_at'], snap['checked_at']) + ' ago') if w['last_commit_at'] else '?',
-                     anchor(pr['url'], f'#{pr["number"]} {labels.pr_state(pr)}') if pr else '-',
-                     status('branch done', 'wait') if w['branch_done'] else ''])
-    return section('W', 'Worktrees', table(['Path', 'Branch', 'State', 'Last commit', 'PR', 'Note'], rows))
+                     anchor(pr['url'], f'#{pr["number"]} {labels.pr_state(pr)}') if pr else '-'])
+    return section('W', 'Worktrees', table(['Path', 'Branch', 'State', 'Last commit', 'PR'], rows))
 
 
 def legend():

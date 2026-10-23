@@ -54,8 +54,10 @@ def judge_scratch(b):
     return True, f'every commit is in {", ".join(inside[:3])}' if inside else 'only merge commits of other branches'
 
 
-def judge_branch(b, kind, pr):
-    """(deletable, reason) for one local branch."""
+def judge_branch(b, kind, pr, worktree):
+    """(deletable, reason) for one local branch. A branch checked out in a worktree is never deletable."""
+    if worktree:
+        return False, f'checked out in worktree {worktree.rstrip("/").rsplit("/", 1)[-1]}'
     if pr and pr['state'] == 'open':
         return False, f'open PR #{pr["number"]}'
     if kind == 'up':
@@ -69,7 +71,7 @@ def branch_entries(raw, index, held):
     out = []
     for b in raw['branches']:
         kind, pr = kind_of(b['name']), index.get(b['name'])
-        deletable, reason = judge_branch(b, kind, pr)
+        deletable, reason = judge_branch(b, kind, pr, held.get(b['name']))
         noteworthy = deletable or (b['unpushed'] > 0 and b['ahead'] > 0) or (kind == 'up' and pr is None and b['ahead_up'] > 0)
         out.append({'name': b['name'], 'kind': kind, 'sha': b['sha'], 'last_commit_at': local_iso(b['ts']),
                     'ahead': b['ahead'], 'behind': b['behind'], 'ahead_upstream': b['ahead_up'],
@@ -140,28 +142,33 @@ def pr_entries(raw, branch_list):
             for pr in sorted(raw['open'], key=lambda p: p['number'])]
 
 
-def worktree_entries(raw, index, by_name):
+def worktree_entries(raw, index):
     out = []
     for w in raw['worktrees']:
-        branch = by_name.get(w['branch'])
         out.append({'path': w['path'], 'branch': w['branch'], 'head': w['head'], 'primary': w['primary'],
                     'dirty': w['changes'] > 0 if w['changes'] is not None else None, 'changes': w['changes'],
-                    'last_commit_at': local_iso(w['ts']), 'pr': index.get(w['branch']),
-                    'branch_done': bool(branch and branch['deletable'])})
+                    'last_commit_at': local_iso(w['ts']), 'pr': index.get(w['branch'])})
     return out
+
+
+def session_branches(worktrees):
+    """Branch -> the worktree holding it: the branch checked out there, and claude/NAME for a worktree
+    directory NAME (a session that switched branches inside still owns the branch it started on)."""
+    held = {f'claude/{w["path"].rstrip("/").rsplit("/", 1)[-1]}': w['path'] for w in worktrees}
+    held.update({w['branch']: w['path'] for w in worktrees if w['branch']})
+    return held
 
 
 def assemble(raw):
     index = heads(raw)
-    held = {w['branch']: w['path'] for w in raw['worktrees'] if w['branch']}
+    held = session_branches(raw['worktrees'])
     branch_list = branch_entries(raw, index, held)
-    by_name = {b['name']: b for b in branch_list}
     ours = {pr['number'] for pr in raw['open']}
     parity = raw['parity'] or {'probes': [], 'damaged': []}
     snapshot = {'schema': SCHEMA, 'checked_at': raw['now'], 'fork': raw['fork'],
                 'prs': pr_entries(raw, branch_list), 'overlap': overlap_entries(raw, branch_list, ours),
                 'landed': landed_entries(raw), 'branches': branch_list,
-                'worktrees': worktree_entries(raw, index, by_name), 'parity': parity,
+                'worktrees': worktree_entries(raw, index), 'parity': parity,
                 'needs_you': [], 'errors': raw['errors']}
     snapshot['needs_you'] = needs_you(snapshot)
     return snapshot
@@ -201,13 +208,8 @@ def pushed_without_pr(b):
 
 
 def delete_item(branch_list):
-    free = [b['name'] for b in branch_list if b['deletable'] and not b['worktree']]
-    held = [f'{b["name"]} (worktree {b["worktree"].rsplit("/", 1)[-1]})' for b in branch_list
-            if b['deletable'] and b['worktree']]
-    parts = ([f'safe to delete: {", ".join(free)}'] if free else []) + \
-            ([f'done, but a worktree holds them (remove it first): {", ".join(held)}'] if held else [])
-    why = 'needs your word: git branch -D' if free else 'needs your word: remove the worktree, then git branch -D'
-    return [item('delete-branches', '; '.join(parts), why)] if parts else []
+    names = [b['name'] for b in branch_list if b['deletable']]
+    return [item('delete-branches', f'safe to delete: {", ".join(names)}', 'needs your word: git branch -D')] if names else []
 
 
 def branch_items(branch_list, pr_facts):
