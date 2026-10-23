@@ -220,3 +220,13 @@ Asked on 2026-10-20: the original once each, with `/synclog`; the engine with th
 - **solo**: energy ample and the mass store emptied, the factory the only consumer.
 
 Every tick from the order, t=0 to 40, it logs the factory's work progress, its unit's fraction complete, its `GetResourceConsumed` and consumption (energy/mass a second), the other consumer's `GetResourceConsumed` (the Monkeylord, the first helper, or -1), and the army's energy and mass (stored / income / requested / usage), to six places. Its `t` is the loop index of a `WaitTicks(1)` loop. It is done at `PROBE stall done`.
+
+Asked on 2026-10-23: the original twice, the two runs matching; the engine on main c9055933 and with Moho's `Materialize` for every build step.
+
+| Probe | The original | The engine | So |
+|---|---|---|---|
+| `stallstart` economy | every grant, request, usage and `GetResourceConsumed` as the engine's to six places, but for the store below | the same | The economy serves the requests as Moho's (`ProcessArmyEconomy`); only the progress differed. |
+| `stallstart` ml | the first build tick adds 0.003333 (1/300: the Striker's first hit point of 300), then 0.000531 a tick (the 7.4% grant) | 0.000531 from the first tick; now the same | Moho's `Unit::Materialize` never leaves a unit under construction less complete than its health, which starts at 1 hit point. A step smaller than 1/MaxHealth first lifts the fraction to the health's share; from then the fraction follows the health. |
+| `stallstart` midbuild | full rate to tick 13, 0.003334 on the stall's first tick, then the 19% grant's step a tick late, then 7.4% | 0.001355 on the stall's first tick; now the same | The same rule. |
+| `stallstart` dual, solo | dual: 0.003333 on the first tick (a 35% grant). Solo: its first tick at a 50% grant adds 0.003571, above the lead, and its second 0.003334 (25%) | 0.002506; 0.001786 on solo's second; now the same | The same rule. `economy`'s stalled scene follows: 0.017 against 0.014 on tick 30 before, now the same. |
+| `stallstart` store | the army's mass store a hundredth lower on 17 rows (651.90 against 651.91 from the 21st tick of `ml`); the grant on the stall's edge 0.189592 | 0.189591 | Moho keeps the store in 32-bit floats, the engine in 64-bit: still apart. |
