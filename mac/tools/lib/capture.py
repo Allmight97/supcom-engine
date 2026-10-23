@@ -6,7 +6,7 @@
       a Lua error or unknown unit type, a hook the game loaded ("Hooked X with /mount/...") that has not
       logged HOOKCHECK|/mount/...|ok within 90 s, or a checkpoint TEXT not seen once SETUP|TICK reached TICK.
   capture.py setup LOG SNAPSHOT_DIR END -- ARGS...
-      Writes LOG's manifest to <LOG without .partial>.setup (JSON): arguments, git HEAD and dirty flag, the
+      Writes LOG's manifest to <LOG without .partial>.setup (JSON): the log's file name, arguments, git HEAD and dirty flag, the
       sha256 of every hook and script in SNAPSHOT_DIR, resolved armies, options, seed, last tick and how the run
       ended.
   capture.py mods PREFS DOCUMENTS_MODS GAME_MODS_SCD
@@ -30,6 +30,11 @@ HOOKCHECK = re.compile(r'HOOKCHECK\|(/\w+hook/\S+?)\|ok')
 TICK = re.compile(r'SETUP\|TICK\|(\d+)')
 
 
+def lua_errors(text, allows=()):
+    """The lines of a game log that are Lua errors or unknown unit types, minus those naming a tolerated text."""
+    return [l.strip() for l in text.splitlines() if ERRORS.search(l.strip()) and not any(a in l for a in allows)]
+
+
 def watch(log, state_path, checkpoints, allows, now=None):
     now = time.time() if now is None else now
     try:
@@ -44,7 +49,7 @@ def watch(log, state_path, checkpoints, allows, now=None):
     reason = None
     for raw in chunk[:complete].decode('latin-1').splitlines():
         line = raw.strip()
-        if ERRORS.search(line) and not any(a in line for a in allows) and reason is None:
+        if lua_errors(line, allows) and reason is None:
             reason = 'error: ' + line[:200]
         m = HOOKED.search(line)
         if m and not m.group(1).lower().startswith('/schook/'):
@@ -92,7 +97,7 @@ def setup(log, snapshot, end, args):
                 hashes[os.path.relpath(path, snapshot)] = hashlib.sha256(open(path, 'rb').read()).hexdigest()
     git = lambda *a: subprocess.run(('git',) + a, capture_output=True, text=True).stdout.strip()
     manifest = {
-        'log': log.removesuffix('.partial'), 'args': args, 'end': end,
+        'log': os.path.basename(log).removesuffix('.partial'), 'args': args, 'end': end,
         'git_head': git('rev-parse', 'HEAD'), 'git_dirty': bool(git('status', '--porcelain', '--', 'tools', 'agents')),
         'armies': armies, 'seed': seed, 'options': options, 'last_tick': tick, 'hashes': dict(sorted(hashes.items())),
     }
@@ -140,8 +145,10 @@ def self_test():
     assert watch(log, state, [], ['Unable to reset selection sets'], now=100) is None
     open(log, 'a').write('warning: Error running lua script: Unknown unit type: uel1101\n')
     assert watch(log, state, [], [], now=100).startswith('error')
+    assert len(lua_errors(open(log).read(), ['Unable to reset selection sets'])) == 1
     open(log, 'a').write('info: SETUP|ARMY|1|ARMY_1|true||3|false\ninfo: SETUP|SEED|7\ninfo: SETUP|OPTIONS|A=1,B=x\n')
     m = json.load(open(setup(log, d, 'marker', ['/map', 'X'])))
+    assert m['log'] == os.path.basename(log), m['log']
     assert m['armies'][0]['faction'] == '3' and m['seed'] == '7' and m['options'] == {'A': '1', 'B': 'x'}
     assert m['last_tick'] == 2500 and m['end'] == 'marker'
     os.makedirs(os.path.join(d, 'mods', 'm'))
@@ -183,4 +190,5 @@ def main():
     sys.exit(__doc__.strip())
 
 
-main()
+if __name__ == '__main__':
+    main()

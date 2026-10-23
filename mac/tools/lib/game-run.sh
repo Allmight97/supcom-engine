@@ -19,19 +19,30 @@
 #   - takes the bottle lock (mac/work/bottle.lock) before Game.prefs is touched, and an original-game run refuses
 #     when active_mods names a mod the original would load (its Documents mods folder or gamedata/mods.scd);
 #   - copies mac/tools/ and mac/agents/faf-autorun to mac/work/capture-run/NAME/ and runs the hooks from there, so editing
-#     a hook mid-run changes nothing (GAME_RUN_DIR; a tool's generated init may point into it);
+#     a hook mid-run changes nothing (GAME_RUN_DIR; a tool's generated init may point into it); a tool's own files from
+#     elsewhere (staged probe sources) go in as GAME_RUN_STAGE=DIR, copied to GAME_RUN_DIR/stage (INIT "stage/init.lua");
 #   - runs mac/tools/lib/capture.py's preflight every 5 s while waiting: stops on the first Lua error or unknown
 #     unit type, a loaded hook without HOOKCHECK within 90 s, or a missed checkpoint (GAME_RUN_CHECKPOINTS,
 #     "TEXT@TICK" separated by ";"; GAME_RUN_ALLOW lists tolerated error texts separated by ";").
 # game_run_finish writes LOG's setup manifest, NAME.setup (capture.py setup).
 # Progress goes to stderr: "game-run: PHASE" when a wait step starts, and every 10 minutes of waiting a line with
-# the elapsed time and the game's CPU percent and resident memory.
+# the elapsed time and the game's CPU percent and resident memory. With GAME_RUN_WATCH=FILE the same lines (and the
+# reason a run stops) are appended there, with the time, for a Monitor to follow.
 
 GAME_RUN_PREFS="$HOME/Library/Application Support/CrossOver/Bottles/${FAF_BOTTLE:-SupCom}/drive_c/users/crossover/AppData/Local/Gas Powered Games/Supreme Commander Forged Alliance/Game.prefs"
 
-game_run_phase() {
+game_run_say() {
     echo "game-run: $1" >&2
+    [ -z "${GAME_RUN_WATCH:-}" ] || echo "$(date +%T) $1" >> "$GAME_RUN_WATCH"
+}
+
+game_run_phase() {
+    game_run_say "$1"
     GAME_RUN_BEAT_AT=$(date +%s)
+}
+
+game_run_pattern() {
+    printf '(SupremeCommander|ForgedAlliance)[.]exe.*%s' "$(game_run_winpath "$1" | sed 's/[][\\.*+?^$(){}|]/\\&/g')"
 }
 
 game_run_beat() {
@@ -40,7 +51,7 @@ game_run_beat() {
     GAME_RUN_BEAT_AT=$now
     pid=$(pgrep -f "$GAME_RUN_PATTERN" | head -1)
     stats=$(ps -o %cpu=,rss= -p "${pid:-0}" 2>/dev/null | awk '{printf "CPU %s%%, memory %d MB", $1, $2 / 1024}')
-    echo "game-run: still waiting, $(( (now - GAME_RUN_T0) / 60 )) min elapsed${stats:+, $stats}" >&2
+    game_run_say "still waiting, $(( (now - GAME_RUN_T0) / 60 )) min elapsed${stats:+, $stats}"
 }
 
 game_run_winpath() {
@@ -51,9 +62,10 @@ game_run_winpath() {
 game_run_stop() {
     [ -n "${GAME_RUN_PATTERN:-}" ] || return 0
     pkill -f "$GAME_RUN_PATTERN" 2>/dev/null || true
+    [ -z "${GAME_RUN_JOB:-}" ] || { wait "$GAME_RUN_JOB" 2>/dev/null || true; GAME_RUN_JOB=; }
     sleep 2
     if pgrep -f "$GAME_RUN_PATTERN" >/dev/null; then
-        echo "game-run: the game survived; sending SIGKILL" >&2
+        game_run_say "the game survived; sending SIGKILL"
         pkill -9 -f "$GAME_RUN_PATTERN" 2>/dev/null || true
     fi
 }
@@ -77,11 +89,12 @@ game_run_lock() {
 
 game_run_snapshot() {
     [ -z "${GAME_RUN_DIR:-}" ] || return 0
-    GAME_RUN_DIR="$PWD/work/capture-run/$1"
-    rm -rf "$GAME_RUN_DIR"
+    mkdir -p work/capture-run
+    GAME_RUN_DIR=$(mktemp -d "$PWD/work/capture-run/$1.XXXXXX")
     mkdir -p "$GAME_RUN_DIR/agents"
     rsync -a --exclude __pycache__ --exclude '*.png' tools "$GAME_RUN_DIR/"
     cp -R agents/faf-autorun "$GAME_RUN_DIR/agents/"
+    [ -z "${GAME_RUN_STAGE:-}" ] || cp -R "$GAME_RUN_STAGE" "$GAME_RUN_DIR/stage"
 }
 
 game_run_preflight() {
@@ -91,7 +104,7 @@ game_run_preflight() {
     for allow in ${GAME_RUN_ALLOW:-Unable to reset selection sets}; do [ -z "$allow" ] || set -- "$@" --allow "$allow"; done
     unset IFS
     reason=$(python3 -I tools/lib/capture.py watch "$GAME_RUN_PARTIAL" "$GAME_RUN_DIR/preflight.json" "$@") \
-        || { echo "game-run: stopping the run: $reason" >&2; exit 1; }
+        || { game_run_say "stopping the run: $reason"; exit 1; }
 }
 
 game_run_cleanup() {
@@ -108,7 +121,7 @@ game_run_start() {
     shift 3
     [ ! -e "$GAME_RUN_LOG" ] || { echo "game-run: $GAME_RUN_LOG already exists; a capture is never overwritten. Use a new name." >&2; exit 1; }
     GAME_RUN_PARTIAL="$GAME_RUN_LOG.partial"
-    GAME_RUN_PATTERN="(SupremeCommander|ForgedAlliance)[.]exe.*[\\\\]$(basename "$GAME_RUN_PARTIAL" | sed 's/[.]/[.]/g')"
+    GAME_RUN_PATTERN=$(game_run_pattern "$GAME_RUN_PARTIAL")
     GAME_RUN_ARGS="$*" GAME_RUN_END=marker GAME_RUN_T0=$(date +%s)
     game_run_phase "starting $(basename "$GAME_RUN_LOG")"
     game_run_lock
@@ -132,11 +145,13 @@ game_run_start() {
     case "$kind" in
         original)
             agents/faf-crossover original /init "$(game_run_winpath "$init")" /nomovie /windowed ${GAME_RUN_WINDOW:-1680 1050} \
-                "$@" /log "$(game_run_winpath "$GAME_RUN_PARTIAL")" > /dev/null 2>&1 & ;;
+                "$@" /log "$(game_run_winpath "$GAME_RUN_PARTIAL")" > /dev/null 2>&1 &
+            GAME_RUN_JOB=$! ;;
         faf)
             initwin=$(game_run_winpath "$init") logwin=$(game_run_winpath "$GAME_RUN_PARTIAL")
             (cd "$HOME/.faforever/bin" && "$root/agents/faf-crossover" game "$HOME/.faforever/bin/ForgedAlliance.exe" \
-                /init "$initwin" /nobugreport /nomovie /windowed ${GAME_RUN_WINDOW:-1024 768} /log "$logwin" "$@") & ;;
+                /init "$initwin" /nobugreport /nomovie /windowed ${GAME_RUN_WINDOW:-1024 768} /log "$logwin" "$@") &
+            GAME_RUN_JOB=$! ;;
         *) echo "game-run: unknown kind $kind" >&2; exit 2 ;;
     esac
 }
@@ -146,7 +161,7 @@ game_run_wait_marker() {
     polls=0
     game_run_phase "waiting for '$text'"
     until grep -qF "$text" "$GAME_RUN_PARTIAL" 2>/dev/null; do
-        [ "$(date +%s)" -lt "$deadline" ] || { echo "No '$text' line after $2 s." >&2; exit 1; }
+        [ "$(date +%s)" -lt "$deadline" ] || { game_run_say "No '$text' line after $2 s."; exit 1; }
         game_run_beat
         [ -z "$hook" ] || "$hook"
         polls=$((polls + 1))
