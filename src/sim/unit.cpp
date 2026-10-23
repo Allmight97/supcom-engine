@@ -1715,8 +1715,7 @@ void Unit::release_build(lua_State* L, EntityRegistry& registry) {
 bool Unit::progress_build_assist(f64 dt, EntityRegistry& registry,
                                   f32 efficiency) {
     auto* target = registry.find(build_target_id_);
-    if (!target || target->destroyed() || !target->is_unit())
-        return false;
+    if (!target || target->destroyed() || !target->is_unit()) return false;
 
     if (build_time_ <= 0 || build_rate_ <= 0)
         return false;
