@@ -367,12 +367,16 @@ static int unit_GetGuardedUnit(lua_State* L) {
     return 1;
 }
 
-// GetFocusUnit(): return the unit this unit is actively building/assisting/capturing
+// GetFocusUnit(): return the unit this unit is actively building/assisting/
+// capturing/repairing (Moho's focus entity: a repair task's is its target).
+// FAF's UpdateConsumptionValues prices a repair by it, and a repair asking
+// nothing is switched off and mends nothing.
 static int unit_GetFocusUnit(lua_State* L) {
     auto* u = check_unit(L);
     if (!u) { lua_pushnil(L); return 1; }
 
     const u32 focus_id = u->focus_id();
+
     if (focus_id == 0) { lua_pushnil(L); return 1; }
 
     auto* sim = get_sim(L);
@@ -972,7 +976,8 @@ static int unit_SetConsumptionActive(lua_State* L) {
     if (!u) return 0;
     const bool on = lua_toboolean(L, 2) != 0;
     auto& econ = u->economy();
-    econ.consumption_active = on;
+    auto* sim = get_sim(L);
+    u->set_consumption_active(on, sim ? sim->get_army(u->army()) : nullptr);
     const bool was = econ.script_consumption_active;
     econ.script_consumption_active = on;
     if (was != on) u->call_lua_method(L, on ? "OnConsumptionActive" : "OnConsumptionInActive");

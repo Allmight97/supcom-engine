@@ -8,7 +8,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-struct GLFWwindow;
 struct lua_State;
 
 namespace osc::ui {
@@ -58,12 +57,9 @@ constexpr u8 kMouseMiddle = 2;
 constexpr u8 kMouseRight = 4;
 
 /// Manages GLFW input → UI event dispatch.
-/// Install callbacks, buffer events, dispatch to Lua HandleEvent.
+/// Buffer events, dispatch to Lua HandleEvent.
 class UIDispatch {
 public:
-    /// Install GLFW key/mouse/char callbacks on the window.
-    void install_callbacks(GLFWwindow* window);
-
     /// Dispatch all buffered events to Lua UI controls.
     /// Called once per frame from the main loop.
     void dispatch_events(lua_State* L, UIControlRegistry& registry);
@@ -71,7 +67,7 @@ public:
     /// Call OnFrame on all controls with NeedsFrameUpdate.
     void update_controls(lua_State* L, UIControlRegistry& registry, f64 dt);
 
-    // GLFW callback receivers (public so static callbacks can access)
+    // GLFW input events: a window's callbacks, and tests, call these
     void on_key(i32 key, i32 action, i32 mods);
     /// A press of the same button within kDoubleClickSeconds and
     /// kDoubleClickPixels of the last, not itself one, is a double-click
@@ -81,8 +77,6 @@ public:
     static constexpr f64 kDoubleClickSeconds = 0.5;
     static constexpr f64 kDoubleClickPixels = 2.0;
     void on_cursor_pos(f64 x, f64 y);
-    /// The window's cursor over this is the UI's (the player's --ui-scale)
-    void set_ui_zoom(f64 zoom) { ui_zoom_ = zoom; }
     void on_scroll(f64 y_offset);
     void on_char(u32 codepoint);
 
@@ -125,6 +119,14 @@ private:
     bool fire_handle_event(lua_State* L, UIControl* ctrl, const UIEvent& ev);
     /// HandleEvent up from a control until one consumes it (CMauiControl::PostEvent)
     void post_event(lua_State* L, UIControl* ctrl, const UIEvent& ev);
+    /// The root frame's control, or null.
+    UIControl* root_frame(lua_State* L);
+    /// The control under the mouse at (x, y): under the top input capture,
+    /// if any, or the capture itself where none of its children is.
+    UIControl* mouse_target(lua_State* L, UIControlRegistry& registry, f64 x, f64 y);
+    /// Make `target` the control the mouse is over, telling the old one
+    /// MouseExit and the new one MouseEnter if it changed.
+    void set_hover(lua_State* L, UIControl* target, const UIEvent& at);
     /// A key or character for a focused Edit taking input: Moho's CMauiEdit
     /// edits its text and calls its On* methods. False: not the Edit's.
     bool edit_event(lua_State* L, UIControlRegistry& registry, UIControl* edit, const UIEvent& ev);
@@ -152,7 +154,6 @@ private:
     std::vector<UIEvent> pending_events_;
     f64 mouse_x_ = 0;
     f64 mouse_y_ = 0;
-    f64 ui_zoom_ = 1.0;
     u8 buttons_down_ = 0; ///< kMouseLeft... held now
     /// The last press, which the next may make a double-click
     f64 last_press_time_ = -1.0;

@@ -928,17 +928,10 @@ void Unit::tick_commands(f64 dt, SimContext& ctx) {
     }
 
     // Its work goes at what its consumption request was granted last tick
-    // (Moho's ResourceConsumed); a capture asks through a request of its own,
-    // granted this tick
+    // (Moho's ResourceConsumed)
     f32 econ_eff = static_cast<f32>(economy_.resource_consumed);
     // (A unit of no army has no economy to ask: it works in full.)
     if (!ctx.sim || !ctx.sim->get_army(army())) econ_eff = 1.0f;
-    if (economy_.capture_energy > 0.0) {
-        econ_eff = 1.0f;
-        if (army() >= 0 && static_cast<u32>(army()) < SimContext::MAX_EFFICIENCY_ARMIES)
-            econ_eff = static_cast<f32>(
-                ctx.army_grants[static_cast<u32>(army())].of(0.0, economy_.capture_energy));
-    }
 
     // Assisting a silo is renewed each tick (see Guard); one that isn't ends
     // below.
@@ -989,17 +982,33 @@ void Unit::update(f64 dt, SimContext& ctx) {
 }
 
 void Unit::manage_resources(ArmyBrain* army) {
-    const bool upkeep = economy_.maintenance_active && economy_.energy_maintenance_override > 0.0;
-    const bool asking = economy_.consumption_active || upkeep;
-    economy_.resource_consumed = asking ? economy_.granted : 0.0;
+    constexpr f64 dt = SimState::SECONDS_PER_TICK;
+    economy_.ask_consumption(dt);
+    EconRequest& request = economy_.consumption_request;
+    const f32 rate = request.limiting_rate();
+    const bool asking = economy_.asking();
+    economy_.resource_consumed = asking ? rate : 0.0;
+    if (asking) {
+        economy_.spend(
+            request.withdraw({request.requested.mass * rate, request.requested.energy * rate}), dt);
+    }
     holds_storage_ = producing();
     economy_.produced_mass = 0;
     economy_.produced_energy = 0;
     if (holds_storage_ && army) {
-        const f64 rate = asking && !economy_.natural_producer ? economy_.granted : 1.0;
-        economy_.produced_mass = economy_.production_mass * rate;
-        economy_.produced_energy = economy_.production_energy * rate;
-        army->bank(economy_.produced_mass, economy_.produced_energy);
+        const f64 share = economy_.natural_producer ? 1.0 : rate;
+        economy_.produced_mass = economy_.production_mass * share;
+        economy_.produced_energy = economy_.production_energy * share;
+        army->bank_pending(economy_.produced_mass, economy_.produced_energy);
+    }
+}
+
+void Unit::set_consumption_active(bool on, ArmyBrain* army) {
+    economy_.consumption_active = on;
+    const EconValue& held = economy_.consumption_request.granted;
+    if (!on && army && (held.mass > 0.0f || held.energy > 0.0f)) {
+        constexpr f64 dt = SimState::SECONDS_PER_TICK;
+        army->bank(held.mass / dt, held.energy / dt);
     }
 }
 
@@ -1007,7 +1016,7 @@ void Unit::bank_reclaim(ArmyBrain* army) {
     economy_.reclaimed_mass = army ? economy_.reclaim_mass : 0;
     economy_.reclaimed_energy = army ? economy_.reclaim_energy : 0;
     if (army && (economy_.reclaimed_mass != 0.0 || economy_.reclaimed_energy != 0.0)) {
-        army->bank(economy_.reclaimed_mass, economy_.reclaimed_energy);
+        army->bank_reclaim(economy_.reclaimed_mass, economy_.reclaimed_energy);
     }
 }
 
@@ -1248,14 +1257,19 @@ void Unit::tick_silo(f64 dt, SimContext& ctx) {
     if (is_being_built() || !(silo_building() || !silo_orders_.empty() || auto_mode_)) {
         return;
     }
-    // A missile asks through a request of its own (Moho's CAiSiloBuildImpl), granted this tick.
-    f32 silo_eff = 1.0f;
-    if (army() >= 0 && static_cast<u32>(army()) < SimContext::MAX_EFFICIENCY_ARMIES && ctx.sim &&
-        ctx.sim->get_army(army())) {
-        silo_eff = static_cast<f32>(
-            ctx.army_grants[static_cast<u32>(army())].of(economy_.silo_mass, economy_.silo_energy));
+    // A missile asks through a request of its own (Moho's CAiSiloBuildImpl).
+    update_silo(dt, take_grant(economy_.silo_request, ctx) ? 1.0f : 0.0f, ctx.L);
+}
+
+bool Unit::take_grant(EconRequest& request, const SimContext& ctx) {
+    if (!ctx.sim || !ctx.sim->get_army(army())) {
+        return true;
     }
-    update_silo(dt, silo_eff, ctx.L);
+    const std::optional<EconValue> taken = request.take();
+    if (taken) {
+        economy_.spend(*taken, SimState::SECONDS_PER_TICK);
+    }
+    return taken.has_value();
 }
 
 void Unit::tick_upkeep(f64 dt, SimContext& ctx) {
@@ -1347,8 +1361,8 @@ Unit::BuildStart Unit::start_build(const UnitCommand& cmd, EntityRegistry& regis
         static_cast<Unit*>(target)->set_unit_state("BeingUpgraded", true);
     }
 
-    // Read economy data from the target blueprint
-    if (blueprints::push_blueprint(L, cmd.blueprint_id)) {
+    // Use the created unit's canonical blueprint id, including for AI orders.
+    if (blueprints::push_blueprint(L, target->blueprint_id())) {
         lua_pushstring(L, "Economy");
         lua_gettable(L, -2);
         if (lua_istable(L, -1)) {
@@ -1500,10 +1514,12 @@ void Unit::finish_build(EntityRegistry& registry, lua_State* L, bool success,
 
     if (success && target_id != 0) {
         auto* target = registry.find(target_id);
+        Unit* completed_here = nullptr;
         // Completed once: another builder (or a repairer) may have finished
         // it already this tick.
         if (target && target->is_unit() && static_cast<Unit*>(target)->is_being_built()) {
             auto* target_unit = static_cast<Unit*>(target);
+            completed_here = target_unit;
             target_unit->set_is_being_built(false);
             target_unit->set_unit_state("BeingUpgraded", false);
             target_unit->set_fraction_complete(1.0f);
@@ -1511,19 +1527,6 @@ void Unit::finish_build(EntityRegistry& registry, lua_State* L, bool success,
 
             spdlog::info("finish_build: entity #{} completed building target #{}", entity_id(),
                          target_id);
-
-            // A unit built by its army (Moho's Units_History)
-            lua_pushstring(L, "osc_sim_state");
-            lua_rawget(L, LUA_REGISTRYINDEX);
-            auto* sim_for_stat = static_cast<sim::SimState*>(lua_touserdata(L, -1));
-            lua_pop(L, 1);
-            if (sim_for_stat) {
-                if (auto* brain = sim_for_stat->get_army(target_unit->army())) {
-                    brain->record_unit_built(target_unit->blueprint_id(),
-                                             target_unit->build_cost_mass(),
-                                             target_unit->build_cost_energy());
-                }
-            }
 
             // Call target:OnStopBeingBuilt(builder, layer)
             if (target->lua_table_ref() >= 0) {
@@ -1554,6 +1557,21 @@ void Unit::finish_build(EntityRegistry& registry, lua_State* L, bool success,
         // Re-validate target after OnStopBeingBuilt callback
         // (Lua callback may have destroyed the entity)
         target = registry.find(target_id);
+
+        lua_pushstring(L, "osc_sim_state");
+        lua_rawget(L, LUA_REGISTRYINDEX);
+        auto* sim_for_stat = static_cast<sim::SimState*>(lua_touserdata(L, -1));
+        lua_pop(L, 1);
+        // Count only this completion, even if its callback removed or replaced
+        // the unit. The registry retains its memory until the tick ends; its
+        // removal and completion must both contribute to the army's counts.
+        auto* brain = sim_for_stat && completed_here
+                          ? sim_for_stat->get_army(completed_here->army())
+                          : nullptr;
+        if (brain) {
+            const BuildEconomy cost = blueprint_build_economy(L, completed_here->blueprint_id());
+            brain->record_unit_built(*completed_here, cost.mass, cost.energy);
+        }
 
         // The completed structure now blocks paths until it is removed
         // (after re-validation — only if target survived OnStopBeingBuilt)
@@ -2214,6 +2232,8 @@ bool Unit::start_capture(const UnitCommand& cmd, EntityRegistry& registry,
     work_progress_ = 0.0f;
 
     economy_.capture_energy = capture_energy_cost_ / capture_time_;
+    economy_.capture_request = {};
+    economy_.capture_request.ask(0.0, economy_.capture_energy * SimState::SECONDS_PER_TICK);
 
     spdlog::info("start_capture: entity #{} capturing #{} "
                  "(BuildTime={:.0f} BuildRate={:.1f} captureTime={:.1f}s energy={:.0f})",

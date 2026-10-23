@@ -29,6 +29,7 @@
 #include "renderer/playable_rect.hpp"
 #include "renderer/recon_view.hpp"
 #include "renderer/unit_renderer.hpp"
+#include "renderer/window.hpp"
 #include "renderer/sky_renderer.hpp"
 #include "renderer/boundary_renderer.hpp"
 #include "renderer/cartographic_renderer.hpp"
@@ -73,7 +74,6 @@
 #include <unordered_set>
 #include <vector>
 
-struct GLFWwindow;
 struct GLFWcursor;
 struct lua_State;
 
@@ -132,10 +132,7 @@ public:
     void set_offscreen_scale(f32 scale) { offscreen_scale_ = scale; }
     /// The player's zoom of the UI on top of the display's scale (--ui-scale):
     /// the root frame is the window's points over it
-    void set_ui_zoom(f32 zoom) {
-        ui_zoom_ = zoom;
-        ui_dispatch_.set_ui_zoom(zoom);
-    }
+    void set_ui_zoom(f32 zoom) { ui_zoom_ = zoom; }
     f32 ui_zoom() const { return ui_zoom_; }
 
     /// One-time scene upload (terrain mesh, static buffers, and the meshes
@@ -150,6 +147,7 @@ public:
     void forget_ui_controls() {
         ui_dispatch_.forget_controls();
         movie_textures_.forget();
+        cached_world_shapes_.clear();
     }
     /// The UI's input, as the window's callbacks feed it (a scripted test
     /// clicks through it as a player would).
@@ -169,10 +167,23 @@ public:
     /// quads, emitter origins -- as sorted text lines, so two runs (or two
     /// implementations) can be compared exactly.
     void dump_frame(std::ostream& out) const;
+    /// Opt in before drawing to include mesh dispatch decisions in frame dumps.
+    void set_record_dispatch(bool record);
 
     /// Render only the UI layer (no 3D scene, no bloom).
     /// Used during the loading screen and front end, when there is no world.
     void render_ui_only(lua_State* L, ui::UIControlRegistry* ui_registry);
+    /// The UI's frame ahead of the draw (OE-134): its controls' frame
+    /// callbacks, its events and (`world`: with a world drawn) its
+    /// animations, which run its scripts, and they may read the live sim:
+    /// run while no tick runs on the sim's thread. The frame's step is taken
+    /// here; the next render or render_ui_only draws with it and doesn't run
+    /// them again.
+    void run_ui_frame(lua_State* L, ui::UIControlRegistry* ui_registry, bool world);
+    /// A frame drawn while the sim's ticks run (its UI scripts may read the
+    /// live sim): the frame's step is taken, and its UI frame callbacks,
+    /// events and animations wait for the next frame that runs them.
+    void skip_ui_frame();
 
     /// An order's feedback blip from the UI (AddCommandFeedbackBlip), made
     /// at the newest game tick and shown for its duration.
@@ -198,6 +209,7 @@ public:
 
     /// Clean up all Vulkan resources.
     void shutdown();
+    ~Renderer() { shutdown(); }
 
     /// Mouse scroll callback (called from GLFW callback).
     void on_scroll(f64 y_offset);
@@ -280,6 +292,8 @@ public:
     /// The terrain shader's Time, TTerrainGlow's scroll (tests read it;
     /// M212f).
     f32 terrain_time() const { return terrain_time_.value(); }
+    /// The published terrain used by rendering, independent of sim writes.
+    const map::Terrain* rendered_terrain() const { return terrain_; }
     /// The shoreline's wave generators (tests read them; M213c).
     const WaveSystem& wave_system() const { return wave_system_; }
     /// The beams drawn last frame (tests read them; M214a).
@@ -595,6 +609,13 @@ public:
     const std::string& device_name() const { return device_name_; }
 
 private:
+    /// The frame's step: the one run_ui_frame took, else the clock's.
+    f32 take_frame_dt();
+    bool scripts_suspended_ = false;
+    bool ui_ran_early_ = false; ///< run_ui_frame ran this frame
+    f32 early_dt_ = 0.0f;       ///< the step it took
+
+
     static VkBool32 VKAPI_CALL vulkan_debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT severity,
         VkDebugUtilsMessageTypeFlagsEXT type,
@@ -824,7 +845,7 @@ private:
     void refresh_ui_scale();
 
     // GLFW
-    GLFWwindow* window_ = nullptr;
+    WindowPtr window_;
     u32 window_width_ = 0;
     u32 window_height_ = 0;
     f32 ui_scale_ = 1.0f;
@@ -995,6 +1016,10 @@ private:
     std::string system_cursor_key_; ///< the one set now ("" none)
     bool system_cursor_set_ = false;
     bool offscreen_ = false;
+    bool record_dispatch_ = false;
+    std::vector<std::string> dump_views_;
+    void clear_dispatch();
+    void capture_view_dispatch(u32 view);
     vfs::VirtualFileSystem* vfs_ = nullptr; ///< where the cursor's images are read
     WaterRenderer water_renderer_;
     SkyRenderer sky_renderer_; // the map's sky dome (M210b)
@@ -1196,8 +1221,11 @@ private:
     EmitterBlueprintCache emitter_bp_cache_;
     /// The map build_scene drew (its water, for particles; M214c).
     const map::Terrain* terrain_ = nullptr;
+    const map::Terrain* terrain_source_ = nullptr; ///< read only on settled frames
+    std::unique_ptr<map::Terrain> terrain_snapshot_;
     BeamRenderer beam_renderer_;
     CommandGraphRenderer command_graph_renderer_;
+    std::unordered_map<const ui::WorldView*, std::vector<ShapeQuad>> cached_world_shapes_;
     WorldShapes world_shapes_;          ///< FAF's world drawing, this frame
     WorldQuadBatch world_shapes_batch_; ///< and drawn
     bool ui_keys_blocked_ = false;
@@ -1249,11 +1277,13 @@ private:
     /// End the scene pass open, copy the frame (copy_refraction), and go on
     /// drawing in `next`, one of the scene's passes that load (M214d).
     void copy_and_continue(VkCommandBuffer cmd, VkRenderPass next);
+    /// The role of the pipeline actually selected for a world mesh draw.
+    const char* mesh_pipeline_role(VkPipeline pipeline) const;
     /// Which meshes a draw_meshes call draws (M213b): Moho's buckets
     /// before and after the water, or the units in its reflection.
-    /// Moho's mesh stages: before the water (All on a map without one),
-    /// after it, into its reflection, and after the effects above it, the
-    /// shields' (M211k).
+    /// Moho's mesh stages: before the water, after it, into its reflection,
+    /// and after the effects above it, the shields' (M211k). Dry maps use
+    /// the same stages.
     enum class MeshPass { All, BeforeWater, AfterWater, Reflection, AfterEffects };
     /// The mesh instances' draws, with the scene's pipelines, seen by `vp`
     /// (for the reflection, already mirrored).

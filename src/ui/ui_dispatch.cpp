@@ -43,31 +43,6 @@ void report_ui_callback_error(const std::string& what) {
 
 namespace osc::ui {
 
-// File-static pointer for safe GLFW callback routing without conflicting
-// with Renderer's glfwSetWindowUserPointer.
-static UIDispatch* s_dispatch = nullptr;
-
-void UIDispatch::install_callbacks(GLFWwindow* window) {
-    s_dispatch = this;
-    glfwSetKeyCallback(window, [](GLFWwindow*, int key, int /*scancode*/,
-                                   int action, int mods) {
-        if (s_dispatch) s_dispatch->on_key(key, action, mods);
-    });
-    glfwSetMouseButtonCallback(window, [](GLFWwindow*, int button,
-                                           int action, int mods) {
-        if (s_dispatch) s_dispatch->on_mouse_button(button, action, mods);
-    });
-    glfwSetCursorPosCallback(window, [](GLFWwindow*, double x, double y) {
-        if (s_dispatch) {
-            s_dispatch->on_cursor_pos(x / s_dispatch->ui_zoom_, y / s_dispatch->ui_zoom_);
-        }
-    });
-    glfwSetCharCallback(window, [](GLFWwindow*, unsigned int cp) {
-        if (s_dispatch) s_dispatch->on_char(cp);
-    });
-    spdlog::debug("UIDispatch: installed GLFW callbacks via static pointer");
-}
-
 void UIDispatch::on_key(i32 key, i32 action, i32 mods) {
     UIEvent e;
     e.type = (action == GLFW_RELEASE) ? UIEventType::KEY_UP
@@ -525,10 +500,7 @@ bool UIDispatch::edit_event(lua_State* L, UIControlRegistry& registry, UIControl
     return true;
 }
 
-void UIDispatch::dispatch_events(lua_State* L, UIControlRegistry& registry) {
-    if (pending_events_.empty()) return;
-
-    // Get root frame for hit testing
+UIControl* UIDispatch::root_frame(lua_State* L) {
     UIControl* root = nullptr;
     lua_pushstring(L, "__osc_root_frame");
     lua_rawget(L, LUA_REGISTRYINDEX);
@@ -540,6 +512,36 @@ void UIDispatch::dispatch_events(lua_State* L, UIControlRegistry& registry) {
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
+    return root;
+}
+
+UIControl* UIDispatch::mouse_target(lua_State* L, UIControlRegistry& registry, f64 x, f64 y) {
+    UIControl* const capture = registry.input_capture();
+    UIControl* const root = capture ? capture : root_frame(L);
+    UIControl* target = root ? hit_test(L, root, x, y) : nullptr;
+    return target ? target : capture;
+}
+
+void UIDispatch::set_hover(lua_State* L, UIControl* target, const UIEvent& at) {
+    if (hover_control_ && hover_control_->destroyed()) hover_control_ = nullptr;
+    if (target == hover_control_) return;
+    if (hover_control_) {
+        UIEvent exit_ev = at;
+        exit_ev.type = UIEventType::MOUSE_EXIT;
+        post_event(L, hover_control_, exit_ev);
+    }
+    // Re-validate target after exit callback (may have destroyed it)
+    if (target && target->destroyed()) target = nullptr;
+    if (target) {
+        UIEvent enter_ev = at;
+        enter_ev.type = UIEventType::MOUSE_ENTER;
+        post_event(L, target, enter_ev);
+    }
+    hover_control_ = target;
+}
+
+void UIDispatch::dispatch_events(lua_State* L, UIControlRegistry& registry) {
+    if (pending_events_.empty()) return;
 
     // Swap events into a local copy before processing.  Lua pcall during
     // event handling (e.g. ButtonSkirmish → lobby import) can trigger GLFW
@@ -657,27 +659,15 @@ void UIDispatch::dispatch_events(lua_State* L, UIControlRegistry& registry) {
         // capture, if any, whose own control takes a point over none of
         // its children (Moho).
         UIControl* const capture = registry.input_capture();
-        UIControl* const hit_root = capture ? capture : root;
-        UIControl* target = hit_root ? hit_test(L, hit_root, ev.mouse_x, ev.mouse_y) : nullptr;
-        if (!target) target = capture;
+        UIControl* const hit_root = capture ? capture : root_frame(L);
+        UIControl* target = mouse_target(L, registry, ev.mouse_x, ev.mouse_y);
 
-        // Mouse enter/exit tracking — fire HandleEvent with MouseEnter/MouseExit
-        // FA's Button.HandleEvent expects {Type='MouseEnter'} and {Type='MouseExit'}
-        if (ev.type == UIEventType::MOUSE_MOTION && target != hover_control_) {
-            if (hover_control_ && !hover_control_->destroyed()) {
-                UIEvent exit_ev = ev;
-                exit_ev.type = UIEventType::MOUSE_EXIT;
-                post_event(L, hover_control_, exit_ev);
-            }
-            // Re-validate target after exit callback (may have destroyed it)
-            if (target && target->destroyed()) target = nullptr;
-            if (target) {
-                UIEvent enter_ev = ev;
-                enter_ev.type = UIEventType::MOUSE_ENTER;
-                post_event(L, target, enter_ev);
-            }
-            hover_control_ = target;
-        }
+        // Mouse enter/exit tracking -- fire HandleEvent with MouseEnter/MouseExit
+        // FA's Button.HandleEvent expects {Type='MouseEnter'} and {Type='MouseExit'}.
+        // On a press or release too, not only on motion: a button made under the
+        // mouse earlier in this batch is told the mouse is over it before its click.
+        set_hover(L, target, ev);
+        if (target && target->destroyed()) target = nullptr;
 
         if (ev.type == UIEventType::MOUSE_MOTION) {
             hover_item_list(L, target, ev);

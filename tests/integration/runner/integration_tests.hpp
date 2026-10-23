@@ -107,6 +107,9 @@ void test_bloom(TestContext& ctx);
 void test_build_shaders(TestContext& ctx);
 /// --effect-mesh-test (M211g), in effect_mesh_test.cpp.
 void test_effect_meshes(TestContext& ctx);
+
+/// --dispatch-matrix-test: every mesh technique, fidelity and view.
+void test_dispatch_matrix(TestContext& ctx, TestContext& ui);
 /// --skinning-test (M211h), in skinning_test.cpp.
 void test_skinning(TestContext& ctx);
 /// --prop-material-test (M211i), in prop_material_test.cpp.
@@ -178,6 +181,8 @@ void test_skirt_render(TestContext& ctx);
 void test_gpu_pass_timing(TestContext& ctx);
 /// --shield-render-test (M211k), in shield_render_test.cpp.
 void test_shield_render(TestContext& ctx);
+/// --viz-render-test, in viz_render_test.cpp.
+void test_viz_render(TestContext& ctx);
 /// --mesh-capacity-test, in mesh_capacity_test.cpp.
 void test_mesh_capacity(TestContext& ctx);
 /// --water-reflection-test (M213b), in water_reflection_test.cpp.

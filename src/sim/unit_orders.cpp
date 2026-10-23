@@ -332,7 +332,10 @@ bool Unit::tick_orders(f64 dt, SimContext& ctx, f32 econ_eff) {
         if (destroyed() || !in_registry()) return false;
         if (!command_queue_.front().begun) {
             // IAiCommandDispatchImpl::Execute starts no command while its unit is attached.
-            if (parent_entity_id() != 0) {
+            // FAF's external factory (a carrier's, a Fatboy's: EXTERNALFACTORYUNIT, a
+            // category retail never uses) builds while attached, as FAF's engine lets it.
+            static const CategoryName kExternalFactory{"EXTERNALFACTORYUNIT"};
+            if (parent_entity_id() != 0 && !has_category(kExternalFactory)) {
                 return true;
             }
             // Its scripts may change the queue, or kill the unit: look again.
@@ -403,7 +406,7 @@ OrderStep Unit::run_order(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_ef
     case CommandType::AggressiveMove: return order_patrol(cmd, ctx);
     case CommandType::Reclaim: return order_reclaim(cmd, dt, ctx);
     case CommandType::Repair: return order_repair(cmd, dt, ctx, econ_eff);
-    case CommandType::Capture: return order_capture(cmd, dt, ctx, econ_eff);
+    case CommandType::Capture: return order_capture(cmd, dt, ctx);
     case CommandType::Guard: return order_guard(cmd, dt, ctx, econ_eff);
     case CommandType::Dive: return order_dive(ctx.L);
     case CommandType::Enhance: return order_enhance(cmd, dt, ctx, econ_eff);
@@ -1451,7 +1454,7 @@ OrderStep Unit::order_repair_construction(UnitCommand& cmd, f64 dt, SimContext& 
     return done();
 }
 
-OrderStep Unit::order_capture(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 econ_eff) {
+OrderStep Unit::order_capture(UnitCommand& cmd, f64 dt, SimContext& ctx) {
     auto& registry = ctx.registry;
     auto* L = ctx.L;
     if (cmd.target_id == 0) {
@@ -1520,7 +1523,8 @@ OrderStep Unit::order_capture(UnitCommand& cmd, f64 dt, SimContext& ctx, f32 eco
     }
 
     // Progress capture
-    if (!progress_capture(dt, registry, L, econ_eff)) {
+    if (!progress_capture(dt, registry, L,
+                          take_grant(economy_.capture_request, ctx) ? 1.0f : 0.0f)) {
         command_queue_.pop_front();
         return OrderStep::Next;
     }

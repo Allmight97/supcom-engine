@@ -35,6 +35,7 @@ extern "C" {
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -534,7 +535,9 @@ TEST_CASE("A stats trigger that holds from the start fires on tick 11, in its ar
                   "   fired = GetGameTick()"
                   "   ForkThread(function() forked = GetGameTick() end)"
                   " end"));
-    w.sim.get_army(0)->add_stat_trigger({"Economy_Ratio_Mass", "Low", "LessThan", 0.1, ""});
+    w.sim.get_army(0)->make_stat("Economy_Ratio_Mass");
+    w.sim.get_army(0)->add_stat_trigger(
+        {"Economy_Ratio_Mass", "Low", "LessThan", 0.1, std::nullopt});
     for (int t = 0; t < 15; ++t) {
         w.sim.tick();
     }
@@ -551,7 +554,8 @@ TEST_CASE("The unit-cap stats are counted after their army's triggers", "[tick-p
         w.sim.tick();
     }
     const double before = w.sim.get_army(0)->get_stat("UnitCap_Current");
-    w.sim.get_army(0)->add_stat_trigger({"UnitCap_Current", "More", "GreaterThan", before, ""});
+    w.sim.get_army(0)->add_stat_trigger(
+        {"UnitCap_Current", "More", "GreaterThan", before, std::nullopt});
     REQUIRE(
         w.run("ForkThread(function() made = GetGameTick() CreateUnit('tank', 1, 50, 10, 50) end)"));
     for (int t = 0; t < 5; ++t) {
@@ -697,6 +701,34 @@ TEST_CASE("An economy event a Lua thread makes takes its first step in its unit'
     CHECK(w.number("waited") == w.number("made") + 2);
 }
 
+TEST_CASE("Each SetConsumptionActive(false) a Lua thread calls banks the request's grant as the "
+          "next tick's income",
+          "[tick-phases]") {
+    const int calls = GENERATE(1, 2);
+    CAPTURE(calls);
+    Phases w;
+    w.brain("brain", 0);
+    osc::sim::ArmyBrain& army = *w.sim.get_army(0);
+    army.set_extra_storage(0.0, 1000.0);
+    army.set_stored_resources(0.0, 1000.0);
+    Unit& u = w.make("u", "tank", 1, 100.0f, 100.0f);
+    u.economy().consumption_energy = 20.0;
+    u.economy().consumption_active = true;
+    w.sim.tick();
+    REQUIRE(w.run("calls = " + std::to_string(calls) +
+                  " stopped = 0 ForkThread(function()"
+                  "   WaitTicks(2)"
+                  "   for i = 1, calls do u:SetConsumptionActive(false) end"
+                  "   stopped = GetGameTick() WaitTicks(1)"
+                  "   income = brain:GetEconomyIncome('ENERGY')"
+                  " end)"));
+    for (int t = 0; t < 5; ++t) {
+        w.sim.tick();
+    }
+    REQUIRE(w.number("stopped") > 0);
+    CHECK(w.number("income") == Catch::Approx(2.0 * calls));
+}
+
 TEST_CASE("Reclaim is banked in the order phase", "[tick-phases]") {
     Phases w;
     w.brain("brain", 0);
@@ -735,6 +767,45 @@ TEST_CASE("A resource a Lua thread gives is income at the next economy, stored t
     CHECK(w.number("now") == 0.0f);
     CHECK(w.number("stored") == Catch::Approx(650.0));
     CHECK(w.number("income") == Catch::Approx(650.0));
+}
+
+TEST_CASE("SetArmyEconomy is income at the next economy, stored through it, as GiveResource",
+          "[tick-phases]") {
+    struct Case {
+        double mass, energy;
+        const char* calls;
+        double income_mass, income_energy;
+    };
+    const Case c = GENERATE(
+        Case{300.0, 2000.0, "SetArmyEconomy('ARMY_1', 100, 1000)", 100.0, 1000.0},
+        Case{300.0, 2000.0, "SetArmyEconomy('ARMY_1', 10, 100)", 10.0, 100.0},
+        Case{300.0, 2000.0, "SetArmyEconomy('ARMY_1', -50, -500)", -50.0, -500.0},
+        Case{300.0, 2000.0, "SetArmyEconomy('ARMY_1', 100, 1000) SetArmyEconomy('ARMY_1', 50, 500)",
+             150.0, 1500.0},
+        Case{650.0, 4000.0, "SetArmyEconomy('ARMY_1', 100, 1000)", 100.0, 1000.0});
+    Phases w;
+    w.brain("brain", 0);
+    w.sim.get_army(0)->set_extra_storage(650.0, 4000.0);
+    w.sim.get_army(0)->set_stored_resources(c.mass, c.energy);
+    w.sim.tick();
+    REQUIRE(w.run(std::string("called = 0 ForkThread(function()"
+                              "   called = GetGameTick() ") +
+                  c.calls +
+                  "   nowM = brain:GetEconomyStored('MASS') nowE = brain:GetEconomyStored('ENERGY')"
+                  "   WaitTicks(1)"
+                  "   incM = brain:GetEconomyIncome('MASS') incE = brain:GetEconomyIncome('ENERGY')"
+                  "   stM = brain:GetEconomyStored('MASS') stE = brain:GetEconomyStored('ENERGY')"
+                  " end)"));
+    for (int t = 0; t < 3; ++t) {
+        w.sim.tick();
+    }
+    REQUIRE(w.number("called") > 0);
+    CHECK(w.number("nowM") == Catch::Approx(c.mass));
+    CHECK(w.number("nowE") == Catch::Approx(c.energy));
+    CHECK(w.number("incM") == Catch::Approx(c.income_mass));
+    CHECK(w.number("incE") == Catch::Approx(c.income_energy));
+    CHECK(w.number("stM") == Catch::Approx(std::clamp(c.mass + c.income_mass, 0.0, 650.0)));
+    CHECK(w.number("stE") == Catch::Approx(std::clamp(c.energy + c.income_energy, 0.0, 4000.0)));
 }
 
 TEST_CASE("An army's overflow reaches a higher-index ally that tick, a lower-index one the next",

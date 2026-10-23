@@ -567,11 +567,7 @@ static int brain_GetArmyStat(lua_State* L) {
         return 1;
     }
     const char* stat_name = luaL_checkstring(L, 2);
-    f64 def_val = 0;
-    if (lua_isnumber(L, 3)) {
-        def_val = lua_tonumber(L, 3);
-    }
-    f64 val = brain->get_stat(stat_name, def_val);
+    f64 val = brain->make_stat(stat_name);
     lua_newtable(L);
     lua_pushstring(L, "Value"); lua_pushnumber(L, val); lua_rawset(L, -3);
     return 1;
@@ -586,33 +582,52 @@ static int brain_SetArmyStat(lua_State* L) {
     return 0;
 }
 
-// GetBlueprintStat(self, statName, category) -> number: the stat over the
-// blueprints in the category (retail's score splits kills, builds and losses
-// into land, air, naval, structures, commanders and experimentals). A plain
-// number, unlike GetArmyStat's {Value = n}.
+static bool blueprint_in(lua_State* L, const blueprints::BlueprintStore& store,
+                         const blueprints::BlueprintEntry& entry, const CategoryMatcher& category) {
+    store.push_lua_table(entry, L);
+    std::unordered_set<std::string> cats;
+    sim::collect_blueprint_categories(L, lua_gettop(L), cats);
+    lua_pop(L, 1);
+    return category.matches(cats);
+}
+
+// Moho's CAiBrain::GetBlueprintStat: SumCategory, 0 for a stat without per-blueprint counts
 static int brain_GetBlueprintStat(lua_State* L) {
     auto* brain = check_brain(L);
     if (!brain) { lua_pushnumber(L, 0); return 1; }
     const char* stat_name = luaL_checkstring(L, 2);
     const auto* per_bp = brain->blueprint_stats(stat_name);
-    auto* store = LuaState::get_blueprint_store(L);
-    if (!lua_istable(L, 3) || !per_bp || !store) {
-        lua_pushnumber(L, lua_istable(L, 3) && per_bp ? 0.0 : brain->get_stat(stat_name, 0.0));
-        return 1;
-    }
+    auto* sim = get_sim(L);
+    const auto* store = sim ? sim->blueprint_store() : nullptr;
     f64 total = 0.0;
-    const CategoryMatcher category(L, 3);
-    for (const auto& [bp_id, value] : *per_bp) {
-        auto* entry = store->find(bp_id);
-        if (!entry) continue;
-        store->push_lua_table(*entry, L);
-        std::unordered_set<std::string> cats;
-        sim::collect_blueprint_categories(L, lua_gettop(L), cats);
-        lua_pop(L, 1);
-        if (category.matches(cats)) total += value;
+    if (per_bp && store && lua_istable(L, 3)) {
+        const CategoryMatcher category(L, 3);
+        for (const auto& [bp_id, value] : *per_bp) {
+            const auto* entry = store->find(bp_id);
+            if (entry && blueprint_in(L, *store, *entry, category)) {
+                total += value;
+            }
+        }
     }
     lua_pushnumber(L, total);
     return 1;
+}
+
+// The unit blueprints in the category at `idx`, as Moho's EntityCategorySet holds them
+static std::set<std::string> unit_blueprints_in(lua_State* L, int idx) {
+    std::set<std::string> ids;
+    auto* sim = get_sim(L);
+    const auto* store = sim ? sim->blueprint_store() : nullptr;
+    if (!store) {
+        return ids;
+    }
+    const CategoryMatcher category(L, idx);
+    for (const auto* entry : store->get_all(blueprints::BlueprintType::Unit)) {
+        if (blueprint_in(L, *store, *entry, category)) {
+            ids.insert(entry->id);
+        }
+    }
+    return ids;
 }
 
 static int brain_GetEconomyOverTime(lua_State* L) {
@@ -2254,15 +2269,18 @@ static int brain_SetArmyStatsTrigger(lua_State* L) {
     if (!brain) {
         return 0;
     }
+    const char* stat = luaL_checkstring(L, 2);
     sim::StatTrigger t;
-    t.stat = luaL_checkstring(L, 2);
+    t.stat = stat;
     t.name = luaL_checkstring(L, 3);
     t.compare = luaL_checkstring(L, 4);
     t.value = luaL_checknumber(L, 5);
-    if (!lua_isnoneornil(L, 6)) {
-        t.category = "category";
+    if (lua_istable(L, 6)) {
+        t.blueprints = unit_blueprints_in(L, 6);
     }
-    brain->add_stat_trigger(std::move(t));
+    if (!brain->add_stat_trigger(std::move(t))) {
+        spdlog::warn("ArmyStatItem {} does not exist.", stat);
+    }
     return 0;
 }
 
@@ -2413,8 +2431,10 @@ std::vector<const sim::Unit*> units_around(const sim::SimState& sim, i32 army,
 // x, z)`, if given, agrees). Closest and Furthest rank them from the squad
 // with no category; given one they take the first (Moho looks for a unit
 // of the army outside the category it gathered by, and so finds none).
-// HighestValue and LeastDefended score what stands about the squad --
-// every vector alike -- and fall back on Closest when that is nothing.
+// HighestValue and LeastDefended score units within 32 of each candidate,
+// choosing the greatest cost or smallest nonzero count, respectively
+// (faf-re CAiBrain.cpp, 4070e8c6, lines 1954-2005). Both fall back on
+// Closest when no candidate has units.
 // Nil with no current enemy, no such squad, or no vector.
 static int brain_PickBestAttackVector(lua_State* L) {
     const int n = lua_gettop(L);
@@ -2516,12 +2536,16 @@ static int brain_PickBestAttackVector(lua_State* L) {
         lua_pop(L, 1);
         return yes;
     };
-    const auto value_about = [&](f32 reach) {
-        const auto units = units_around(*sim, brain->index(), category, centre, reach,
+    const auto value_about = [&](const sim::Vector3& at) {
+        const auto units = units_around(*sim, brain->index(), category, at, 32.0f,
                                         static_cast<Alliance>(alliance));
         f32 sum = 0;
-        for (const sim::Unit* u : units)
-            sum += static_cast<f32>(u->build_cost_mass() + u->build_cost_energy());
+        for (const sim::Unit* u : units) {
+            // What each unit cost (its blueprint's); build_cost_mass() is
+            // what a builder is building, so every area was worth nothing
+            const auto cost = sim::blueprint_build_economy(L, u->blueprint_id());
+            sum += static_cast<f32>(cost.mass + cost.energy);
+        }
         return std::pair<f32, f32>{sum, static_cast<f32>(units.size())};
     };
 
@@ -2542,14 +2566,15 @@ static int brain_PickBestAttackVector(lua_State* L) {
                        (how == Compare::Closest ? score < best_score : score > best_score);
                 break;
             case Compare::HighestValue:
-                score = value_about(0.0f).first;
+                score = value_about(at).first;
                 keep = score > best_score || best_score < 0.0f ||
                        (best && score == best_score &&
                         dist_sq(best->position, centre) > dist_sq(at, centre));
                 break;
             case Compare::LeastDefended:
-                score = value_about(32.0f).second;
-                keep = score > best_score || best_score < 0.0f;
+                score = value_about(at).second;
+                keep = ((best_score > score || best_score == 0.0f) && score > 0.0f) ||
+                       best_score < 0.0f;
                 break;
             }
             if (keep) {

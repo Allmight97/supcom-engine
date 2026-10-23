@@ -297,9 +297,10 @@ int uu_GetEconData(lua_State* L) {
     const auto* r = record(L);
     lua_newtable(L);
     if (!r) return 1;
+    // Whole units a second, as the original game's UserUnit:GetEconData reports them.
     const auto set = [&](const char* key, f32 value) {
         lua_pushstring(L, key);
-        lua_pushnumber(L, value);
+        lua_pushnumber(L, static_cast<int>(value));
         lua_rawset(L, -3);
     };
     set("massProduced", r->mass_produced);
@@ -565,6 +566,10 @@ const sim::WorldSnapshot* ui_world(lua_State* L) {
     lua_rawget(L, LUA_REGISTRYINDEX);
     auto* history = static_cast<sim::WorldHistory*>(lua_touserdata(L, -1));
     lua_pop(L, 1);
+    // While a tick runs on the sim's thread (OE-134) the live sim isn't
+    // the UI's to read: the last published capture is what is drawn
+    if (sim->ticking_elsewhere())
+        return history && history->ticks_captured() > 0 ? &history->cur() : nullptr;
     if (history && history->ticks_captured() > 0 && history->cur().tick == sim->tick_count()) {
         history->refresh_pending(*sim);
         return &history->cur();
