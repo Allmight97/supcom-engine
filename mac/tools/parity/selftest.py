@@ -360,6 +360,14 @@ def test_repeat_rule():
         make_run(tmp, 'timing', 'r2', timing_log().replace('progress=0.0300', 'progress=0.0301'))
         expect(runs.settle(adapter, 'timing') is None, 'two captures that differ make no baseline')
         expect(make_run(tmp, 'timing', 'r3', timing_log(), game=GAME)[0] and runs.settle(adapter, 'timing'), 'the third matches the first')
+        make_run(tmp, 'timing', 'r4', timing_log(), hook='a revised hook\n')
+        expect(runs.settle(adapter, 'timing') is None and store.baseline('timing')['run'] == 'r1', 'one run of a revised probe')
+        make_run(tmp, 'timing', 'r5', timing_log(), hook='a revised hook\n')
+        expect(runs.settle(adapter, 'timing') and store.baseline('timing')['run'] == 'r4', 'a revised probe\'s repeat replaces the baseline')
+        store.add_decision('timing', 'gate', {'baseline': 'r4'})
+        make_run(tmp, 'timing', 'r6', timing_log(), hook='a third hook\n')
+        make_run(tmp, 'timing', 'r7', timing_log(), hook='a third hook\n')
+        expect(runs.settle(adapter, 'timing') is None and store.baseline('timing')['run'] == 'r4', 'a gated baseline stays')
         expect(make_run(tmp, 'timing', 'r9', timing_log() + 'warning: Error running lua script: boom\n')[0] is None,
                'a capture with a Lua error is not stored')
 
