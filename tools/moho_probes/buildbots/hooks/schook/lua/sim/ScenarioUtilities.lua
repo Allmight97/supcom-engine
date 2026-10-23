@@ -4,15 +4,19 @@
 -- focus and progress. The bots' build, repair and effect callbacks are
 -- logged as they run, with the order a start names. Only the scene's own
 -- bots are watched: the other armies' Cybran builders spawn bots too.
--- Ample resources, so the economy plays no part. Five scenes, in turn, each
+-- Ample resources, so the economy plays no part. Eight scenes, in turn, each
 -- cleaned up after:
 -- - "cybran": a Cybran T1 engineer builds a power generator; its scripts
 --   spawn the bot and order it to guard the frame (SpawnBuildBots);
 -- - "frame": a UEF T1 engineer builds a power generator; a bot the probe
 --   made is ordered to guard the frame once it stands;
 -- - "builder": as "frame", the bot ordered to guard the engineer;
+-- - "control": as "builder", a UEF T1 engineer in the bot's place;
 -- - "repair": a bot ordered to repair a power generator at half health;
--- - "reclaim": a bot ordered to reclaim a power generator.
+-- - "reclaim": a bot ordered to reclaim a power generator;
+-- - "guarded": a bot ordered to guard a power generator at half health;
+-- - "silo": a bot ordered to guard a tactical missile launcher building a
+--   missile.
 
 local function probe(fmt, ...)
     LOG('PROBE ' .. string.format(fmt, unpack(arg)))
@@ -108,7 +112,7 @@ local function ProbeBuild(army, name, engineer_bp, generator_bp, x, z, steps, he
     WaitTicks(5)
     local bot = nil
     if helper then
-        bot = spawn('ura0001', army, x - 4, z)
+        bot = spawn(name == 'control' and 'uel0105' or 'ura0001', army, x - 4, z)
         watch(bot)
         WaitTicks(5)
     end
@@ -128,22 +132,30 @@ local function ProbeBuild(army, name, engineer_bp, generator_bp, x, z, steps, he
     clean({eng, frame})
 end
 
--- A bot repairs (`repair`) or reclaims a standing power generator
+-- A bot repairs (`repair`), reclaims or guards (`guarded`) a standing power
+-- generator, or guards a missile launcher building a missile (`silo`)
 local function ProbeStanding(army, name, x, z, steps)
     scene = name
-    local generator = spawn('ueb1101', army, x + 2, z + 6)
+    local work = spawn(name == 'silo' and 'ueb2108' or 'ueb1101', army, x + 2, z + 6)
     WaitTicks(5)
-    if name == 'repair' then generator:SetHealth(generator, generator:GetMaxHealth() / 2) end
+    if name == 'repair' or name == 'guarded' then work:SetHealth(work, work:GetMaxHealth() / 2) end
+    if name == 'silo' then IssueSiloBuildTactical({work}) end
     local bot = spawn('ura0001', army, x - 4, z)
     watch(bot)
     WaitTicks(5)
-    if name == 'repair' then IssueRepair({bot}, generator) else IssueReclaim({bot}, generator) end
+    if name == 'repair' then
+        IssueRepair({bot}, work)
+    elseif name == 'reclaim' then
+        IssueReclaim({bot}, work)
+    else
+        IssueGuard({bot}, work)
+    end
     for step = 0, steps do
         t = step
-        log_step(nil, generator)
+        log_step(name == 'silo' and work or nil, work)
         WaitTicks(1)
     end
-    clean({generator})
+    clean({work})
 end
 
 function ProbeMain()
@@ -166,8 +178,11 @@ function ProbeMain()
     ProbeBuild(me, 'cybran', 'url0105', 'urb1101', 300, 790, 360, nil)
     ProbeBuild(me, 'frame', 'uel0105', 'ueb1101', 300, 790, 360, 'frame')
     ProbeBuild(me, 'builder', 'uel0105', 'ueb1101', 300, 790, 360, 'builder')
+    ProbeBuild(me, 'control', 'uel0105', 'ueb1101', 300, 790, 360, 'builder')
     ProbeStanding(me, 'repair', 300, 790, 120)
     ProbeStanding(me, 'reclaim', 300, 790, 120)
+    ProbeStanding(me, 'guarded', 300, 790, 120)
+    ProbeStanding(me, 'silo', 300, 790, 120)
     probe('bots done')
 end
 
