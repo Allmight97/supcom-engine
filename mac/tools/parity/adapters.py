@@ -376,4 +376,32 @@ class BuildBots(Adapter):
         return [(scene, 'step', '', t) for scene, n in self.scenes.items() for t in range(n)] + [('done', '', '', None)]
 
 
-ADAPTERS = {a.name: a for a in (Timing(), Economy(), Engineer(), Crowd(), Blueprints(), GuardAssist(), BuildBots())}
+class StallStart(Adapter):
+    name = 'stallstart'
+    clock = 't is the loop index of a WaitTicks(1) loop from the factory\'s order, 0 to 40 (one sim tick a step)'
+    marker = 'stall done'
+    osc_ticks = 700
+    scenes = ('ml', 'midbuild', 'dual', 'solo')
+    steps = range(41)
+    keys = ('prog', 'frac', 'eff', 'use', 'other', 'energy', 'mass')
+    resource_parts = ('stored', 'income', 'requested', 'usage')
+    types = {'prog': F, 'frac': F, 'eff': F, 'use.energy': F, 'use.mass': F, 'other': F,
+             **{f'{r}.{k}': F for r in ('energy', 'mass') for k in ('stored', 'income', 'requested', 'usage')}}
+
+    def parse(self, payload, state):
+        if payload == self.marker:
+            return Row('done')
+        parts = payload.split()
+        if len(parts) < 3 or parts[0] != 'stall' or parts[1] not in self.scenes or not parts[2].startswith('t='):
+            raise Malformed('not a stall row')
+        raw = tokens(' '.join(parts[:2] + parts[3:]), ('stall', parts[1]), self.keys)
+        split(raw, 'use', ('energy', 'mass'), self.types, '/')
+        for resource in ('energy', 'mass'):
+            split(raw, resource, self.resource_parts, self.types, '/')
+        return Row(parts[1], 'step', '', Int().parse(parts[2][2:]), typed(self.types, raw))
+
+    def expected(self):
+        return [(scene, 'step', '', t) for scene in self.scenes for t in self.steps] + [('done', '', '', None)]
+
+
+ADAPTERS = {a.name: a for a in (Timing(), Economy(), Engineer(), Crowd(), Blueprints(), GuardAssist(), BuildBots(), StallStart())}

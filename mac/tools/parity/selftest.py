@@ -69,6 +69,15 @@ def buildbots_log():
     return '\n'.join(lines + ['PROBE bots done']) + '\n'
 
 
+def stallstart_log():
+    lines = []
+    for scene in adapters.StallStart.scenes:
+        for t in adapters.StallStart.steps:
+            lines.append(f'PROBE stall {scene} t={t} prog={t / 1000:.6f} frac={t / 1000:.6f} eff=0.074349 use=19.0000/4.0000 '
+                         'other=-1.000000 energy=0.00/2.000000/26.900000/2.000000 mass=570.00/0.100000/0.400000/0.029740')
+    return '\n'.join(lines + ['PROBE stall done']) + '\n'
+
+
 def crowd_log(short=0):
     lines = []
     for v in range(6):
@@ -233,9 +242,25 @@ def test_buildbots():
     expect(compare('buildbots', log, missing).status == 'INVALID', 'a missing row is invalid')
 
 
+def test_stallstart():
+    log = stallstart_log()
+    first = compare('stallstart', log, change(log, 'stall ml t=3 prog=0.003000', 'stall ml t=3 prog=0.000531'))
+    expect(first.status == 'DIFFERS' and 'scene=ml phase=step tick=3 field=prog' in first.summary, first.summary)
+    used = compare('stallstart', log, change(log, 'stall solo t=40 prog=0.040000 frac=0.040000 eff=0.074349 use=19.0000/4.0000 '
+                                              'other=-1.000000 energy=0.00/2.000000/26.900000/2.000000',
+                                              'stall solo t=40 prog=0.040000 frac=0.040000 eff=0.074349 use=19.0000/4.0000 '
+                                              'other=-1.000000 energy=0.00/2.000000/26.900000/1.859000'))
+    expect(used.status == 'DIFFERS' and 'field=energy.usage' in used.summary, used.summary)
+    short = change(log, 'mass=570.00/0.100000/0.400000/0.029740\nPROBE stall dual t=0 ', 'mass=570.00/0.100000/0.400000\nPROBE stall dual t=0 ')
+    expect(problems_of('stallstart', short), 'a resource without its usage is malformed')
+    missing = '\n'.join(l for l in log.splitlines() if 'midbuild t=20 ' not in l) + '\n'
+    expect(compare('stallstart', log, missing).status == 'INVALID', 'a missing row is invalid')
+
+
 def test_valid_logs():
     cases = {'timing': timing_log(), 'economy': economy_log(), 'engineer': engineer_log(), 'crowd': crowd_log(2),
-             'guardassist': guardassist_log(), 'buildbots': buildbots_log(), 'blueprints': blueprints_log()}
+             'guardassist': guardassist_log(), 'buildbots': buildbots_log(), 'blueprints': blueprints_log(),
+             'stallstart': stallstart_log()}
     for name, log in cases.items():
         marker = adapters.ADAPTERS[name].marker
         expect(problems_of(name, log) == [], f'{name}: a complete log is valid: {problems_of(name, log)}')
@@ -471,7 +496,8 @@ def test_check_against_another_root():
 
 def run():
     for test in (test_core, test_compare_demands_a_complete_run, test_blueprint_values, test_engineer_and_crowd,
-                 test_guardassist, test_buildbots, test_valid_logs, test_init, test_manifests_and_backup, test_repeat_rule, test_damaged_reference,
+                 test_guardassist, test_buildbots, test_stallstart, test_valid_logs, test_init, test_manifests_and_backup,
+                 test_repeat_rule, test_damaged_reference,
                  test_check_exit_codes, test_check_against_another_root):
         test()
     print('parity self-test passed')
