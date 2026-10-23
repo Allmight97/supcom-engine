@@ -590,3 +590,47 @@ TEST_CASE("A repairer's focus is the unit it repairs, and nothing once it is don
     w.sim.tick();
     CHECK(eng->focus_id() == 0);
 }
+
+TEST_CASE("A unit under construction is never less complete than its health: a build slower than "
+          "its first hit point catches up with it first",
+          "[build][assist]") {
+    AssistSim w;
+    w.site->set_health(1.0f);
+    w.site->set_fraction_complete(0.0f);
+    Unit* eng = w.engineer("eng", 16.0f);
+    eng->set_build_rate(0.5f);
+    eng->push_command(order(CommandType::Repair, *w.site, 1), true);
+    for (int i = 0; i < 5 && w.site->fraction_complete() == 0.0f; ++i) {
+        w.sim.tick();
+    }
+    // A step of 0.0005 against the 0.01 its first hit point is of 100
+    CHECK(w.site->fraction_complete() == Catch::Approx(0.01f));
+    CHECK(w.site->health() == Catch::Approx(1.05f));
+    w.sim.tick();
+    CHECK(w.site->fraction_complete() == Catch::Approx(0.0105f));
+    CHECK(w.site->health() == Catch::Approx(1.1f));
+    CHECK(eng->work_progress() == w.site->fraction_complete());
+}
+
+TEST_CASE("A slow helper keeps the unit it helps build no less complete than its health",
+          "[build][assist][guard]") {
+    AssistSim w;
+    w.site->set_health(1.0f);
+    w.site->set_fraction_complete(0.0f);
+    Unit* eng = w.engineer("eng", 16.0f);
+    eng->set_build_rate(20.0f);
+    Unit* helper = w.engineer("helper", 14.0f);
+    helper->set_build_rate(0.5f);
+    eng->push_command(order(CommandType::Repair, *w.site, 1), true);
+    helper->push_command(order(CommandType::Guard, *eng, 2), true);
+    for (int i = 0; i < 10 && !helper->is_building(); ++i) {
+        w.sim.tick();
+    }
+    REQUIRE(helper->is_building());
+    w.sim.tick();
+    w.sim.tick();
+    // The helper's step of 0.0005 is the last one in front of its health
+    CHECK(w.site->health() ==
+          Catch::Approx(w.site->max_health() * w.site->fraction_complete() + 0.05f));
+    CHECK(helper->work_progress() == w.site->fraction_complete());
+}
