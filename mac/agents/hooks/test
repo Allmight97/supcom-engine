@@ -75,6 +75,12 @@ expect_hook ask "killall ctest"
 expect_hook 0 "pkill -f /Users/x/tree/build/play"
 expect_hook 2 "git reset --hard" bypassPermissions
 expect_hook ask "JSTAR_SAID_YES=1 git reset --hard" bypassPermissions
+expect_hook ask "gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --title t --body b"
+expect_hook 0 "JSTAR_SAID_YES=1 gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --title t --body b"
+expect_hook 0 "JSTAR_SAID_YES=1 gh pr edit 1 --repo bwiemz/supcom-engine --body b" bypassPermissions
+expect_hook ask "JSTAR_SAID_YES=1 true && gh pr edit 1 --repo bwiemz/supcom-engine --body b"
+expect_hook 2 "JSTAR_SAID_YES=1 gh pr create --repo bwiemz/supcom-engine --head Allmight97:up/x --draft --title t --body b"
+expect_hook 2 "JSTAR_SAID_YES=1 gh pr comment 1 --repo bwiemz/supcom-engine --body 'by Claude'"
 expect_hook 2 "gh pr merge 1 --repo Allmight97/supcom-engine --squash"
 expect_hook 0 "gh pr merge 1 --repo Allmight97/supcom-engine --merge"
 expect_hook 2 "gh pr comment 1 --body x"

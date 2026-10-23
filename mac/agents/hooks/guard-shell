@@ -8,6 +8,8 @@ in fork text, agent names in fork issues. Ask JStar: commands that discard work 
 under mac/work, auto-merge, branch switches in the main checkout (it stays on main), pkill or killall not scoped to a path, and every other GitHub
 write to upstream. Bypass mode skips a hook's ask, so
 there the command is refused until JStar agrees in chat and the agent reruns it as JSTAR_SAID_YES=1 <command>.
+An upstream GitHub write prefixed JSTAR_SAID_YES=1 (JStar agreed in chat) passes without a second ask; the
+denials above still apply to it.
 
   guard-shell                  read the hook payload on stdin
   guard-shell --upstream-text  read text on stdin; exit 1 and print the lines upstream must not see
@@ -28,6 +30,7 @@ SEPARATORS = ';&|\n()'
 WRAPPERS = {'env', 'command', 'nohup', 'time', 'xargs', 'sudo', 'exec'}
 MODE = ''
 SAID_YES = False
+APPROVED = False
 GH_WRITES = {'create', 'edit', 'comment', 'review', 'close', 'reopen', 'ready', 'merge', 'delete', 'lock'}
 
 
@@ -42,6 +45,11 @@ def ask(why):
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'ask',
                                              'permissionDecisionReason': why}}))
     sys.exit(0)
+
+
+def upstream_write(why):
+    if not APPROVED:
+        ask(why)
 
 
 def without_heredocs(text):
@@ -166,7 +174,7 @@ def check_gh(args, cwd):
     group, action, rest = args[0], args[1], args[2:]
     if group == 'api':
         if UPSTREAM in ' '.join(args) and (option(args, '-X', '--method') or 'GET').upper() != 'GET':
-            ask('a GitHub write to upstream needs JStar\'s word')
+            upstream_write('a GitHub write to upstream needs JStar\'s word')
         return
     if group == 'release' and action == 'create':
         ask('releases need JStar\'s word')
@@ -195,13 +203,15 @@ def check_gh(args, cwd):
             deny('upstream PRs open ready: upstream lands ready PRs, so shape and prove it locally first')
         if not re.match(r'(Allmight97:)?up/', head):
             deny('an upstream PR comes from an up/* branch (--head Allmight97:up/<topic>)')
-    ask(f'gh {group} {action} writes to upstream; it needs JStar\'s word')
+    upstream_write(f'gh {group} {action} writes to upstream; it needs JStar\'s word')
 
 
 def check(words, cwd):
-    global SAID_YES
+    global SAID_YES, APPROVED
+    APPROVED = False
     while words and (words[0] in WRAPPERS or re.match(r'\w+=', words[0])):
-        SAID_YES = SAID_YES or words[0] == 'JSTAR_SAID_YES=1'
+        APPROVED = APPROVED or words[0] == 'JSTAR_SAID_YES=1'
+        SAID_YES = SAID_YES or APPROVED
         if words[0].startswith('GIT_CONFIG'):
             deny('GIT_CONFIG variables can turn off the git guards')
         words = words[1:]
