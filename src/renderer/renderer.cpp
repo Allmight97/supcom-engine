@@ -124,14 +124,6 @@ MeshVertexInput mesh_vertex_input() {
 }
 } // namespace
 
-// GLFW scroll callback — forward to Renderer via user pointer
-static void glfw_scroll_callback(GLFWwindow* window, double /*xoffset*/,
-                                 double yoffset) {
-    auto* renderer =
-        static_cast<Renderer*>(glfwGetWindowUserPointer(window));
-    if (renderer) renderer->on_scroll(yoffset);
-}
-
 void Renderer::on_scroll(f64 y_offset) {
     // A wheel notch over the world zooms about the cursor (CUIWorldView's
     // HandleEvent): the pivot, then CameraZoom, of the view under it
@@ -242,14 +234,31 @@ bool Renderer::create_window(u32 width, u32 height, const std::string& title, bo
     });
 
     glfwSetWindowUserPointer(window_.get(), this);
-    glfwSetScrollCallback(window_.get(), glfw_scroll_callback);
+    glfwSetScrollCallback(window_.get(), [](GLFWwindow* w, double, double y_offset) {
+        if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w))) r->on_scroll(y_offset);
+    });
+    glfwSetKeyCallback(window_.get(), [](GLFWwindow* w, int key, int, int action, int mods) {
+        if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
+            r->ui_dispatch_.on_key(key, action, mods);
+    });
+    glfwSetMouseButtonCallback(window_.get(), [](GLFWwindow* w, int button, int action, int mods) {
+        if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
+            r->ui_dispatch_.on_mouse_button(button, action, mods);
+    });
+    glfwSetCursorPosCallback(window_.get(), [](GLFWwindow* w, double x, double y) {
+        if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
+            r->ui_dispatch_.on_cursor_pos(x, y);
+    });
+    glfwSetCharCallback(window_.get(), [](GLFWwindow* w, unsigned int codepoint) {
+        if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
+            r->ui_dispatch_.on_char(codepoint);
+    });
     // A resize rebuilds the swapchain before the next frame (M217h): Wayland
     // and some drivers never report the old one out of date
     glfwSetFramebufferSizeCallback(window_.get(), [](GLFWwindow* w, int, int) {
         if (auto* r = static_cast<Renderer*>(glfwGetWindowUserPointer(w)))
             r->on_framebuffer_resized();
     });
-    ui_dispatch_.install_callbacks(window_.get());
     return true;
 }
 
