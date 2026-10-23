@@ -212,3 +212,15 @@ Asked on 2026-10-20: the original once each, with `/synclog`; the engine with th
 | `cone` | 11 resolutions: within the cone exactly when the unit is in the other's forward cone (dot 0.707; borderline crossings at 0.70 are not) | the same test | faf-re's decompile reads the cone the other way round. Where each unit then drives fits the binary's step aside in 6 of 8 (a slow unit turning and one backing aside). Overtaking is the path navigator's: the faster unit's target cell moves 4 aside on the order's third tick. |
 | `corner` | from 0.002 below the wall's end it moves 0.02 by tick 9, then stands still; its order ends on tick 40. From 0.3 below or more it drives out. | stands still from the start; its order ends on tick 33. From 0.3 and 0.5 below it drives out on the original's line to the thousandth; toward the goal further north, within 0.35 of it. Before, a bounced unit could work itself free of such a place, or rock in it with its order (`test_moho_pathing`). | A refused step leaves the unit where it was (`CalcMoveCommon`), so its navigator sees it still and gives the move up after 30 ticks. |
 | `crowdgap` | all 20 arrive, by tick 300, every one by the gap; no two nearer than 0.76 | all 20 (also with the synthetic tank's physics given to the Striker, a blueprint hook not kept); 15 by the gap and 5 round the wall's end, two within 0.39 (main: 16 and 4, 0.29) | All arrive, as the original's: `data.crowdgap-test` holds it. The detours and the near passes are a gap of the engine's crowd, on main as well. |
+
+**`guardassist/`** asks, tick by tick, how an engineer guarding a T1 land factory helps it build. It runs `economy`'s stalled setup (the store emptied, and a Monkeylord's upkeep beside it, so the factory crawls and the help can be seen) and two scenes in turn, each cleaned up after:
+- **far**: the factory at (300, 790) building two Strikers, and the engineer ordered to guard it from (306, 808), 18 south of it and out of reach, so it walks up;
+- **near**: a factory at (340, 790) and the engineer already in reach of its skirt, at (332, 790): west of it, off the side its units roll out of.
+
+Every tick from the order, t=0 to 330, it logs a row for each scene:
+- the engineer's position, its distance to the factory's skirt (`gap`, a rectangle from the factory's blueprint) and to the unit under construction (`ugap`);
+- its unit states (`Moving`, `Guarding`, `Building`, `Repairing` and others, joined by `+`, or `idle`);
+- its focus and the factory's, named `<blueprint>#<k>` in the order the probe first sees them, because entity ids differ between the games;
+- its and the factory's work progress, and the army's energy and mass requested.
+
+It also logs the engineer's `OnStartBuild`, `OnStopBuild`, `OnStartRepair` and `OnStopRepair`, as they run, wrapped on that engineer alone (only those the scripts define). Its `t` is the loop index of a `WaitTicks(1)` loop, since the original's sim has no `GetGameTick`. It is done at `PROBE assist done`.
