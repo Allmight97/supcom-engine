@@ -32,7 +32,8 @@ done < <(git -C "$root" ls-files -z --cached --others --exclude-standard -- scri
 (( syntax_checked > 0 )) || fail "syntax check found no scripts"
 
 for tool in scripts/upstream-news scripts/sync-upstream scripts/prove scripts/up-refresh tools/lib/capture.py \
-            tools/motion-compare/motion_compare.py tools/intel-compare/intel_compare.py tools/bp-dump/compare.py; do
+            tools/motion-compare/motion_compare.py tools/intel-compare/intel_compare.py tools/bp-dump/compare.py \
+            tools/parity/parity scripts/mutate; do
     python3 -I "$root/$tool" --self-test >/dev/null || fail "self-test: python3 -I mac/$tool --self-test"
 done
 
@@ -400,6 +401,14 @@ perl -e 'sleep 60' "holder-$$-token" & holder=$!
 sleep 1
 [[ "$(ghidra_py)" == *ran* ]] && fail "ghidra-py ignored a live holder of the lock"
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+
+
+partial="/Users/x+y (z)/staging/timing-1/timing-1.log.partial"
+pattern=$(bash -c '. "$1"; game_run_pattern "$2"' _ "$root/tools/lib/game-run.sh" "$partial")
+grep -Eq "$pattern" <<< 'C:\cx\ForgedAlliance.exe /init Z:\a\init.lua /log Z:\Users\x+y (z)\staging\timing-1\timing-1.log.partial' \
+    || fail "game-run kill pattern missed its own game"
+grep -Eq "$pattern" <<< 'C:\cx\ForgedAlliance.exe /log Z:\Users\x+y (z)\staging\timing-2\timing-2.log.partial' \
+    && fail "game-run kill pattern matched another run's game"
 
 
 if (( failures )); then

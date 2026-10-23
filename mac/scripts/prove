@@ -8,6 +8,10 @@ From the paths changed in BASE...HEAD of the tree at DIR (default: this checkout
 upstream/main) it picks the checks: any change under src/, tests/, cmake/, third_party/, CMake files,
 vcpkg.json or a shader runs unit, mp, gate (failures rerun once), format, metrics and smoke; a change
 under src/renderer or to a shader adds the render check; anything else (docs) runs metrics only.
+An engine change also runs `parity check --ratchet` (mac/tools/parity): OpenSupCom against the stored
+captures of the original for each probe whose baseline matched; it is skipped, with a reason, when the
+fork has no reference store or no gated probe. The probe sources are the stored, pinned ones; the build is
+DIR's own.
 It never builds: it stops if DIR/build/play is missing and notes a build older than HEAD. Exit status
 is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
 """
@@ -15,12 +19,14 @@ import fcntl
 import os
 import subprocess
 import sys
+import tempfile
 
 TOOLKIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PARITY = f'{TOOLKIT}/tools/parity/parity'
 ENGINE = ('src/', 'tests/', 'cmake/', 'third_party/')
 ENGINE_FILES = ('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json')
 SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
-ORDER = ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'render']
+ORDER = ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'parity', 'render']
 
 
 def checks_for(paths):
@@ -31,14 +37,14 @@ def checks_for(paths):
     render = shader or any(p.startswith('src/renderer/') for p in paths)
     chosen = {'metrics'}
     if engine:
-        chosen |= {'unit', 'mp', 'gate', 'format', 'smoke'}
+        chosen |= {'unit', 'mp', 'gate', 'format', 'smoke', 'parity'}
     if render:
         chosen.add('render')
     why = 'no engine change' if not engine else 'no change under src/renderer or to a shader'
     return [c for c in ORDER if c in chosen], {c: why for c in ORDER if c not in chosen}
 
 
-def commands(base):
+def commands(base, root):
     """check name -> argv, run from the tree's root."""
     ctest = ['ctest', '--test-dir', 'build/play']
     return {
@@ -48,8 +54,27 @@ def commands(base):
         'format': ['sh', f'{TOOLKIT}/scripts/format', base],
         'metrics': ['python3', 'tools/status_metrics.py', 'check', '--build-dir', 'build/play'],
         'smoke': [f'{TOOLKIT}/scripts/osc-smoke'],
+        'parity': ['python3', '-I', PARITY, 'check', '--ratchet', '--root', root],
         'render': [f'{TOOLKIT}/scripts/osc-render-check'],
     }
+
+
+def parity_probes(root, env, refs=os.path.join(TOOLKIT, 'work', 'parity', 'refs'), parity=('python3', '-I', PARITY)):
+    """(gated probes, why there are none, error): what `parity list --gated` says. Only an absent store or a
+    successful, empty list skips the check; a failed listing is an error, never "nothing gated"."""
+    if not os.path.isdir(refs):
+        return [], 'this checkout has no reference store of the original game', ''
+    listing = sh(root, [*parity, 'list', '--gated'], env)
+    if listing.returncode:
+        return [], '', (listing.stderr + listing.stdout).strip() or f'parity list exited {listing.returncode}'
+    names = listing.stdout.split()
+    return names, '' if names else 'no probe of the original game is gated yet', ''
+
+
+def parity_line(names, passed, error=''):
+    if error:
+        return f'- the original-game parity probes: FAIL (cannot list the gated probes: {error.splitlines()[0]})'
+    return f'- the original-game parity probes ({", ".join(names)}): {"match" if passed else "FAIL"}'
 
 
 def sh(root, argv, env=None):
@@ -95,8 +120,14 @@ def main():
         sys.exit(f'prove: cannot diff {base}...HEAD in {root}: {diff.stderr.strip()}')
     chosen, skipped = checks_for(diff.stdout.split())
     print(f'prove: {len(diff.stdout.split())} changed paths; checks: {" ".join(chosen)}', flush=True)
-    cmds = commands(base)
+    cmds = commands(base, root)
     env = recipe_env(root)
+    gated, parity_error = [], ''
+    if 'parity' in chosen:
+        gated, why, parity_error = parity_probes(root, env)
+        if not gated and not parity_error:
+            chosen.remove('parity')
+            skipped['parity'] = why
     if not os.path.isdir(os.path.join(root, 'mac')):
         # Upstream's code finds a driver only in ~/VulkanSDK or Homebrew; name the fork's pinned KosmicKrisp.
         env['VK_ADD_DRIVER_FILES'] = f"{env['VULKAN_SDK']}/share/vulkan/icd.d/libkosmickrisp_icd.json"
@@ -111,10 +142,15 @@ def main():
     results = {}
     for name in chosen:
         print(f'prove: check {name}', flush=True)
-        results[name] = run_check(root, name, cmds[name], env)
+        if name == 'parity' and parity_error:
+            print(parity_error, flush=True)
+        results[name] = False if name == 'parity' and parity_error else run_check(root, name, cmds[name], env)
         print(f'prove: check {name}: {"pass" if results[name] else "FAIL"}', flush=True)
     print(f'\n### Tested\n\nBase `{base}`, tree `{root}`.\n')
     for name in chosen:
+        if name == 'parity':
+            print(parity_line(gated, results[name], parity_error))
+            continue
         shown = f'mac/scripts/format {base}' if name == 'format' else \
             ' '.join(cmds[name]).replace(f'{TOOLKIT}/scripts', 'mac/scripts')
         print(f'- `{shown}`: {"pass" if results[name] else "FAIL"}')
@@ -127,12 +163,33 @@ def main():
 
 def self_test():
     assert checks_for(['docs/a.md', 'README.md'])[0] == ['metrics']
-    assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke']
+    assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'parity']
     assert checks_for(['src/renderer/a.cpp'])[0] == ORDER
     assert checks_for(['src/app/a.cpp'])[1] == {'render': 'no change under src/renderer or to a shader'}
     assert checks_for(['assets/x.frag'])[0] == ORDER
     assert checks_for(['srcs/a.cpp', 'mac/scripts/x'])[0] == ['metrics']
+    assert commands('upstream/main', '/up')['parity'][-3:] == ['--ratchet', '--root', '/up']
+    line = parity_line(['timing', 'crowd'], True)
+    assert line == '- the original-game parity probes (timing, crowd): match', line
+    assert not any(part in parity_line(['timing'], False) for part in ('mac/work', 'mac/tools', TOOLKIT))
+    with tempfile.TemporaryDirectory() as empty:
+        names, why, error = parity_probes(empty, {}, os.path.join(empty, 'refs'))
+        assert names == [] and 'reference store' in why and not error
+        os.makedirs(os.path.join(empty, 'refs'))
+        stubs = {}
+        for stub, body in (('crash', 'exit 1'), ('noisy', 'echo "timing: DAMAGED run" >&2; exit 1'), ('none', 'exit 0'),
+                           ('gated', 'echo timing; echo crowd')):
+            stubs[stub] = os.path.join(empty, stub)
+            with open(stubs[stub], 'w') as f:
+                f.write(f'#!/bin/sh\n{body}\n')
+        listed = {s: parity_probes(empty, {}, os.path.join(empty, 'refs'), parity=['sh', stubs[s]]) for s in stubs}
+        assert listed['gated'] == (['timing', 'crowd'], '', ''), listed['gated']
+        assert listed['none'][:2] == ([], 'no probe of the original game is gated yet') and not listed['none'][2], listed['none']
+        assert listed['crash'][0] == [] and listed['crash'][2], f'a failed listing with empty output is an error: {listed["crash"]}'
+        assert 'DAMAGED' in listed['noisy'][2], listed['noisy']
+        assert 'FAIL' in parity_line([], False, listed['noisy'][2]) and 'DAMAGED' in parity_line([], False, listed['noisy'][2])
     print('prove self-test passed')
 
 
-main()
+if __name__ == '__main__':
+    main()
