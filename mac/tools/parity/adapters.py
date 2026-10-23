@@ -339,9 +339,10 @@ class BuildBots(Adapter):
     clock = ('t is the loop index of a WaitTicks(1) loop from the build, repair or reclaim order (one sim tick a step); '
              'a callback\'s t is the last t logged before it. The bot\'s position is recorded, not judged')
     marker = 'bots done'
-    osc_ticks = 2400
+    osc_ticks = 3600
     original_timeout = 900
-    scenes = {'cybran': 361, 'frame': 361, 'builder': 361, 'repair': 121, 'reclaim': 121}
+    scenes = {'cybran': 361, 'frame': 361, 'builder': 361, 'control': 361, 'repair': 121, 'reclaim': 121,
+              'guarded': 121, 'silo': 121}
     callbacks = ('Ordered', 'OnStartBuild', 'OnStopBuild', 'OnFailedToBuild', 'OnStartRepair', 'OnStopRepair',
                  'OnStartReclaim', 'OnStopReclaim', 'CreateBuildEffects', 'StopBuildingEffects')
     step_keys = ('estate', 'eprog', 'frac', 'hp', 'bots', 'state', 'focus', 'bprog', 'at')
