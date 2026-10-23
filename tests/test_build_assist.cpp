@@ -590,3 +590,68 @@ TEST_CASE("A repairer's focus is the unit it repairs, and nothing once it is don
     w.sim.tick();
     CHECK(eng->focus_id() == 0);
 }
+
+TEST_CASE("A helper with no build rate takes up the build it guards and adds no work",
+          "[build][assist][guard]") {
+    // Moho's build bots (ura0001, BuildRate 0): the build is their parent's,
+    // their own start and stop show it (probed 2026-10-23, `buildbots`).
+    AssistSim w;
+    Unit* eng = w.engineer("eng", 16.0f);
+    Unit* bot = w.engineer("bot", 14.0f);
+    bot->set_build_rate(0.0f);
+    eng->push_command(order(CommandType::Repair, *w.site, 1), true);
+    SECTION("guarding the unit under construction") {
+        bot->push_command(order(CommandType::Guard, *w.site, 2), true);
+    }
+    SECTION("guarding its builder") {
+        bot->push_command(order(CommandType::Guard, *eng, 2), true);
+    }
+    for (int tick = 0; tick < 20 && !bot->is_building(); ++tick) {
+        w.sim.tick();
+    }
+    REQUIRE(bot->is_building());
+    CHECK(bot->build_target_id() == w.site->entity_id());
+    CHECK(w.log().find("bot start Repair") != std::string::npos);
+    CHECK(bot->economy().consumption_mass == 0);
+    CHECK(bot->economy().consumption_energy == 0);
+
+    // The engineer's rate alone: 10 of a BuildTime of 100 a second
+    const osc::f32 before = w.site->fraction_complete();
+    w.sim.tick();
+    CHECK(w.site->fraction_complete() - before == Catch::Approx(0.01f).margin(1e-5f));
+    CHECK(bot->work_progress() == Catch::Approx(w.site->fraction_complete()).margin(0.011f));
+
+    for (int tick = 0; tick < 150 && w.site->is_being_built(); ++tick) {
+        w.sim.tick();
+        if (w.site->is_being_built()) CHECK(bot->is_building());
+    }
+    REQUIRE_FALSE(w.site->is_being_built());
+    w.sim.tick();
+    CHECK(w.log().find("bot stop") != std::string::npos);
+    CHECK_FALSE(bot->is_building());
+    REQUIRE(bot->command_queue().size() == 1);
+    CHECK(bot->command_queue().front().type == CommandType::Guard);
+}
+
+TEST_CASE("A repairer with no build rate takes up a damaged unit's repair and heals nothing",
+          "[build][assist][repair]") {
+    AssistSim w;
+    w.site->set_is_being_built(false);
+    w.site->set_fraction_complete(1.0f);
+    w.site->set_health(50.0f);
+    Unit* bot = w.engineer("bot", 16.0f);
+    bot->set_build_rate(0.0f);
+    bot->push_command(order(CommandType::Repair, *w.site, 1), true);
+    for (int tick = 0; tick < 3 && !bot->is_repairing(); ++tick) {
+        w.sim.tick();
+    }
+    REQUIRE(bot->is_repairing());
+    CHECK(w.log() == "bot arm,bot start Repair");
+    for (int tick = 0; tick < 30; ++tick) {
+        w.sim.tick();
+        CHECK(bot->is_repairing());
+    }
+    CHECK(w.site->health() == 50.0f);
+    CHECK(bot->focus_id() == w.site->entity_id());
+    CHECK(bot->command_queue().size() == 1);
+}

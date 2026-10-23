@@ -1468,14 +1468,13 @@ bool Unit::progress_build(f64 dt, EntityRegistry& registry, lua_State* L,
         finish_build(registry, L, true, grid);
         return false;
     }
-    if (paused_) {
-        work_progress_ = target->fraction_complete();
-        return true;
-    }
-
-    if (build_time_ <= 0 || build_rate_ <= 0) {
+    if (build_time_ <= 0) {
         fail_build(registry, L);
         return false;
+    }
+    if (paused_ || build_rate_ <= 0) {
+        work_progress_ = target->fraction_complete();
+        return true;
     }
 
     f32 progress_rate = build_rate_ / static_cast<f32>(build_time_);
@@ -1709,13 +1708,13 @@ bool Unit::progress_build_assist(f64 dt, EntityRegistry& registry,
     if (!target || target->destroyed())
         return false;
 
-    if (build_time_ <= 0 || build_rate_ <= 0)
+    if (build_time_ <= 0)
         return false;
 
     if (target->fraction_complete() >= 1.0f)
         return false;
 
-    if (paused_) {
+    if (paused_ || build_rate_ <= 0) {
         work_progress_ = target->fraction_complete();
         return true;
     }
@@ -2048,7 +2047,6 @@ bool Unit::start_repair(const UnitCommand& cmd, EntityRegistry& registry,
         !target_unit->shield_needs_repair(registry, L)) {
         return false;
     }
-    if (build_rate_ <= 0) return false;
 
     // Its blueprint's BuildTime/BuildCostMass/BuildCostEnergy
     const BuildEconomy costs = blueprint_build_economy(L, target_unit->unit_id());
@@ -2116,7 +2114,7 @@ bool Unit::progress_repair(f64 dt, EntityRegistry& registry, lua_State* L,
         return false;
     }
 
-    if (repair_build_time_ <= 0 || build_rate_ <= 0) {
+    if (repair_build_time_ <= 0) {
         stop_repairing(L, registry);
         return false;
     }
