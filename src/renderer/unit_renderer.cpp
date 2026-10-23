@@ -299,6 +299,7 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
         std::vector<MeshInstance> instances;
         std::vector<InstanceBones> bones;
         u32 bones_per_instance = 0; // the most any of its instances has
+        u32 first_entity = 0;
     };
     // Opaque instances (0), then blended ones (1): a build technique's or a
     // build effect's, which blend by their own alpha with pipelines of their
@@ -312,7 +313,7 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
     f32 eye_z = 0;
     if (camera) camera->eye_position(eye_x, eye_y, eye_z);
     const u32 now = view.cur() ? view.cur()->tick : 0;
-    shader_time_ = std::fmod(static_cast<f32>(now) + view.alpha(), kShaderTimeWrap);
+    shader_time_ = static_cast<f32>(std::fmod(view.time(), static_cast<f64>(kShaderTimeWrap)));
     // One entity's mesh instance (or cube): the world's, then the player's
     // remembered structures gone from it unseen (MaybeDead; M215d).
     const auto draw = [&](const sim::EntityRecord& entity) {
@@ -335,6 +336,8 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
         }
         // Outside the playable rect when the scripts last synced it.
         if (playable_rect_ && playable_rect_->hides(entity.id)) return;
+        // What its script hides from the player (SetVizTo...('Never')).
+        if (recon_ ? recon_->viz_never(entity) : entity.viz_to(0) == sim::VizMode::NEVER) return;
 
         // The entity's mesh instance, made when it appeared or changed mesh
         // (whether or not it is in view): its blueprint never changes, its
@@ -461,6 +464,7 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
             const bool reflected = entity.is_unit && !entity.is_wreckage && !remembered;
             auto& gd =
                 mesh_groups[is_blended_technique(gpu->technique) ? 1 : 0][reflected ? 1 : 0][gpu];
+            if (gd.instances.empty()) gd.first_entity = entity.id;
             gd.instances.push_back(inst);
 
             // Track bone data for this instance (a prop has a pose only when
@@ -528,8 +532,17 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
 
     mesh_groups_.clear();
     for (int fading = 0; fading < 2; ++fading)
-        for (int reflected = 0; reflected < 2; ++reflected)
-            for (auto& [gpu, gd] : mesh_groups[fading][reflected]) {
+        for (int reflected = 0; reflected < 2; ++reflected) {
+            auto& groups = mesh_groups[fading][reflected];
+            std::vector<const GPUMesh*> ordered;
+            ordered.reserve(groups.size());
+            for (const auto& [gpu, gd] : groups) ordered.push_back(gpu);
+            // Equal SortOrder groups follow entity order, independent of GPU addresses.
+            std::sort(ordered.begin(), ordered.end(), [&](const GPUMesh* a, const GPUMesh* b) {
+                return groups.at(a).first_entity < groups.at(b).first_entity;
+            });
+            for (const auto* gpu : ordered) {
+                auto& gd = groups.at(gpu);
                 const u32 count =
                     std::min(static_cast<u32>(gd.instances.size()), max_instances - offset);
                 std::memcpy(mesh_instances + offset, gd.instances.data(),
@@ -633,6 +646,7 @@ void UnitRenderer::update(const sim::FrameView& view, MeshCache& mesh_cache, lua
 
                 offset += count;
             }
+        }
     // Moho draws its mesh batches by their blueprint's SortOrder, smallest
     // first (MeshBatchKeyLess; M211k): a shield's impacts (500), its fill
     // (999), then the shield (1000). Stable: the opaque groups still come
@@ -799,6 +813,12 @@ void UnitRenderer::dump(std::ostream& out) const {
                                                            i * g.bones_per_instance) * 16;
                 for (u32 k = 0; k < g.bones_per_instance * 16; ++k) pose += fmt::format("{:.4f},", b[k]);
                 line += fmt::format(" | bones {} {:016x}", g.bones_per_instance, fnv(pose));
+            }
+            if (!g.dump_dispatch.empty()) {
+                line += fmt::format(" | instance={}", i);
+                auto dispatch = g.dump_dispatch;
+                std::sort(dispatch.begin(), dispatch.end());
+                for (const auto& decision : dispatch) line += " | " + decision;
             }
             lines.push_back(std::move(line));
         }

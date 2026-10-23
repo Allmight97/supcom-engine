@@ -1,5 +1,6 @@
 #include "sim/sim_state.hpp"
 #include "sim/fnv.hpp"
+#include "sim/lua_profile.hpp"
 #include "blueprints/blueprint_store.hpp"
 #include "sim/steering.hpp"
 #include "sim/blueprint_categories.hpp"
@@ -315,9 +316,14 @@ void SimState::detach_all_units(Unit& transport, bool destroy_some) {
 }
 
 void SimState::record_unit_death(Unit& unit) {
+    // Moho's Unit::Kill: the blueprint's cost, the part built of it while being built
+    const BuildEconomy cost =
+        L_ ? blueprint_build_economy(L_, unit.blueprint_id()) : BuildEconomy{};
+    const f64 built = unit.is_being_built() ? unit.fraction_complete() : 1.0;
+    const f64 mass = cost.mass * built;
+    const f64 energy = cost.energy * built;
     if (auto* brain = get_army(unit.army())) {
-        brain->record_unit_lost(unit.blueprint_id(), unit.build_cost_mass(),
-                                unit.build_cost_energy());
+        brain->record_unit_lost(unit.blueprint_id(), mass, energy);
     }
     if (!unit.damage_contributions().empty()) {
         i32 killer_army = -1;
@@ -333,8 +339,8 @@ void SimState::record_unit_death(Unit& unit) {
         }
         if (killer_army >= 0 && killer_army != unit.army()) {
             if (auto* killer = get_army(killer_army)) {
-                killer->record_enemy_killed(unit.blueprint_id(), unit.build_cost_mass(),
-                                            unit.build_cost_energy(), unit.has_category("COMMAND"));
+                killer->record_enemy_killed(unit.blueprint_id(), mass, energy,
+                                            unit.has_category("COMMAND"));
             }
         }
     }
@@ -365,6 +371,9 @@ void SimState::on_entity_unregistered(Entity& entity) {
     // Its manipulators and weapons go with it; their Lua tables are detached.
     if (entity.is_unit()) {
         auto& unit = static_cast<Unit&>(entity);
+        if (auto* brain = get_army(unit.army())) {
+            brain->record_unit_removed(unit);
+        }
         unit.release_manipulators(L_);
         unit.release_weapon_scripts(L_);
         unit.end_script_task(L_); // its OnDestroy, the unit still in reach (M206w)
@@ -1845,6 +1854,7 @@ void SimState::enforce_no_rush() {
 
 void SimState::tick() {
     PROFILE_ZONE("Sim::tick");
+    if (L_ && Profiler::instance().enabled()) lua_profile::attach(L_);
     ++beat_count_;
     if (rng_trace_) {
         const bool on = tick_count_ + 1 >= rng_trace_from_ && tick_count_ + 1 <= rng_trace_to_;
@@ -1903,6 +1913,8 @@ void SimState::advance_tick() {
             economy.produced_energy = 0;
             economy.reclaimed_mass = 0;
             economy.reclaimed_energy = 0;
+            economy.spent_mass = 0;
+            economy.spent_energy = 0;
         }
     });
     // Each army's tick begins by destroying its spent platoons (Moho's CArmyImpl::OnTick).
@@ -2137,8 +2149,8 @@ void SimState::sweep_ferry_beacons() {
 }
 
 void SimState::request_economy_events(size_t index) {
-    // Each event asks its unit's army for its cost over its duration; one
-    // whose unit is gone is cancelled.
+    // Each event asks its unit's army for a tick's cost; one whose unit is
+    // gone is cancelled.
     economy_events_.for_each([&](EconomyEvent& evt) {
         if (!evt.active() || evt.unit_id() == 0) {
             return;
@@ -2151,24 +2163,28 @@ void SimState::request_economy_events(size_t index) {
         if (unit->army() != static_cast<i32>(index)) {
             return;
         }
-        armies_[index]->add_event_request(evt.mass_per_second(), evt.energy_per_second());
-        evt.set_counted(true);
+        armies_[index]->add_request(evt.request());
     });
 }
 
-void SimState::step_economy_events(const Unit& unit) {
+void SimState::step_economy_events(Unit& unit) {
     const auto first = std::lower_bound(
         stepping_events_.begin(), stepping_events_.end(), unit.entity_id(),
         [](const std::pair<u32, EconomyEvent*>& p, u32 id) { return p.first < id; });
-    const ArmyBrain* brain = get_army(unit.army());
     for (auto it = first; it != stepping_events_.end() && it->first == unit.entity_id(); ++it) {
         EconomyEvent& evt = *it->second;
         if (!evt.active()) {
             continue;
         }
-        const f64 efficiency =
-            brain ? brain->grant_ratios().of(evt.mass_per_second(), evt.energy_per_second()) : 1.0;
-        evt.advance(SECONDS_PER_TICK, efficiency);
+        // Like unit task requests, an event without an army works in full.
+        if (get_army(unit.army())) {
+            const std::optional<EconValue> taken = evt.request().take();
+            if (!taken) {
+                continue;
+            }
+            unit.economy().spend(*taken, SECONDS_PER_TICK);
+        }
+        evt.step();
         if (evt.callback_ref() < 0 || unit.lua_table_ref() < 0) {
             continue;
         }
@@ -2197,8 +2213,8 @@ void SimState::step_economy_events(const Unit& unit) {
 void SimState::tick_economy_events() {
     // An event with no unit runs on time alone.
     economy_events_.for_each([&](EconomyEvent& evt) {
-        if (evt.active() && evt.unit_id() == 0) {
-            evt.advance(SECONDS_PER_TICK, 1.0);
+        if (evt.unit_id() == 0) {
+            evt.step();
         }
     });
     // Wake threads waiting on completed/cancelled events
@@ -2226,12 +2242,7 @@ void SimState::tick_economy_events() {
 }
 
 SimContext SimState::sim_context() {
-    SimContext ctx{
-        entity_registry_, L_, terrain_.get(), pathfinder_.get(), pathfinding_grid_.get(), this, {}};
-    for (size_t i = 0; i < armies_.size() && i < SimContext::MAX_EFFICIENCY_ARMIES; ++i) {
-        ctx.army_grants[i] = armies_[i]->grant_ratios();
-    }
-    return ctx;
+    return {entity_registry_, L_, terrain_.get(), pathfinder_.get(), pathfinding_grid_.get(), this};
 }
 
 void SimState::tick_armies() {
@@ -2317,11 +2328,8 @@ void SimState::update_entities() {
 
     stepping_events_.clear();
     economy_events_.for_each([&](EconomyEvent& evt) {
-        if (evt.counted()) {
-            evt.set_counted(false);
-            if (evt.active()) {
-                stepping_events_.emplace_back(evt.unit_id(), &evt);
-            }
+        if (evt.active() && evt.unit_id() != 0) {
+            stepping_events_.emplace_back(evt.unit_id(), &evt);
         }
     });
     std::stable_sort(stepping_events_.begin(), stepping_events_.end(),
@@ -2838,6 +2846,14 @@ u8 SimState::recon_detect(const Entity& e, const Vector3& pos, u32 viewer, u32 s
     const bool below = layer == "Seabed" || layer == "Sub";
     const bool sonar = below || layer == "Water";
     return recon_counters(pos, viewer, recon_senses(pos, sharers, below, sonar), &unit);
+}
+
+bool SimState::weapons_know(const Unit& u, u32 army) const {
+    if (!intel_grids_ || !intel_grids_->fog_of_war() || army >= MAX_VIS_ARMIES) return true;
+    // Weapons use the army's published blips, refreshed by its ReconTick.
+    if (const auto* recon = entity_recon(u.entity_id()); recon && (*recon)[army].any()) return true;
+    // A building once seen stays known (its blip outlives the sighting).
+    return !u.is_mobile() && ever_in_sight(u.entity_id(), army);
 }
 
 u8 SimState::recon_of(const Entity& e, const Vector3& pos, u32 viewer) const {

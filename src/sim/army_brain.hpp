@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.hpp"
+#include "sim/econ_request.hpp"
 #include "sim/entity.hpp"
 #include "sim/influence_map.hpp"
 #include "sim/path_search.hpp"
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <memory>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -18,6 +20,7 @@
 namespace osc::sim {
 
 class EntityRegistry;
+class Unit;
 
 enum class Alliance : i32 {
     Enemy = 0,
@@ -40,13 +43,15 @@ enum class BrainState : i32 {
 /// first class left. Requests wanting both resources set `dual`, bounded by
 /// the scarcer one, so a build starved of energy takes as little mass.
 struct GrantRatios {
-    f64 dual = 1.0;
-    f64 single = 1.0;
+    f32 dual = 1.0f;
+    f32 single = 1.0f;
     bool mass_limits = false; ///< mass ran short (else energy, Moho's first lane)
-    /// The share granted a request of `mass` and `energy` a second. One
-    /// asking nothing yet (an order's first tick) is taken to want both.
-    f64 of(f64 mass, f64 energy) const {
-        if (mass <= 0.0 && energy <= 0.0) return dual;
+    /// The share granted a request of `mass` and `energy`. One asking
+    /// nothing is taken to want both.
+    f32 of(f64 mass, f64 energy) const {
+        if (mass <= 0.0 && energy <= 0.0) {
+            return dual;
+        }
         return (mass_limits ? mass : energy) > 0.0 ? dual : single;
     }
 };
@@ -55,6 +60,7 @@ struct ResourceState {
     f64 income = 0.0;
     f64 requested = 0.0;
     f64 stored = 0.0;
+    f64 reclaimed = 0.0; ///< reclaim's total (Moho's mTotals.mReclaimed)
     f64 max_storage = 200.0;
 };
 
@@ -71,7 +77,8 @@ struct StatTrigger {
     std::string name;
     std::string compare; ///< LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual, Equal
     f64 value = 0.0;
-    std::string category; ///< a category's count: not counted yet, so never holds
+    /// Its category's unit blueprints, if it has one: then it holds the stat summed over them
+    std::optional<std::set<std::string>> blueprints;
 };
 
 class ArmyBrain {
@@ -89,6 +96,10 @@ public:
 
     i32 faction() const { return faction_; }
     void set_faction(i32 f) { faction_ = f; }
+    /// The AI personality the lobby gave this army ("rush", "adaptive"...),
+    /// or empty for a person: for the match record
+    const std::string& ai_personality() const { return ai_personality_; }
+    void set_ai_personality(std::string p) { ai_personality_ = std::move(p); }
     /// Whether the army's units may go anywhere on the map, not only in the
     /// playable area (SetIgnorePlayableRect; Moho's CArmyImpl::UseWholeMap):
     /// a campaign's reinforcements come in from off the playable area.
@@ -150,17 +161,21 @@ public:
         economy_.mass.max_storage = std::max(0.0, extra_storage_mass_ + held_mass);
         economy_.energy.max_storage = std::max(0.0, extra_storage_energy_ + held_energy);
     }
-    void update_unit_cap_stats(const EntityRegistry& registry);
-    /// A request beyond its units' own, per second, for the next
-    /// update_economy only: its economy events' (M206d).
-    void add_event_request(f64 mass, f64 energy) {
-        event_mass_ += mass;
-        event_energy_ += energy;
-        if (mass > 0.0 && energy > 0.0) {
-            event_dual_mass_ += mass;
-            event_dual_energy_ += energy;
-        }
+    /// Units' production and an ally's overflow: also Moho's mPendingResources (Economy_Trend_*).
+    void bank_pending(f64 mass, f64 energy) {
+        bank(mass, energy);
+        pending_mass_ += mass;
+        pending_energy_ += energy;
     }
+    void bank_reclaim(f64 mass, f64 energy) {
+        bank(mass, energy);
+        reclaim_mass_ += mass;
+        reclaim_energy_ += energy;
+    }
+    void update_unit_cap_stats(const EntityRegistry& registry);
+    /// A request beyond its units' own, for the next update_economy only: an
+    /// economy event's (M206d).
+    void add_request(EconRequest& request) { requests_.push_back(&request); }
 
     /// aibrain:GiveStorage: the army's one extra storage pair, on top of what
     /// its units provide (Moho's CSimArmyEconomyInfo storageDelta). Each call
@@ -268,27 +283,36 @@ public:
     }
     void add_stat(const std::string& key, f64 delta) { stats_[key] += delta; }
 
-    void add_stat_trigger(StatTrigger t) { stat_triggers_.push_back(std::move(t)); }
+    /// GetArmyStat's: the stat, made at 0 (whatever its default) if the army has none yet
+    f64 make_stat(const std::string& key) { return stats_[key]; }
+
+    /// A condition on a stat the army doesn't have is dropped (Moho's
+    /// CArmyStats::SetArmyStatsTrigger): false.
+    bool add_stat_trigger(StatTrigger t);
     void remove_stat_trigger(const std::string& stat, const std::string& name);
     /// The triggers whose conditions all hold, in the order first set, each
     /// taken off: Moho's fire once (retail's scripts set them again)
     std::vector<std::string> take_fired_triggers();
 
     // Moho's army stats, under retail's names (aibrain.lua reads them for
-    // the score). Units_Killed is this army's *losses* and Enemies_Killed its
-    // kills; Units_History counts units built. The *Value_* stats sum those
-    // units' build costs. Each count is also kept per blueprint, for
-    // GetBlueprintStat(stat, category).
-    void record_unit_built(const std::string& bp_id, f64 mass, f64 energy);
+    // the score), written where Moho's Unit writes them (faf-re
+    // unit/core/Unit.cpp). Units_Killed is this army's *losses* and
+    // Enemies_Killed its kills; Units_History counts units made ready. The
+    // *Value_* stats sum those units' blueprint costs. The counts are also
+    // kept per blueprint, for GetBlueprintStat and a trigger's category.
+    void record_unit_made(const Unit& unit);
+    void record_unit_built(const Unit& unit, f64 mass, f64 energy);
+    void record_unit_removed(const Unit& unit);
     void record_unit_lost(const std::string& bp_id, f64 mass, f64 energy);
     void record_enemy_killed(const std::string& bp_id, f64 mass, f64 energy, bool commander);
-    /// A counted stat by blueprint (blueprint id -> value), or nullptr.
     /// Per-blueprint values of a stat, by blueprint id (a sum over them is
-    /// then the same on every platform).
+    /// then the same on every platform), or nullptr.
     const std::map<std::string, f64>* blueprint_stats(const std::string& stat) const {
         auto it = blueprint_stats_.find(stat);
         return it == blueprint_stats_.end() ? nullptr : &it->second;
     }
+    /// A stat summed over these blueprints (Moho's CArmyStatItem::SumCategory)
+    f64 blueprint_stat(const std::string& stat, const std::set<std::string>& blueprints) const;
 
     // --- Build restrictions (per-army) ---
     void add_build_restriction(const std::vector<std::string>& blueprint_ids) {
@@ -319,6 +343,7 @@ private:
     std::string name_;
     std::string nickname_;
     i32 faction_ = 1;
+    std::string ai_personality_;
     bool use_whole_map_ = false;
     bool is_human_ = true;
     bool is_civilian_ = false;
@@ -329,10 +354,7 @@ private:
 
     EconomyState economy_;
     f64 mass_efficiency_ = 1.0;
-    f64 event_mass_ = 0.0; // add_event_request, spent by update_economy
-    f64 event_energy_ = 0.0;
-    f64 event_dual_mass_ = 0.0; // the part of them wanting both resources
-    f64 event_dual_energy_ = 0.0;
+    std::vector<EconRequest*> requests_;
     GrantRatios grant_ratios_;
     f64 energy_efficiency_ = 1.0;
     i32 unit_cap_ = 1000;
@@ -340,6 +362,10 @@ private:
     f64 handicap_ = 0.0;
     f64 extra_storage_mass_ = 0.0; // GiveStorage's pair
     f64 extra_storage_energy_ = 0.0;
+    f64 pending_mass_ = 0.0;
+    f64 pending_energy_ = 0.0;
+    f64 reclaim_mass_ = 0.0;
+    f64 reclaim_energy_ = 0.0;
     f64 bank_mass_ = 0.0;
     f64 bank_energy_ = 0.0;
 
@@ -357,6 +383,9 @@ private:
     std::set<std::string> restricted_blueprints_;
     std::unordered_map<std::string, f64> stats_;
     std::unordered_map<std::string, std::map<std::string, f64>> blueprint_stats_;
+
+    void add_blueprint_stat(const std::string& stat, const std::string& bp_id, f64 delta);
+    void count_ready(const std::string& bp_id);
 
     std::vector<std::unique_ptr<Platoon>> platoons_;
     u32 next_platoon_id_ = 1;
