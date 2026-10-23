@@ -13,19 +13,25 @@ captures of the original for each probe whose baseline matched; it is skipped, w
 fork has no reference store or no gated probe. The probe sources are the stored, pinned ones; the build is
 DIR's own.
 It never builds: it stops if DIR/build/play is missing and notes a build older than HEAD. Exit status
-is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; the block prints last.
+is non-zero if any check fails or cannot run. Phases print as `prove: <phase>`; while a suite runs, a line
+every 10 minutes gives elapsed minutes, CPU and memory of its process tree. The block prints last.
 """
+import contextlib
 import fcntl
+import io
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
 
 TOOLKIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARITY = f'{TOOLKIT}/tools/parity/parity'
 ENGINE = ('src/', 'tests/', 'cmake/', 'third_party/')
 ENGINE_FILES = ('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json')
 SHADERS = ('.vert', '.frag', '.comp', '.geom', '.glsl', '.hlsl', '.slang')
+HEARTBEAT_SECONDS = 600
 ORDER = ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'parity', 'render']
 
 
@@ -77,8 +83,40 @@ def parity_line(names, passed, error=''):
     return f'- the original-game parity probes ({", ".join(names)}): {"match" if passed else "FAIL"}'
 
 
-def sh(root, argv, env=None):
-    return subprocess.run(argv, cwd=root, text=True, capture_output=True, env=env)
+def tree_usage(ps_output, root):
+    """(CPU percent, resident MB) of process ROOT and its descendants, from `ps -A -o pid=,ppid=,%cpu=,rss=`."""
+    rows = {}
+    for line in ps_output.splitlines():
+        fields = line.split()
+        if len(fields) == 4:
+            rows[int(fields[0])] = (int(fields[1]), float(fields[2]), int(fields[3]))
+    cpu = rss = 0
+    for pid, (_, pid_cpu, pid_rss) in rows.items():
+        ancestor = pid
+        for _ in range(len(rows)):
+            if ancestor == root or ancestor not in rows:
+                break
+            ancestor = rows[ancestor][0]
+        if ancestor == root:
+            cpu, rss = cpu + pid_cpu, rss + pid_rss
+    return int(cpu), rss // 1024
+
+
+def heartbeat_line(name, seconds, cpu, mb):
+    return f'prove: {name}: {int(seconds // 60)} min elapsed, CPU {cpu}%, memory {mb} MB'
+
+
+def sh(root, argv, env=None, beat=None, interval=HEARTBEAT_SECONDS):
+    """Run argv in root, capturing output; with BEAT (a check name), print a heartbeat line every INTERVAL seconds."""
+    proc = subprocess.Popen(argv, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    started = time.monotonic()
+    while True:
+        try:
+            out, err = proc.communicate(timeout=interval if beat else None)
+            return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            ps = subprocess.run(['ps', '-A', '-o', 'pid=,ppid=,%cpu=,rss='], text=True, capture_output=True).stdout
+            print(heartbeat_line(beat, time.monotonic() - started, *tree_usage(ps, proc.pid)), flush=True)
 
 
 def recipe_env(root):
@@ -99,10 +137,10 @@ def run_check(root, name, argv, env):
 
 
 def run_suite(root, name, argv, env):
-    result = sh(root, argv, env)
+    result = sh(root, argv, env, beat=name)
     if result.returncode and name in ('mp', 'gate'):
         print(f'prove: {name}: rerunning failures once (network tests flake under load)', flush=True)
-        result = sh(root, ['ctest', '--test-dir', 'build/play', '--rerun-failed', '--output-on-failure'], env)
+        result = sh(root, ['ctest', '--test-dir', 'build/play', '--rerun-failed', '--output-on-failure'], env, beat=name)
     if result.returncode:
         print('\n'.join((result.stdout + result.stderr).strip().splitlines()[-20:]), flush=True)
     return result.returncode == 0
@@ -161,6 +199,20 @@ def main():
     sys.exit(0 if all(results.values()) else 1)
 
 
+def heartbeat_self_test():
+    ps = '\n'.join(['1 0 0.0 100', '10 1 5.5 2048', '11 10 40.0 10240', '12 11 20.4 1048576', '13 1 99.0 99999', '14 14 1.0 1'])
+    assert tree_usage(ps, 10) == (65, 1036), tree_usage(ps, 10)
+    assert tree_usage(ps, 99) == (0, 0)
+    assert heartbeat_line('gate', 1260, 65, 1036) == 'prove: gate: 21 min elapsed, CPU 65%, memory 1036 MB'
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        done = sh('.', ['sh', '-c', 'sleep 1; echo finished'], beat='unit', interval=0.3)
+        quiet = sh('.', ['sh', '-c', 'echo quick'], beat='unit', interval=5)
+    lines = log.getvalue().splitlines()
+    assert done.stdout == 'finished\n' and done.returncode == 0 and quiet.stdout == 'quick\n', (done, quiet)
+    assert len(lines) >= 2 and all(re.fullmatch(r'prove: unit: 0 min elapsed, CPU \d+%, memory \d+ MB', x) for x in lines), lines
+
+
 def self_test():
     assert checks_for(['docs/a.md', 'README.md'])[0] == ['metrics']
     assert checks_for(['src/sim/a.cpp'])[0] == ['unit', 'mp', 'gate', 'format', 'metrics', 'smoke', 'parity']
@@ -188,6 +240,7 @@ def self_test():
         assert listed['crash'][0] == [] and listed['crash'][2], f'a failed listing with empty output is an error: {listed["crash"]}'
         assert 'DAMAGED' in listed['noisy'][2], listed['noisy']
         assert 'FAIL' in parity_line([], False, listed['noisy'][2]) and 'DAMAGED' in parity_line([], False, listed['noisy'][2])
+    heartbeat_self_test()
     print('prove self-test passed')
 
 

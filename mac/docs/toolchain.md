@@ -73,6 +73,9 @@ ctest --test-dir build/play -L mp --output-on-failure
 ctest --test-dir build/play -L gate --output-on-failure
 ```
 
+`mac/scripts/prove` runs these for a change. A suite that runs long prints a heartbeat every 10 minutes:
+elapsed minutes, CPU and memory of its process tree.
+
 `mac/scripts/osc-render-check` renders the hidden SCMP_009 capture and fails unless the game's log line names the KosmicKrisp
 driver and has no `[error]` lines. The smoke below does not touch the driver.
 
