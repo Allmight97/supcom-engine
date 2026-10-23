@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Where does the project stand, live? One snapshot of the fork, JStar's upstream PRs, overlap, landed PRs,
+branches, worktrees and the parity store, rendered three ways. It stores nothing but the optional "last look".
+
+  pulse                 text for agents and the terminal: NEEDS YOU first, capped at about 40 lines
+  pulse --detail        the same without the cap: URLs, longer SHAs, every branch and probe
+  pulse --brief         the header and NEEDS YOU only (the session-start hook)
+  pulse --json          the snapshot as JSON (schema 1)
+  pulse --html          write mac/work/pulse.html, open it, then keep this look in mac/work/pulse-last.json
+                        so the next --html lists what changed since (--no-open writes without opening)
+  pulse --no-fetch      do not fetch upstream and origin first (any view)
+  pulse --self-test
+
+It only reads: git, and GitHub through gh. A failed command prints one `pulse: ... failed` line, never a
+traceback in --brief.
+"""
+import json
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gather  # noqa: E402
+import judge  # noqa: E402
+import views  # noqa: E402
+import webview  # noqa: E402
+
+ROOT = os.environ.get('OSC_ROOT', os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+WORK = os.path.join(ROOT, 'mac/work')
+PAGE = os.path.join(WORK, 'pulse.html')
+LAST = os.path.join(WORK, 'pulse-last.json')
+
+
+def snapshot(fetch, full=True):
+    raw = gather.gather(gather.system, ROOT, gather.load_news(ROOT), fetch=fetch, full=full)
+    return judge.assemble(raw)
+
+
+def write(path, content):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp = f'{path}.tmp'
+    with open(temp, 'w') as f:
+        f.write(content)
+    os.replace(temp, path)
+
+
+def last_look():
+    try:
+        with open(LAST) as f:
+            found = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return found if found.get('schema') == judge.SCHEMA else None
+
+
+def html_view(snap, open_page):
+    write(PAGE, webview.page(snap, last_look()))
+    write(LAST, views.as_json(snap))
+    print(PAGE)
+    if open_page:
+        subprocess.run(['open', PAGE])
+
+
+def brief_view(fetch):
+    try:
+        print(views.brief(snapshot(fetch, full=False)))
+    except Exception as error:
+        print(f'pulse: failed ({type(error).__name__}: {error}); run {os.path.join(ROOT, "mac/tools/pulse/pulse")} to see why')
+    return 0
+
+
+def main(argv):
+    args = set(argv[1:])
+    if '--self-test' in args:
+        import selftest
+        return selftest.run()
+    unknown = args - {'--detail', '--brief', '--json', '--html', '--no-open', '--no-fetch'}
+    if unknown or len([a for a in args if a in ('--brief', '--json', '--html')]) > 1:
+        sys.exit(__doc__.strip())
+    fetch = '--no-fetch' not in args
+    if '--brief' in args:
+        return brief_view(fetch)
+    snap = snapshot(fetch)
+    if '--json' in args:
+        print(views.as_json(snap))
+    elif '--html' in args:
+        html_view(snap, '--no-open' not in args)
+    else:
+        print(views.text(snap, '--detail' in args))
+    return 1 if snap['errors'] else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))

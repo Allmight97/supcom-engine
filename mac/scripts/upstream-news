@@ -3,7 +3,7 @@
 those in Mac areas (MAC) and those touching an engine file the fork changed (OVERLAP, with the files).
 
   mac/scripts/upstream-news             fetch upstream, list missing landings and those open PRs
-  mac/scripts/upstream-news --brief     only the count behind and those PRs (the session-start hook)
+  mac/scripts/upstream-news --brief     only the count behind and those PRs
   mac/scripts/upstream-news --markdown  the same as a GitHub issue body (the fork's daily watch), plus JStar's upstream PRs
   mac/scripts/upstream-news --contributions  JStar's upstream PRs: open, landed (the landing commit) or closed
   mac/scripts/upstream-news --behind    print only the count of upstream commits missing from main
@@ -81,6 +81,21 @@ def open_prs():
     return out
 
 
+def parse_landings(log):
+    """PR number -> 'sha date' of the oldest commit in LOG (newest first) that names it as (#N)."""
+    found = {}
+    for record in log.split('\x1e'):
+        head, _, body = record.partition('\x1f')
+        for number in re.findall(r'\(#(\d+)\)', body):
+            found[int(number)] = head.strip()
+    return found
+
+
+def landings():
+    """PR number -> 'sha date' of the upstream commit that landed it."""
+    return parse_landings(git('log', 'upstream/main', '--format=%h %cs%x1f%B%x1e', soft=True))
+
+
 def our_prs():
     """JStar's upstream PRs, newest first, each with the upstream commit that landed it ('' if none)."""
     # --author goes through the search API, which the Actions token cannot reach for another repository.
@@ -89,8 +104,8 @@ def our_prs():
                             capture_output=True, text=True)
     if result.returncode:
         return None
-    return [{**p, 'landing': (git('log', 'upstream/main', '--fixed-strings', f"--grep=(#{p['number']})",
-                                  '--format=%h %cs', soft=True).splitlines() or [''])[-1]}
+    landed = landings()
+    return [{**p, 'landing': landed.get(p['number'], '')}
             for p in json.loads(result.stdout) if p['author']['login'] == 'Allmight97']
 
 
@@ -144,6 +159,8 @@ def self_test():
     base_pr = {'number': 7, 'title': 't', 'state': 'CLOSED', 'createdAt': '2026-10-19T00:00:00Z',
                'closedAt': '2026-10-21T00:00:00Z', 'comments': [{}], 'reviews': [], 'landing': ''}
     assert 'LANDED 2026-10-22 as `abc1234`' in contribution_line({**base_pr, 'landing': 'abc1234 2026-10-22'})
+    log = 'a1 2026-10-22\x1fsubject (#7)\n\n* one (#5)\n* two (#6)\x1e' + 'b2 2026-10-21\x1fother (#6)\x1e'
+    assert parse_landings(log) == {7: 'a1 2026-10-22', 5: 'a1 2026-10-22', 6: 'b2 2026-10-21'}
     print('upstream-news self-test passed')
 
 
@@ -196,4 +213,5 @@ def main():
         sys.exit(1)
 
 
-main()
+if __name__ == '__main__':
+    main()
