@@ -43,7 +43,7 @@ selects another). The Mac build recipe is in `mac/recipe/`:
   `BUILD_FAIL`; logs are `.local/configure.log` and `.local/build.log`. After
   the SDK moves, delete `build/play/CMakeCache.txt` first: CMake
   keeps the old paths.
-- `mac/scripts/play` builds (`--build`) and starts the game; its header lists the options. By default it passes no window or frame-cap arguments: the game's Video options decide, and on
+- `mac/scripts/play` builds the current branch and starts the game; its header lists the options. By default it passes no window or frame-cap arguments: the game's Video options decide, and on
   macOS a full-screen mode's refresh below the display's (60 on a 120 Hz panel) caps the frame rate.
   The Metal HUD is on (`--no-hud` turns it off). `--full`/`--size` override the Video option, which
   then shows "Command Line Override"; `-- --fps-cap N` sets a cap (`-2`: 2 below the refresh rate).
@@ -200,7 +200,7 @@ apart, so FAF addresses never apply directly.
    .local/vcpkg/bootstrap-vcpkg.sh -disableMetrics
    ```
 
-   Then `mac/scripts/play --build`.
+   Then `mac/scripts/play`.
 5. Run `mac/scripts/check`.
 
 ## The saved Ghidra project

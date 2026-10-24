@@ -19,3 +19,6 @@ mac/log/
 status-limits
 block-git-bypass
 block-real-input
+~/.local/bin/osc
+osc --go
+play --build

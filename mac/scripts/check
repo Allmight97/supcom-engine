@@ -299,7 +299,7 @@ printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$PLAY_ARGS"\n' > "$scratch/play/build
 chmod +x "$scratch/play/build/play/opensupcom"
 play_args() { # FILE [PLAY ARGS]: the arguments the game got, one a line
     local file=$1; shift
-    OSC_ROOT="$scratch/play" PLAY_ARGS="$file" "$root/scripts/play" "$@" >/dev/null 2>&1
+    OSC_ROOT="$scratch/play" PLAY_ARGS="$file" PATH="$scratch/build/bin:$PATH" "$root/scripts/play" "$@" >/dev/null 2>&1
     cat "$file"
 }
 play_args "$scratch/play/default" | grep -qx -- '--fps-cap\|--windowed\|--fullscreen' \

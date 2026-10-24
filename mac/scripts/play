@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# Play OpenSupCom on this Mac (the checkout at $OSC_ROOT, default the one this mac/ folder sits in),
-# with the build recipe in mac/recipe/.
+# Build the current branch, then play OpenSupCom on this Mac (the checkout at $OSC_ROOT, default the one
+# this mac/ folder sits in), with the build recipe in mac/recipe/. With nothing changed the build is quick.
 #   mac/scripts/play                 the game's Video options decide the window, full screen and frame rate
 #                                    (full screen at 60 Hz caps at 60), with Apple's Metal HUD (fps, frame time)
-#   mac/scripts/play --build         rebuild first (current branch)
 #   mac/scripts/play --full          full screen 2560x1440, overriding the Video option
 #   mac/scripts/play --size W H      windowed W x H, overriding the Video option
 #   mac/scripts/play --no-hud        without the Metal HUD
 #   mac/scripts/play ... -- ARGS     extra opensupcom arguments, e.g. --fps-cap 60 (-2: 2 below the refresh rate)
 main() {
     local recipe; recipe="$(cd "$(dirname "$0")/../recipe" && pwd)" || return 1
-    local osc=${OSC_ROOT:-$recipe/../..} build=0
+    local osc=${OSC_ROOT:-$recipe/../..}
     local mode=() env=(MTL_HUD_ENABLED=1)
     while [ $# -gt 0 ]; do
         case $1 in
-            --build) build=1 ;;
             --no-hud) env=() ;;
             --full) mode=(--fullscreen 2560 1440) ;;
             --size) mode=(--windowed "$2" "$3"); shift 2 ;;
@@ -24,9 +22,8 @@ main() {
         shift
     done
     cd "$osc" && source "$recipe/env.sh" || return 1
-    if [ $build = 1 ]; then
-        OSC_ROOT="$osc" bash "$recipe/build.sh" | grep -q BUILD_OK || { echo "build failed: $osc/.local/build.log" >&2; return 1; }
-    fi
+    echo "Building $(git rev-parse --short HEAD)..."
+    OSC_ROOT="$osc" bash "$recipe/build.sh" | grep -q BUILD_OK || { echo "build failed: $osc/.local/build.log" >&2; return 1; }
     local behind; behind=$("$recipe/../scripts/upstream-news" --behind 2>/dev/null)
     [ "${behind:-0}" -gt 0 ] && echo "Note: $behind upstream commits are not in main; see mac/scripts/upstream-news." >&2
     local logs="$HOME/Library/Application Support/opensupcom/logs"

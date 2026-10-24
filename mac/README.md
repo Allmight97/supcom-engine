@@ -1,19 +1,22 @@
 # Forged Alliance natively on the Mac
 
+Play (from `~/Projects/OpenSupCom`): it builds your current branch, then starts the game.
+
 ```bash
-osc                                  # the menu: pick options, then play
-osc --go                             # play again with the last menu choices
-# Once, to run osc from any folder:
-ln -s ~/Projects/OpenSupCom/mac/scripts/osc ~/.local/bin/osc
-# Direct play, for scripts and advanced use (run from ~/Projects/OpenSupCom). KosmicKrisp (Metal 4) is chosen automatically.
-mac/scripts/play                     # Video options decide; full screen at 60 Hz caps at 60; Metal HUD on
-mac/scripts/play --build             # rebuild the current branch first
-mac/scripts/play --full              # force full screen 2560x1440 (overrides the Video option)
-mac/scripts/play --no-hud            # without Apple's Metal HUD (fps and frame times)
-mac/scripts/play -- --fps-cap -2     # extra game args after --; a cap (-2 = refresh - 2, 0 = none)
-grep -m1 driver ~/Library/Application\ Support/opensupcom/logs/opensupcom.log   # confirm: "driver KosmicKrisp"
-# Nuke test: skirmish as UEF, victory "Sandbox", select your ACU, Ctrl-K.
+mac/scripts/play
 ```
+
+Options, when you need one:
+
+```bash
+mac/scripts/play --full              # full screen 2560x1440 (overrides the Video option)
+mac/scripts/play --size 1680 1050    # windowed at that size
+mac/scripts/play --no-hud            # without Apple's Metal HUD (fps and frame times)
+mac/scripts/play -- --ui-scale 1.25  # any game option after --; also --fps-cap -2 (2 below the refresh rate, 0 = none)
+```
+
+The original game, for comparison: open CrossOver, select the bottle you made in
+[docs/crossover-recipe.md](docs/crossover-recipe.md), and run Supreme Commander: Forged Alliance.
 
 This folder contains the modernization of [OpenSupCom](https://github.com/bwiemz/supcom-engine) on modern Apple silicon with a focus on Apple's software stack released with macOS 27.
 
@@ -32,19 +35,12 @@ You need your own copy of the game (GOG or Steam) and this Mac setup:
 [docs/toolchain.md, "Fresh setup"](docs/toolchain.md). Run the commands below from the
 checkout root (`~/Projects/OpenSupCom`).
 
-`osc` is the everyday way to play. Its menu sets the window, Metal HUD, frame cap, UI scale,
-rebuild, and extra game options, shows the `play` command it runs, and remembers your choices.
-`osc --go` plays with the last choices. Its choices are the lists at the top of [scripts/osc](scripts/osc).
-
-Maintainers: when `play` gains an option or a play test needs a new game flag, add it to the osc
-menu (those lists and the menu's lines) in the same change.
-
-The table lists the `play` flags that osc drives, and the other scripts:
+KosmicKrisp (Metal 4) is chosen automatically; the game log's first `driver` line confirms it.
+The table lists the play options and the other scripts:
 
 | Command | What it does |
 | --- | --- |
-| `mac/scripts/play` | Play as the game's Video options say (full screen at 60 Hz caps the frame rate at 60), with the Metal HUD |
-| `mac/scripts/play --build` | Rebuild the current branch first |
+| `mac/scripts/play` | Build the current branch, then play as the game's Video options say (full screen at 60 Hz caps the frame rate at 60), with the Metal HUD |
 | `mac/scripts/play --full` | Full screen 2560x1440, overriding the Video option |
 | `mac/scripts/play --size W H` | Windowed at W x H |
 | `mac/scripts/play --no-hud` | Without Apple's Metal HUD (frame rate, GPU time, frame interval) |
@@ -63,9 +59,10 @@ The game's log is `~/Library/Application Support/opensupcom/logs/opensupcom.log`
 
 - Bring your own game. Game files, screenshots of game art, saves and replays are
   never committed; git hooks enforce it.
-- The original game is the reference for faithfulness. It runs only in CrossOver
-  under Rosetta, which macOS 28 removes, so reference captures are made while it lasts
-  ([docs/crossover-recipe.md](docs/crossover-recipe.md)).
+- The original game is the reference for faithfulness. It runs only in CrossOver under
+  Rosetta. Apple says macOS 27 is the last release with full Rosetta and macOS 28 keeps only a
+  subset for older games; whether CrossOver still works then is unknown, so reference captures
+  are made while it lasts ([docs/crossover-recipe.md](docs/crossover-recipe.md)).
 - Agents working here follow [AGENTS.md](AGENTS.md). They never use the player's
   mouse, keyboard or window focus; they test with hidden runs.
 
