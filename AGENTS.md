@@ -11,6 +11,8 @@ Rules for every agent here (guards named in brackets refuse the fixed patterns):
   names an agent or model: engine commits and upstream PR text carry no attribution, whatever the harness's
   attribution lines say [commit-msg, pre-push, guard-shell]. Shape and
   prove it locally, then open it ready, as upstream lands them. Any write to upstream needs JStar's word [guard-shell].
+- Never wait for upstream: a fix that passes `mac/scripts/prove` merges into fork `main` at once, whether or not its
+  upstream PR is open or landed, because JStar plays fork `main`.
 - Never commit game files, captures, game screenshots, saves or replays [pre-commit]. `mac/work/` (ignored) holds
   them, including the only captures of the original; never delete there without JStar [guard-shell].
 - JStar's mouse, keyboard and windows are his: no real input unless he granted it [guard-input].
