@@ -213,17 +213,23 @@ def survey(probe):
 
 
 def settle(adapter, probe):
-    """Record the baseline when two distinct valid runs of one experiment MATCH. Returns the decision file or None."""
-    if store.baseline(probe):
-        return None
+    """Record the baseline when two distinct valid runs of the newest run's experiment MATCH. A revised probe is a new
+    experiment: its baseline replaces one of an earlier experiment, unless that one is gated. Returns the decision file
+    or None."""
     valid = [r for r in (load_run(adapter, probe, i) for i in store.run_ids(probe)) if not r.problems]
+    if not valid:
+        return None
+    newest = valid[-1].experiment()
+    chosen = store.baseline(probe)
+    if chosen and (store.gate(probe) or open_run(probe, chosen['run']).experiment() == newest):
+        return None
+    valid = [r for r in valid if r.experiment() == newest]
     for i, first in enumerate(valid):
         for second in valid[i + 1:]:
-            if first.experiment() == second.experiment():
-                result = core.compare(adapter, first.log('run'), second.log('repeat'))
-                if result.status == 'MATCH':
-                    return store.add_decision(probe, 'baseline', {'run': first.run, 'repeat': second.run,
-                                                                   'repeatability': result.summary})[0]
+            result = core.compare(adapter, first.log('run'), second.log('repeat'))
+            if result.status == 'MATCH':
+                return store.add_decision(probe, 'baseline', {'run': first.run, 'repeat': second.run,
+                                                               'repeatability': result.summary})[0]
     return None
 
 

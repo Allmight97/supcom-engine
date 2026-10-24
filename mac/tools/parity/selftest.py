@@ -58,6 +58,17 @@ def guardassist_log():
     return '\n'.join(lines + ['PROBE assist done']) + '\n'
 
 
+def buildbots_log():
+    lines = []
+    for scene, n in adapters.BuildBots.scenes.items():
+        for t in range(n):
+            lines.append(f'PROBE bots {scene} t={t} estate=Building eprog=0.100 frac=0.100 hp=60.0 bots=1 state=Guarding '
+                         'focus=urb1101 bprog=0.000 at=301.66,798.99')
+            if t == 9:
+                lines.append(f'PROBE bots {scene} event OnStartBuild t=9 bot=1 order=Repair')
+    return '\n'.join(lines + ['PROBE bots done']) + '\n'
+
+
 def crowd_log(short=0):
     lines = []
     for v in range(6):
@@ -205,9 +216,26 @@ def test_guardassist():
     expect(compare('guardassist', log, change(log, 'PROBE assist far event OnStartBuild t=9\n', '')).status == 'DIFFERS', 'a missing event')
 
 
+def test_buildbots():
+    log = buildbots_log()
+    expect(problems_of('buildbots', log) == [], problems_of('buildbots', log))
+    unfocused = compare('buildbots', log, change(log, 'frame t=40 estate=Building eprog=0.100 frac=0.100 hp=60.0 bots=1 state=Guarding focus=urb1101',
+                                                 'frame t=40 estate=Building eprog=0.100 frac=0.100 hp=60.0 bots=1 state=Guarding focus=none'))
+    expect(unfocused.status == 'DIFFERS' and 'scene=frame phase=step tick=40 field=focus' in unfocused.summary, unfocused.summary)
+    moved = compare('buildbots', log, change(log, 'cybran t=40 estate=Building eprog=0.100 frac=0.100 hp=60.0 bots=1 state=Guarding focus=urb1101 bprog=0.000 at=301.66,798.99',
+                                             'cybran t=40 estate=Building eprog=0.100 frac=0.100 hp=60.0 bots=1 state=Guarding focus=urb1101 bprog=0.000 at=305.00,790.00'))
+    expect(moved.status == 'MATCH' and moved.recorded > 0, 'the bot\'s position is recorded, not judged')
+    reordered = change(log, 'PROBE bots repair event OnStartBuild t=9 bot=1 order=Repair', 'PROBE bots repair event OnStartBuild t=9 bot=1 order=MobileBuild')
+    expect(compare('buildbots', log, reordered).status == 'DIFFERS', 'another order named by a start differs')
+    expect(compare('buildbots', log, change(log, 'PROBE bots reclaim event OnStartBuild t=9 bot=1 order=Repair\n', '')).status == 'DIFFERS',
+           'a missing event')
+    missing = '\n'.join(l for l in log.splitlines() if 'builder t=100 ' not in l) + '\n'
+    expect(compare('buildbots', log, missing).status == 'INVALID', 'a missing row is invalid')
+
+
 def test_valid_logs():
     cases = {'timing': timing_log(), 'economy': economy_log(), 'engineer': engineer_log(), 'crowd': crowd_log(2),
-             'guardassist': guardassist_log(), 'blueprints': blueprints_log()}
+             'guardassist': guardassist_log(), 'buildbots': buildbots_log(), 'blueprints': blueprints_log()}
     for name, log in cases.items():
         marker = adapters.ADAPTERS[name].marker
         expect(problems_of(name, log) == [], f'{name}: a complete log is valid: {problems_of(name, log)}')
@@ -332,6 +360,14 @@ def test_repeat_rule():
         make_run(tmp, 'timing', 'r2', timing_log().replace('progress=0.0300', 'progress=0.0301'))
         expect(runs.settle(adapter, 'timing') is None, 'two captures that differ make no baseline')
         expect(make_run(tmp, 'timing', 'r3', timing_log(), game=GAME)[0] and runs.settle(adapter, 'timing'), 'the third matches the first')
+        make_run(tmp, 'timing', 'r4', timing_log(), hook='a revised hook\n')
+        expect(runs.settle(adapter, 'timing') is None and store.baseline('timing')['run'] == 'r1', 'one run of a revised probe')
+        make_run(tmp, 'timing', 'r5', timing_log(), hook='a revised hook\n')
+        expect(runs.settle(adapter, 'timing') and store.baseline('timing')['run'] == 'r4', 'a revised probe\'s repeat replaces the baseline')
+        store.add_decision('timing', 'gate', {'baseline': 'r4'})
+        make_run(tmp, 'timing', 'r6', timing_log(), hook='a third hook\n')
+        make_run(tmp, 'timing', 'r7', timing_log(), hook='a third hook\n')
+        expect(runs.settle(adapter, 'timing') is None and store.baseline('timing')['run'] == 'r4', 'a gated baseline stays')
         expect(make_run(tmp, 'timing', 'r9', timing_log() + 'warning: Error running lua script: boom\n')[0] is None,
                'a capture with a Lua error is not stored')
 
@@ -435,7 +471,7 @@ def test_check_against_another_root():
 
 def run():
     for test in (test_core, test_compare_demands_a_complete_run, test_blueprint_values, test_engineer_and_crowd,
-                 test_guardassist, test_valid_logs, test_init, test_manifests_and_backup, test_repeat_rule, test_damaged_reference,
+                 test_guardassist, test_buildbots, test_valid_logs, test_init, test_manifests_and_backup, test_repeat_rule, test_damaged_reference,
                  test_check_exit_codes, test_check_against_another_root):
         test()
     print('parity self-test passed')

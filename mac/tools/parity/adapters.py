@@ -334,4 +334,46 @@ class GuardAssist(Adapter):
         return [(scene, 'step', '', t) for scene in self.scenes for t in self.steps] + [('done', '', '', None)]
 
 
-ADAPTERS = {a.name: a for a in (Timing(), Economy(), Engineer(), Crowd(), Blueprints(), GuardAssist())}
+class BuildBots(Adapter):
+    name = 'buildbots'
+    clock = ('t is the loop index of a WaitTicks(1) loop from the build, repair or reclaim order (one sim tick a step); '
+             'a callback\'s t is the last t logged before it. The bot\'s position is recorded, not judged')
+    marker = 'bots done'
+    osc_ticks = 3600
+    original_timeout = 900
+    scenes = {'cybran': 361, 'frame': 361, 'builder': 361, 'control': 361, 'repair': 121, 'reclaim': 121,
+              'guarded': 121, 'silo': 121}
+    callbacks = ('Ordered', 'OnStartBuild', 'OnStopBuild', 'OnFailedToBuild', 'OnStartRepair', 'OnStopRepair',
+                 'OnStartReclaim', 'OnStopReclaim', 'CreateBuildEffects', 'StopBuildingEffects')
+    step_keys = ('estate', 'eprog', 'frac', 'hp', 'bots', 'state', 'focus', 'bprog', 'at')
+    event_keys = ('t', 'bot', 'order')
+    types = {'estate': T, 'eprog': F, 'frac': F, 'hp': F, 'bots': I, 'state': T, 'focus': T, 'bprog': F,
+             'at.x': Recorded(F), 'at.z': Recorded(F), 'name': T, 't': I, 'bot': I, 'order': T}
+
+    def parse(self, payload, state):
+        if payload == self.marker:
+            return Row('done')
+        parts = payload.split()
+        if len(parts) < 3 or parts[0] != 'bots' or parts[1] not in self.scenes:
+            raise Malformed('not a bots row')
+        scene = parts[1]
+        if parts[2] == 'event':
+            if len(parts) < 4 or parts[3] not in self.callbacks:
+                raise Malformed('event row')
+            raw = tokens(' '.join(parts[4:]), (), self.event_keys)
+            state[scene] = state.get(scene, 0) + 1
+            return Row(scene, 'event', f'{state[scene]:03d}', fields=typed(self.types, {'name': parts[3], **raw}))
+        if not parts[2].startswith('t='):
+            raise Malformed('not a bots row')
+        raw = tokens(' '.join(parts[:2] + parts[3:]), ('bots', scene), self.step_keys)
+        split(raw, 'at', 'xz', self.types)
+        return Row(scene, 'step', '', Int().parse(parts[2][2:]), typed(self.types, raw))
+
+    def variable(self, identity):
+        return identity[1] == 'event'
+
+    def expected(self):
+        return [(scene, 'step', '', t) for scene, n in self.scenes.items() for t in range(n)] + [('done', '', '', None)]
+
+
+ADAPTERS = {a.name: a for a in (Timing(), Economy(), Engineer(), Crowd(), Blueprints(), GuardAssist(), BuildBots())}

@@ -478,6 +478,7 @@ clock means, its fields with types and tolerance, the rows a complete run holds 
   of the probe (done marker, every expected row, no Lua error). Anything else is `INVALID`, never a pass.
 - The baseline is a consequence: a second capture of the same experiment (a different stored run, the same source
   package, executable, game data and contract) that MATCHes the first records `baseline` in `refs/PROBE/decisions/`.
+  A revised probe is a new experiment: its first matching pair replaces the baseline, unless that one is gated.
   The first `check` that MATCHes the baseline records `gate`.
 - `parity run PROBE [--root DIR]` runs the probe on OpenSupCom (`DIR/build/play/opensupcom`, `--init`, `--fa-path`,
   `--user-dir` scratch, `--log`) with the baseline's frozen sources and validates the log itself, because a plain
