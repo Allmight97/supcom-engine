@@ -377,6 +377,7 @@ Unit* build_unit(SimState& sim, Unit& factory, f32 x, f32 z) {
     Unit* unit = still(sim, 0, x, z);
     unit->set_is_being_built(true);
     unit->set_fraction_complete(0.1f);
+    unit->set_health(0.1f * unit->max_health());
     factory.set_build_target_id(unit->entity_id());
     return unit;
 }
